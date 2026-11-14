@@ -15,7 +15,7 @@ Refusals are ``(body, status)``: ``{"error": ...}`` as the current app answers t
 import hmac
 import ipaddress
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
 from fastapi import Request
@@ -24,9 +24,10 @@ from loguru import logger
 from app.auth import permissions
 from app.auth import scopes as scope_rules
 from app.auth.permissions import Permission
+from app.core.exceptions import NO_ACCESS
 from app.core.settings import Settings
 from app.db import session
-from app.services import token_service
+from app.services import identity_service, token_service
 
 # The old roles' order (#592): the role groups give (``role_from_groups``) and the role
 # names a token may have. What a role may do is the matrix's (app/auth/permissions.py).
@@ -63,6 +64,13 @@ class CurrentUser:
     tenant: str = ""
     # A Bearer token of ours that isn't active (unknown, revoked, expired).
     token_rejected: bool = False
+    # From an identity (#715): every role (the highest first, ``role``), own scopes,
+    # its name. ``no_identity``: signed in without one, with AUTH_GROUP_ROLES=false.
+    roles: tuple[str, ...] = ()
+    scopes: frozenset[str] = field(default_factory=frozenset)
+    identity: str = ""
+    common_name: str = ""
+    no_identity: bool = False
 
 
 def role_level(role: str) -> int:
@@ -171,13 +179,36 @@ async def resolve_user(request: Request, settings: Settings) -> CurrentUser:
     username = request.headers.get(settings.auth_header_user, "").strip()
     groups_header = request.headers.get(settings.auth_header_groups, "")
     groups = [item.strip() for item in re.split(r"[;,]", groups_header) if item.strip()]
-    return CurrentUser(
+    signed_in = CurrentUser(
         is_authenticated=bool(username),
         username=username,
         groups=groups,
-        role=role_from_groups(groups, settings),
         auth_mode=settings.auth_mode,
     )
+    if not username:
+        return signed_in
+    return await with_identity(signed_in, settings)
+
+
+async def with_identity(user: CurrentUser, settings: Settings) -> CurrentUser:
+    """*user* (signed in by name) with their identity's roles and scopes (#715). With
+    none: the role their groups give (AUTH_GROUP_ROLES, as before), or no access."""
+    found = await identity_service.lookup(user.username)
+    if found is not None:
+        return replace(
+            user,
+            role=found.roles[0] if found.roles else "",
+            roles=found.roles,
+            scopes=found.scopes,
+            identity=found.unique_name,
+            common_name=found.common_name,
+        )
+    if settings.auth_group_roles:
+        role = role_from_groups(user.groups, settings)
+        identity_service.note_unknown(user.username, f"role from groups: {role or 'none'}")
+        return replace(user, role=role, roles=(role,) if role else ())
+    identity_service.note_unknown(user.username, "no access: AUTH_GROUP_ROLES=false")
+    return replace(user, no_identity=True)
 
 
 def disabled_mode_allows(method: str, open_when_disabled: bool, settings: Settings) -> bool:
@@ -192,6 +223,11 @@ def granted_scopes(user: CurrentUser, settings: Settings) -> frozenset[str]:
     or token's role's. Nobody signed in (or no role) in header mode without
     AUTH_REQUIRE_VIEWER: the viewer's, which every route without a role check gave
     anyone before (#592)."""
+    if user.is_authenticated and (user.roles or user.scopes):
+        held: set[str] = set(user.scopes)
+        for role in user.roles:
+            held |= permissions.role_scopes(role)
+        return frozenset(held)
     if user.is_authenticated and user.role in permissions.ROLES:
         return permissions.role_scopes(user.role)
     if user.token or is_status_token(user):
@@ -226,9 +262,17 @@ def access(user: CurrentUser, settings: Settings) -> dict:
     have = effective_permissions(user, settings)
     role = user.role if user.is_authenticated and user.role in permissions.ROLES else None
     definition = permissions.ROLES.get(role or "")
+    if definition:
+        label = definition.label
+    elif user.is_authenticated:
+        label = "No identity" if user.no_identity else "No role"
+    else:
+        label = "Not signed in"
     return {
         "role": role,
-        "label": definition.label if definition else "Not signed in",
+        "roles": [name for name in user.roles if name in permissions.ROLES],
+        "identity": user.identity or None,
+        "label": label,
         "landing": definition.landing if definition else "/",
         "pages": [key for key, need in permissions.PAGE_PERMISSIONS.items() if need in have],
         "permissions": sorted(str(p) for p in have),
@@ -265,6 +309,12 @@ def permission_problem(
         return None
     if not user.is_authenticated:
         return {"error": "Authentication required"}, 401
+    if user.no_identity:
+        return {
+            "error": NO_ACCESS,
+            "detail": f"{user.username!r} has no identity here: ask an admin to add you.",
+            "current_role": None,
+        }, 403
     return {
         "error": "Insufficient permissions",
         "required_permission": wanted[0],
@@ -298,7 +348,7 @@ def status_access(user: CurrentUser, settings: Settings, tenant: str) -> Refusal
             if user.tenant.casefold() == tenant.strip().casefold():
                 return None
             return {"error": "This token is for another tenant"}, 403
-        if Permission.SESSION_BASIC in permissions.role_permissions(user.role):
+        if scope_rules.is_scope_covered(Permission.SESSION_BASIC, granted_scopes(user, settings)):
             return None
         return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     return _viewer_problem(user, settings)
@@ -309,7 +359,12 @@ def _viewer_problem(user: CurrentUser, settings: Settings) -> Refusal | None:
         return None
     if not user.is_authenticated:
         return {"error": "Authentication required"}, 401
-    if Permission.SESSION_BASIC not in permissions.role_permissions(user.role):
+    if user.no_identity:
+        return {
+            "error": NO_ACCESS,
+            "detail": f"{user.username!r} has no identity here: ask an admin to add you.",
+        }, 403
+    if not scope_rules.is_scope_covered(Permission.SESSION_BASIC, granted_scopes(user, settings)):
         return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     return None
 

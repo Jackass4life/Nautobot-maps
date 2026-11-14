@@ -39,6 +39,15 @@ class Access(Answer):
     role: str | None = Field(
         description="customer, noc, viewer, operator (NWO) or admin; null when not signed in."
     )
+    roles: list[str] = Field(
+        default_factory=list,
+        description="Every role it has, the highest first (an identity may have several, #715).",
+    )
+    identity: str | None = Field(
+        None,
+        description="The identity it signed in as (#715); null without one (a token, or a "
+        "role from groups).",
+    )
     label: str = Field(description='The role as people call it, e.g. "NWO (operator)".')
     landing: str = Field(description="The page the role opens on, e.g. /alerts?view=wall.")
     pages: list[str] = Field(

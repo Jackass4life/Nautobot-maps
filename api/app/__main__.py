@@ -14,6 +14,10 @@ T [--notify-email ADDRESSES]``, #707), ``token list
 is how the first admin token is made (``docker compose exec app python -m
 app ...``).
 
+``identity create NAME --role R``, ``identity list``, ``identity delete NAME`` and
+``identity add-role|remove-role|add-scope|remove-scope NAME X`` manage who may sign
+in (#715).
+
 ``status-link TENANT`` prints the tenant's status page link, ``/status/<id>``
 (#500), made the first time; ``--replace`` (or ``--new``) replaces it and
 ``--delete`` deletes it (#691): the old link stops working. ``status-link --list``
@@ -34,10 +38,11 @@ import sys
 from app import migrate
 from app.auth import permissions
 from app.core.settings import get_settings
-from app.db import session
+from app.db import aconnection, session
 from app.logs import config as logs
 from app.services import auth_service, role_service
 from app.services import contract_service as contract
+from app.services import identity_service as identities
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import token_service as tokens
@@ -104,6 +109,26 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "wireless-check", help="read each wireless controller now and say what matched (#508)"
     )
+    identity = commands.add_parser("identity", help="the people who may sign in (#715)")
+    identity_commands = identity.add_subparsers(dest="identity_command", required=True)
+    made = identity_commands.add_parser("create", help="add a person by their sign-in name")
+    made.add_argument("name", help="the user name the sign-in gives (the proxy's)")
+    made.add_argument("--role", action="append", default=[], help="a role (repeat for more)")
+    made.add_argument("--scope", action="append", default=[], help="a scope of their own")
+    made.add_argument("--common-name", default="", help="their name as people know it")
+    made.add_argument("--description", default="")
+    identity_commands.add_parser("list", help="every identity, its roles and scopes")
+    for verb, what in (
+        ("delete", None),
+        ("add-role", "role"),
+        ("remove-role", "role"),
+        ("add-scope", "scope"),
+        ("remove-scope", "scope"),
+    ):
+        change = identity_commands.add_parser(verb)
+        change.add_argument("name")
+        if what:
+            change.add_argument(what)
     return parser
 
 
@@ -332,8 +357,60 @@ def main(argv: list[str] | None = None) -> int:
         return schema_version_command()
     if args.command == "roles":
         return roles_command(args)
+    if args.command == "identity":
+        return asyncio.run(identity_command(args))
     command = token_command if args.command == "token" else status_link_command
     return asyncio.run(_on_a_session(command, args))
+
+
+def print_identity(found: identities.Identity) -> None:
+    roles = ", ".join(found.roles) or "no role"
+    scopes = f"; scopes {', '.join(sorted(found.scopes))}" if found.scopes else ""
+    name = f" ({found.common_name})" if found.common_name else ""
+    print(f"{found.unique_name}{name}: {roles}{scopes}")
+
+
+async def identity_command(args) -> int:  # type: ignore[no-untyped-def]
+    """``identity create|list|delete|add-role|remove-role|add-scope|remove-scope``
+    (#715): who may sign in. A change reaches the running app within 30 seconds."""
+    try:
+        async with aconnection.connect() as conn, conn.transaction():
+            if args.identity_command == "list":
+                found = await identities.list_all(conn)
+                for each in found:
+                    print_identity(each)
+                if not found:
+                    print("No identities.")
+                return 0
+            if args.identity_command == "create":
+                print_identity(
+                    await identities.create(
+                        conn,
+                        args.name,
+                        args.role,
+                        args.scope,
+                        args.common_name,
+                        args.description,
+                    )
+                )
+                return 0
+            change = {
+                "delete": identities.delete,
+                "add-role": identities.add_role,
+                "remove-role": identities.remove_role,
+                "add-scope": identities.add_scope,
+                "remove-scope": identities.remove_scope,
+            }[args.identity_command]
+            extra = [getattr(args, what) for what in ("role", "scope") if hasattr(args, what)]
+            await change(conn, args.name, *extra)
+            if args.identity_command != "delete":
+                print_identity(await identities.read(conn, args.name))  # type: ignore[arg-type]
+            else:
+                print(f"Identity {identities.normal_name(args.name)!r} deleted.")
+            return 0
+    except identities.IdentityError as exc:
+        print(f"error: {exc.message}", file=sys.stderr)
+        return 1
 
 
 async def _on_a_session(command, args) -> int:  # type: ignore[no-untyped-def]

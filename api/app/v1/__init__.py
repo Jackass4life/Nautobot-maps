@@ -31,6 +31,7 @@ from app.v1.status_page import controller as status_page
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(check_request)])
 router.include_router(administration.tokens_router)
+router.include_router(administration.identities_router)
 router.include_router(administration.contract_router)
 router.include_router(auth.router)
 router.include_router(examples.router)

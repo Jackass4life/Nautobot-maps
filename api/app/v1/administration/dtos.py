@@ -127,6 +127,47 @@ class TokenCreate(BaseModel):
     expires_in_days: int | None = None
 
 
+# Identities (#715): /api/v1/identities, who may sign in.
+class IdentityDto(common.Answer):
+    """A person the app knows by the user name a sign-in gives."""
+
+    unique_name: str = Field(description="The user name a sign-in gives, lowercase.")
+    common_name: str = Field(description='Their name as people know it; "" when not set.')
+    description: str
+    roles: list[str] = Field(description="Their roles, the highest first.")
+    scopes: list[str] = Field(description="Scopes of their own, besides their roles'.")
+
+
+class Identities(common.Answer):
+    identities: list[IdentityDto] = Field(description="By name.")
+
+
+class IdentityAnswer(common.Answer):
+    identity: IdentityDto
+
+
+class IdentityDeleted(common.Answer):
+    deleted: str = Field(description="The name: it can no longer sign in as an identity.")
+
+
+class IdentityCreate(BaseModel):
+    """A new identity (#715)."""
+
+    name: str = Field(description="The user name the sign-in gives (the proxy's).")
+    roles: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list, description="e.g. maintenance:write")
+    common_name: str = ""
+    description: str = ""
+
+
+class IdentityRole(BaseModel):
+    role: str
+
+
+class IdentityScope(BaseModel):
+    scope: str = Field(description="e.g. alerts:ack, alerts:*")
+
+
 class TokenPurge(BaseModel):
     """Which tokens to delete for good (#528): revoked and expired ones, only those
     that stopped working more than ``older_than_days`` ago when given; ``dry_run``

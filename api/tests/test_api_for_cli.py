@@ -26,6 +26,14 @@ API_FOR_COMMAND = {
     "token purge": ["purge_tokens"],
     "status-link": ["status.api_status_link_create", "status.api_status_link_replace"],
     "wireless-check": ["admin.api_wireless_check"],
+    # Identities (#715).
+    "identity create": ["create_identity"],
+    "identity list": ["list_identities"],
+    "identity delete": ["delete_identity"],
+    "identity add-role": ["add_identity_role"],
+    "identity remove-role": ["remove_identity_role"],
+    "identity add-scope": ["add_identity_scope"],
+    "identity remove-scope": ["remove_identity_scope"],
 }
 # Installing and developing, not everyday work: no API.
 CLI_ONLY = {"migrate", "schema-version", "contract-docs", "roles"}

@@ -5,10 +5,11 @@ does (#592), with ``detail`` (how to allow it), ``required_role`` and
 ``current_role`` where they apply.
 """
 
+import html
 from typing import Literal
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -100,14 +101,35 @@ def responses(*statuses: int) -> dict[int | str, dict[str, object]]:
 _HTTP_MESSAGES = {404: "Not found", 405: "Method not allowed", 500: "Internal server error"}
 
 
+# Someone signed in without an identity, with AUTH_GROUP_ROLES=false (#715).
+NO_ACCESS = "No access"
+
+
+def no_access_page(exc: ApiError) -> HTMLResponse:
+    """A browser gets a page, not JSON: what happened and how to sign out (the proxy
+    would sign them straight back in as the same person otherwise). No styles or
+    scripts: the CSP allows none inline."""
+    sign_out = get_settings().auth_sign_out_url
+    link = f'<p><a href="{html.escape(sign_out)}">Sign out</a></p>' if sign_out else ""
+    body = (
+        '<!DOCTYPE html><html lang="en"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{NO_ACCESS} · Nautobot Maps</title>"
+        f"<h1>{NO_ACCESS}</h1><p>{html.escape(str(exc.body.get('detail', '')))}</p>{link}</html>"
+    )
+    return HTMLResponse(body, status_code=exc.status, headers={"Cache-Control": "no-store"})
+
+
 def install_error_handlers(app: FastAPI) -> None:
     from fastapi.exceptions import RequestValidationError
     from starlette.exceptions import HTTPException
 
     @app.exception_handler(ApiError)
-    async def api_error(request: Request, exc: ApiError) -> JSONResponse:
+    async def api_error(request: Request, exc: ApiError) -> Response:
         from app.v1 import deps
 
+        if exc.body.get("error") == NO_ACCESS and not deps.wants_json(request):
+            return no_access_page(exc)
         response = JSONResponse(status_code=exc.status, content=exc.body, headers=exc.headers)
         # The tests check refusals of the ported routes against their models too (#449).
         route = request.scope.get("route")

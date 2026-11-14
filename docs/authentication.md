@@ -83,6 +83,30 @@ docker compose exec api python -m app roles                      # every role, i
 docker compose exec api python -m app roles --groups noc,kam      # the role a user in these groups gets
 ```
 
+### Identities
+
+An **identity** is a person the app knows by the user name the proxy sends (`X-Forwarded-User`; capitals don't matter), with one or more roles and, if needed, scopes of their own (#715). Someone with an identity gets every one of their roles' permissions and their own scopes. Their highest role (admin, operator, noc, customer, viewer) gives the label in the top bar and the page they open on. Their groups no longer matter.
+
+```bash
+docker compose exec api python -m app identity create jdoe --role admin --common-name "Jane Doe"
+docker compose exec api python -m app identity add-role jdoe noc
+docker compose exec api python -m app identity add-scope jdoe maintenance:write   # a scope of her own
+docker compose exec api python -m app identity list
+docker compose exec api python -m app identity delete jdoe
+```
+
+A change reaches the running app within 30 seconds. The same through the API (admin only): `GET`/`POST /api/v1/identities`, `DELETE /api/v1/identities/<name>`, `POST /api/v1/identities/<name>/roles` (`{"role": "noc"}`) and `/scopes` (`{"scope": "maintenance:write"}`), and `DELETE …/roles/<role>`, `…/scopes/<scope>`.
+
+**Without an identity**, `AUTH_GROUP_ROLES` decides:
+- `true` (the default): the role their groups give, as above. The log says once per name `Signed in without an identity: 'jdoe' (role from groups: viewer)`, so you can see who still needs one.
+- `false`: no access. Pages and the API answer "No access: ask an admin to add you".
+
+**Moving to identities:**
+1. Upgrade. Nothing changes yet: everyone keeps the role their groups give.
+2. Find the user names people sign in with: the log lines above, or `username` in `/api/v1/me` (open it in the browser while signed in). With GitLab it is the GitLab user name or the email address, depending on oauth2-proxy's settings.
+3. Create an identity for each person (at least one admin first).
+4. Set `AUTH_GROUP_ROLES=false` and restart (`docker compose up -d`). From then on only people with an identity get in.
+
 ### Trusting only the proxy
 
 The app trusts the identity headers only from the proxy: the direct peer must be in `AUTH_TRUSTED_PROXIES` (default: localhost only) and, if `AUTH_PROXY_SECRET` is set, send it in `X-Auth-Proxy-Secret`. Anything else is treated as anonymous and logged, so a client that reaches the app directly cannot claim to be an admin. The startup log shows which proxies are trusted.

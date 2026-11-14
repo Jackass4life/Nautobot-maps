@@ -117,6 +117,14 @@ CHANGED = {
         for suffix in ("", "/{tenant:path}")
         if not suffix or page == "tenants"
     },
+    # #715: identities, admin only.
+    ("/api/v1/identities", "GET"): "admin",
+    ("/api/v1/identities", "POST"): "admin",
+    ("/api/v1/identities/{name}", "DELETE"): "admin",
+    ("/api/v1/identities/{name}/roles", "POST"): "admin",
+    ("/api/v1/identities/{name}/roles/{role}", "DELETE"): "admin",
+    ("/api/v1/identities/{name}/scopes", "POST"): "admin",
+    ("/api/v1/identities/{name}/scopes/{scope}", "DELETE"): "admin",
     # #703: the NOC role's pages were DOV's; the old addresses redirect.
     ("/dov", "GET"): None,
     ("/dov/{rest:path}", "GET"): None,
@@ -206,6 +214,8 @@ FILL = {
     "slug": "overview",
     "name": "x.png",
     "rest": "board",
+    "role": "noc",
+    "scope": "alerts:ack",
 }
 
 

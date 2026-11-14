@@ -102,6 +102,11 @@ app python -m app …`); same options, output and exit status:
 | `python -m app token purge [--older-than DAYS] [--dry-run]` | Delete revoked and expired ones for good. |
 | `python -m app status-link TENANT [--replace \| --delete]`, `status-link --list` | The tenant's status page link, made the first time; `--replace` (or `--new`) replaces it, `--delete` deletes it; `--list` lists every link (#691). |
 | `python -m app roles [--groups G1,G2]` | Each role's permissions (from the database, #713) and the groups that give it; with `--groups`, the role a user in them gets (#691). |
+| `python -m app identity create NAME --role ROLE [--role …] [--scope S] [--common-name N]` | A person who may sign in, by the user name the sign-in gives (the proxy's `X-Forwarded-User`), with roles and scopes of their own (#715). |
+| `python -m app identity list` | Every identity, its roles and own scopes. |
+| `python -m app identity add-role NAME ROLE` / `python -m app identity remove-role NAME ROLE` | Give or take a role; the running app sees it within 30 seconds. |
+| `python -m app identity add-scope NAME SCOPE` / `python -m app identity remove-scope NAME SCOPE` | A scope of their own, e.g. `maintenance:write` or `alerts:*`. |
+| `python -m app identity delete NAME` | They can no longer sign in (with `AUTH_GROUP_ROLES=false`; otherwise their groups decide again). |
 | `python -m app wireless-check` | Read each wireless controller now; exit status 1 if one fails. |
 
 ## Ported code (#600)
@@ -198,6 +203,7 @@ oauth2-proxy + GitLab setup fits both. Code: `app/services/auth_service.py`.
 | `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` / `AUTH_NOC_GROUPS` / `AUTH_CUSTOMER_GROUPS` | empty | Groups (CSV, case-insensitive) per role; the first of admin, operator, noc, customer, viewer wins (#691). |
 | `AUTH_DEFAULT_ROLE` | empty | Role of a signed-in user in none of the groups. |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: everything but `/healthz`, `/metrics` and the status pages needs the viewer role (otherwise reads are public). |
+| `AUTH_GROUP_ROLES` | `true` | Someone signed in without an identity gets the role their groups give (`AUTH_*_GROUPS`); `false`: no access (#715). |
 | `ALLOW_UNAUTHENTICATED_WRITES` | `false` | Disabled mode: administrative changes too, without signing in. |
 
 - **API tokens** (`Authorization: Bearer nmt_…`, `/api/v1/tokens`, admin): sign in as
