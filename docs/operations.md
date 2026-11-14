@@ -22,10 +22,10 @@ For the person who keeps the app running: upgrades, backups, monitoring and the 
 # docker-compose.override.yml
 services:
   api:
-    image: ghcr.io/jackass4life/nautobot-maps-api:0.4.0   # the version to run
+    image: ghcr.io/jackass4life/nautobot-maps-api:0.5.0   # the version to run
     build: !reset null
   web:
-    image: ghcr.io/jackass4life/nautobot-maps-web:0.4.0   # the same version
+    image: ghcr.io/jackass4life/nautobot-maps-web:0.5.0   # the same version
     build: !reset null
 ```
 

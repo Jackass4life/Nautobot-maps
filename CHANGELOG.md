@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
 ### Added
 - **Each role's own addresses** (#697): customers open on `/customer` (Availability; Customers at `/customer/tenants`), DOV on `/dov` (the wall; `/dov/board`, `/dov/availability`, `/dov/maintenance`) and NWO (operator) on `/nwo` (the map; `/nwo/wall`, `/nwo/board`, `/nwo/availability`, `/nwo/maintenance`, `/nwo/circuits`, `/nwo/tenants`), with the menu in their workspace. Bookmarks and links to the old addresses (`/alerts?tenant=…`) open the same page in the role's workspace; a page outside it opens the start page with a note. Viewers and admins keep the old addresses. New page **Customers** (`/tenants`): every tenant, each opening its status in the app, with "Share…" for NWO and admins. `GET /api/v1/tenants` (names and descriptions) is now readable by those who see a tenant's status or links, not only admins
 - **Customer and DOV roles** (#691): `AUTH_CUSTOMER_GROUPS` (account managers: availability and each customer's status, read only, never a status link) and `AUTH_DOV_GROUPS` (the wall view, the board, availability and maintenance read only; acknowledge and add cases). A user has one role, the first of admin, operator (NWO), dov, customer, viewer that their groups give. API tokens can have them too (`token create --role dov`; `--role nwo` is operator). `python -m app roles` shows each role's permissions and groups, and `roles --groups G1,G2` the role a user in them gets. `python -m app status-link` gains `--replace` (as `--new`), `--delete` and `--list`
