@@ -112,7 +112,7 @@ Each of these is optional and can be added later; the map and the board work wit
 | Access points from Catalyst Center or Aruba New Central | `config/wireless.yml` and `WIRELESS_CONTROLLERS_FILE=/config/wireless.yml` | [Other sources](docs/sources.md#wireless-controllers-access-points) |
 | Alertmanager, Zabbix or any webhook | An operator API token | [Other sources](docs/sources.md) |
 | Notifications (webhook, Teams, email) | `NOTIFY_*`, `SMTP_*` | [Notifications](docs/notifications.md) |
-| A status page per customer | A private link per tenant, from **Share…** on Availability | [Tenant status page](docs/status-page.md) |
+| A status page per customer | A private link per tenant, from **Share…** on Availability or Customers | [Tenant status page](docs/status-page.md) |
 | Case numbers that link to your ticket system | `CASE_URL_TEMPLATE=https://itsm.example.com/ticket/{case}` | [Configuration](docs/configuration.md#alert-board) |
 | Which sites and devices matter most | Custom fields in Nautobot | [How serious an outage is](docs/nautobot-setup.md#how-serious-an-outage-is) |
 | Your availability target (SLA) | `AVAILABILITY_TARGET_PCT=99.5` (default 99.9) | [Availability](docs/availability.md) |

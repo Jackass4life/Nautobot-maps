@@ -18,6 +18,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (it never changes a
 | **Availability** | ☰ → Availability | Uptime per site and customer for any period, planned maintenance not counted; spreadsheets ([guide](availability.md)) |
 | **Circuits** | ☰ → Circuits | Circuits not yet linked to a site in Nautobot, and the site their address points to ([circuit mapping](#circuit-mapping)) |
 | **Maintenance** | ☰ → Maintenance | Plan maintenance for many sites or devices at once, see and end it, history ([guide](alert-board.md#maintenance-windows)) |
+| **Customers** | ☰ → Customers | Every customer, each opening its status as the customer sees it; NWO and admins share its link here ([guide](status-page.md)) |
 | **Status page** | A private link per customer | "Are we affected?" for one customer ([guide](status-page.md)) |
 | **Admin** | ☰ → Admin *(admins only)* | API tokens, a test notification, a check of the wireless controllers |
 | **Documentation** | ☰ → Documentation (`/help`) | These guides |
@@ -27,7 +28,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (it never changes a
 
 Every staff page has the same slim bar at the top:
 
-- **Nautobot Maps** (back to the map) and **Find a site**: type a few letters of a site's name, path or address, then pick it to open it on the map, or **Board** to see it on the alert board. `/` jumps there from anywhere. The map leaves it out, because its own search also finds places.
+- **Nautobot Maps** (back to your start page: the map, or your role's own page) and **Find a site**: type a few letters of a site's name, path or address, then pick it to open it on the map, or **Board** to see it on the alert board. `/` jumps there from anywhere. The map leaves it out, because its own search also finds places.
 - **How fresh the data is:** a quiet dot and "Updated 14:05". It turns **amber** ("LibreNMS data is 45 min old") when a sync is late, and **red** ("Can't reach LibreNMS") when the last sync failed. Click it for each source.
 - **Who is signed in** ("olga · operator", or a token's name). **Sign out** is in the ☰ menu when you signed in through a sign-in proxy.
 - The **theme** button (dark or light) and the **☰** menu with every page.
@@ -130,7 +131,9 @@ The top bar's freshness dot reads what the scheduler records once a minute (`GET
 | Availability | `/availability` |
 | Circuits | `/circuits` |
 | Maintenance | `/maintenance` |
+| Customers | `/tenants`; a customer's status in the app `/tenants/<name>` |
 | Tenant status | `/status/<id>` (a random link per tenant) |
+| Each role's own pages | `/customer`, `/dov`, `/nwo` and their pages ([roles](authentication.md#in-short)); the addresses above lead there |
 | Admin | `/admin` *(admins only)* |
 | Documentation | `/help` |
 | API | `/api/docs`, the OpenAPI spec at `/api/openapi.json`. The old `/docs` and `/openapi.json` redirect there for good (301) |
