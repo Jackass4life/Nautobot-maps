@@ -38,6 +38,18 @@ def log_alert_board_exclusions() -> None:
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach "
             "the app can change criticality overrides"
         )
+    current_settings = config.get_settings()
+    if current_settings.ldap_url:
+        if settings.AUTH_MODE != "header":
+            logger.warning("LDAP_URL is set but AUTH_MODE isn't header: AD sign-in is off")
+        else:
+            # The address only: never the service account's password or the JWT secret.
+            logger.info(
+                "AD sign-in on: {} (base {}); tokens last {} s",
+                current_settings.ldap_url,
+                current_settings.ldap_base_dn,
+                current_settings.jwt_lifetime_seconds,
+            )
     if settings.AUTH_MODE == "header":
         # Read from the settings model, not through settings.NAME (one __getattr__ for
         # every setting, the secret's too): only the networks reach the log (#613).

@@ -7,9 +7,10 @@ does (#592), with ``detail`` (how to allow it), ``required_role`` and
 
 import html
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,6 +33,9 @@ class Error(BaseModel):
     current_role: str | None = None
     missing_device_ids: list[str] | None = Field(
         None, description="Devices with no open alert: nothing was changed."
+    )
+    sign_in: str | None = Field(
+        None, description="Not signed in, with AD sign-in on (#717): the sign-in page, /auth."
     )
 
 
@@ -90,6 +94,8 @@ ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     403: {"model": ErrorDto, "description": "Role too low, or a cross-site change"},
     404: {"model": ErrorDto, "description": "Not found"},
     409: {"model": ErrorDto, "description": "Conflict"},
+    429: {"model": ErrorDto, "description": "Too many tries: wait (Retry-After)"},
+    503: {"model": ErrorDto, "description": "Not available now: try again shortly"},
 }
 
 
@@ -120,6 +126,12 @@ def no_access_page(exc: ApiError) -> HTMLResponse:
     return HTMLResponse(body, status_code=exc.status, headers={"Cache-Control": "no-store"})
 
 
+def sign_in_address(request: Request, page: str) -> str:
+    """/auth?redirect=<this page and its query>: only a path on this site comes back."""
+    back = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    return f"{page}?redirect={quote(back, safe='')}"
+
+
 def install_error_handlers(app: FastAPI) -> None:
     from fastapi.exceptions import RequestValidationError
     from starlette.exceptions import HTTPException
@@ -130,6 +142,9 @@ def install_error_handlers(app: FastAPI) -> None:
 
         if exc.body.get("error") == NO_ACCESS and not deps.wants_json(request):
             return no_access_page(exc)
+        # Not signed in, AD sign-in on (#717): a browser goes to sign in, and back after.
+        if exc.status == 401 and exc.body.get("sign_in") and not deps.wants_json(request):
+            return RedirectResponse(sign_in_address(request, exc.body["sign_in"]), status_code=303)
         response = JSONResponse(status_code=exc.status, content=exc.body, headers=exc.headers)
         # The tests check refusals of the ported routes against their models too (#449).
         route = request.scope.get("route")

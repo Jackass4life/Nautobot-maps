@@ -34,6 +34,7 @@ router.include_router(administration.tokens_router)
 router.include_router(administration.identities_router)
 router.include_router(administration.contract_router)
 router.include_router(auth.router)
+router.include_router(auth.sign_in_router)
 router.include_router(examples.router)
 
 # In the menu's order; no two sections' paths overlap.
@@ -52,6 +53,7 @@ ROUTERS = (
     monitoring.router,
     monitoring.health_router,
     legacy.router,
+    auth.page_router,
 )
 
 

@@ -41,6 +41,7 @@ def get_current_user() -> dict:
         "groups": list(user.groups),
         "role": user.role,
         "auth_mode": user.auth_mode,
+        "signed_in_with": user.signed_in_with,
     }
     if user.token or user.token_rejected:
         current |= {

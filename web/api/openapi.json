@@ -74,6 +74,33 @@
         "title": "Access",
         "type": "object"
       },
+      "AccessTokenResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "access_token": {
+            "description": "For Authorization: Bearer; the page signs in with the cookie set with it.",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Seconds it is valid for.",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in"
+        ],
+        "title": "AccessTokenResponseDto",
+        "type": "object"
+      },
       "AckChanged": {
         "additionalProperties": false,
         "properties": {
@@ -1940,6 +1967,18 @@
               }
             ],
             "title": "Required Role"
+          },
+          "sign_in": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Not signed in, with AD sign-in on (#717): the sign-in page, /auth.",
+            "title": "Sign In"
           }
         },
         "required": [
@@ -2561,6 +2600,70 @@
           "created_at"
         ],
         "title": "ItemDto",
+        "type": "object"
+      },
+      "Jwt": {
+        "additionalProperties": false,
+        "description": "A sign-in token's claims (the example's Jwt): iss, aud, jti, sub (the user\nname), exp, nbf, iat; scopes and common_name for the reader. The API reads the\nidentity's roles itself on every request.",
+        "properties": {
+          "aud": {
+            "title": "Aud",
+            "type": "string"
+          },
+          "common_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Common Name"
+          },
+          "exp": {
+            "title": "Exp",
+            "type": "integer"
+          },
+          "iat": {
+            "title": "Iat",
+            "type": "integer"
+          },
+          "iss": {
+            "title": "Iss",
+            "type": "string"
+          },
+          "jti": {
+            "title": "Jti",
+            "type": "string"
+          },
+          "nbf": {
+            "title": "Nbf",
+            "type": "integer"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "iss",
+          "aud",
+          "jti",
+          "sub",
+          "exp",
+          "nbf",
+          "iat",
+          "scopes"
+        ],
+        "title": "Jwt",
         "type": "object"
       },
       "LibreNmsPush": {
@@ -4225,6 +4328,20 @@
           "locations"
         ],
         "title": "Search",
+        "type": "object"
+      },
+      "SignedOutDto": {
+        "additionalProperties": false,
+        "properties": {
+          "signed_out": {
+            "title": "Signed Out",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "signed_out"
+        ],
+        "title": "SignedOutDto",
         "type": "object"
       },
       "SiteAlert": {
@@ -7078,6 +7195,202 @@
         "summary": "How fresh the app's data is, for the top bar on every page.",
         "tags": [
           "Shared"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "Sign in with an AD user name and password (#717). An AD user with an identity\ngets a token, for ``Authorization: Bearer``, also set as an HttpOnly cookie for\nthe pages. An unknown user and a wrong password get the same answer; failed\nsign-ins wait longer after 5.",
+        "operationId": "signIn",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "AD user name (``jdoe``, ``DOMAIN\\jdoe`` or ``jdoe@domain``) and password; as a\nform (OAuth2's password form, as the example) or JSON.",
+                "properties": {
+                  "password": {
+                    "title": "Password",
+                    "type": "string"
+                  },
+                  "username": {
+                    "title": "Username",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ],
+                "title": "SignInDto",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessTokenResponseDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Too many tries: wait (Retry-After)"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too many tries: wait (Retry-After)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not available now: try again shortly"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not available now: try again shortly"
+          }
+        },
+        "summary": "Sign In",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "description": "Sign out (#717): the cookie goes. A token kept elsewhere stays valid until it\nexpires (JWT_LIFETIME_SECONDS).",
+        "operationId": "signOut",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedOutDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sign Out",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/verify": {
+      "get": {
+        "description": "The caller's sign-in token's claims (the example's /auth/verify): 401 without\na valid one.",
+        "operationId": "verifySignIn",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Jwt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "Verify Sign In",
+        "tags": [
+          "Auth"
         ]
       }
     },
@@ -11341,6 +11654,26 @@
         "summary": "Read every wireless controller now, as ``wireless-check``: per instance whether it answers, takes the account, how many access points it lists and how many match a Nautobot device. Never the credentials. One check at a time: 429 while one runs.",
         "tags": [
           "Administration"
+        ]
+      }
+    },
+    "/auth": {
+      "get": {
+        "description": "The sign-in page (#717): user name and password, with AD sign-in on.",
+        "operationId": "getSignInPage",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The sign-in page: user name and password, with AD sign-in on.",
+        "tags": [
+          "Auth"
         ]
       }
     },

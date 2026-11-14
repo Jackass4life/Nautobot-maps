@@ -63,6 +63,8 @@ def test_errors_are_shown_as_the_app_sends_them(flask_client):
         "required_permission",
         "current_role",
         "missing_device_ids",
+        # #717: where to sign in, with AD sign-in on.
+        "sign_in",
     }
 
 
