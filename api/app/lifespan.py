@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from app.clients import caching, http
 from app.db import session
-from app.services import scheduler
+from app.services import role_service, scheduler
 
 
 @asynccontextmanager
@@ -17,6 +17,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     closed (#645)."""
     caching.init()
     bound_before = session.bind_loop()
+    # The roles from the database before the first request (#713).
+    await role_service.refresh(force=True)
     scheduler.start()
     yield
     await scheduler.shutdown()

@@ -17,6 +17,7 @@ from app.models.alerts import (
     WebhookDeviceAlert,
 )
 from app.models.base import Base
+from app.models.identity import IdentitiesToRoles, Identity, Permission, Role
 from app.models.inventory import (
     ContractCheck,
     InventorySyncState,
@@ -43,6 +44,8 @@ __all__ = [
     "ContractCheck",
     "DeviceCriticalityOverride",
     "DeviceState",
+    "IdentitiesToRoles",
+    "Identity",
     "InventorySyncState",
     "Item",
     "LibrenmsDeviceMap",
@@ -55,6 +58,8 @@ __all__ = [
     "NautobotLocationTenantCache",
     "NautobotTenantCache",
     "NotificationOutbox",
+    "Permission",
+    "Role",
     "SchemaMigration",
     "SiteAlertLevel",
     "SiteLevelChange",

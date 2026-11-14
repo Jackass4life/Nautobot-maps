@@ -184,6 +184,23 @@ def client():
 
 
 @pytest.fixture(autouse=True)
+def default_roles(monkeypatch):
+    """Each test with the built-in roles, never read again from the database on its
+    own (#713): a request's refresh would query in the middle of tests that count
+    connections. tests/test_roles.py reads them on purpose (``role_service.forget``)."""
+    from app.auth import permissions
+    from app.services import role_service
+
+    permissions.ROLES.clear()
+    permissions.ROLES.update(permissions.DEFAULT_ROLES)
+    monkeypatch.setattr(role_service, "CACHE_SECONDS", float("inf"))
+    monkeypatch.setattr(role_service, "_read_at", 0.0)
+    yield
+    permissions.ROLES.clear()
+    permissions.ROLES.update(permissions.DEFAULT_ROLES)
+
+
+@pytest.fixture(autouse=True)
 def fresh_settings():
     get_settings.cache_clear()
     yield

@@ -10,7 +10,7 @@ from app.auth import permissions
 from app.auth.permissions import Permission
 from app.core.exceptions import ApiError
 from app.core.settings import get_settings
-from app.services import auth_service
+from app.services import auth_service, role_service
 from app.services.auth_service import CurrentUser
 
 
@@ -18,6 +18,8 @@ async def get_current_user(request: Request) -> CurrentUser:
     """Once per request: a token is verified (and its last use written) once."""
     user = getattr(request.state, "user", None)
     if user is None:
+        # The roles as the database has them (#713), read at most every 30 s.
+        await role_service.refresh()
         user = await auth_service.resolve_user(request, get_settings())
         request.state.user = user
     return user

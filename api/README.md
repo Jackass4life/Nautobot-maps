@@ -101,7 +101,7 @@ app python -m app …`); same options, output and exit status:
 | `python -m app token revoke ID` | Revoke one. |
 | `python -m app token purge [--older-than DAYS] [--dry-run]` | Delete revoked and expired ones for good. |
 | `python -m app status-link TENANT [--replace \| --delete]`, `status-link --list` | The tenant's status page link, made the first time; `--replace` (or `--new`) replaces it, `--delete` deletes it; `--list` lists every link (#691). |
-| `python -m app roles [--groups G1,G2]` | Each role's permissions and the groups that give it; with `--groups`, the role a user in them gets (#691). |
+| `python -m app roles [--groups G1,G2]` | Each role's permissions (from the database, #713) and the groups that give it; with `--groups`, the role a user in them gets (#691). |
 | `python -m app wireless-check` | Read each wireless controller now; exit status 1 if one fails. |
 
 ## Ported code (#600)

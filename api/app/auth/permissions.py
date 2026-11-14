@@ -66,6 +66,7 @@ class RoleDef:
     landing: str
     # What it holds (#711): permissions, or scopes with ``*`` for any one part.
     scopes: frozenset[str]
+    description: str = ""
 
     @property
     def permissions(self) -> frozenset[Permission]:
@@ -89,11 +90,23 @@ VIEWER = frozenset(
     }
 )
 
-ROLES: dict[str, RoleDef] = {
+DESCRIPTIONS = {
+    "admin": "Everything, also the administration.",
+    "operator": "Everything but the administration: maintenance, criticality, status links.",
+    "noc": "Wall, board, availability and maintenance (read only); acknowledges, adds cases.",
+    "customer": "Availability and each tenant's status, read only.",
+    "viewer": "Every page, read only.",
+}
+
+# The five roles the app starts with (#713): the database's roles are seeded with
+# them (its first revision has them written out), and they stand in when the
+# database's can't be read. ``ROLES`` is what the checks use: the database's, as
+# app/services/role_service.py last read them.
+DEFAULT_ROLES: dict[str, RoleDef] = {
     # Everything, also permissions added later (#711): any one-, two- or three-part scope.
-    "admin": RoleDef("Admin", "/", frozenset({"*", "*:*", "*:*:*"})),
-    "operator": RoleDef("NWO (operator)", "/nwo", ALL - {P.ADMIN}),
-    "viewer": RoleDef("Viewer", "/", VIEWER),
+    "admin": RoleDef("Admin", "/", frozenset({"*", "*:*", "*:*:*"}), DESCRIPTIONS["admin"]),
+    "operator": RoleDef("NWO (operator)", "/nwo", ALL - {P.ADMIN}, DESCRIPTIONS["operator"]),
+    "viewer": RoleDef("Viewer", "/", VIEWER, DESCRIPTIONS["viewer"]),
     "noc": RoleDef(
         "NOC",
         "/noc",
@@ -111,13 +124,16 @@ ROLES: dict[str, RoleDef] = {
                 P.SESSION_BASIC,
             }
         ),
+        DESCRIPTIONS["noc"],
     ),
     "customer": RoleDef(
         "Customer",
         "/customer",
         frozenset({P.PAGE_AVAILABILITY, P.TENANT_STATUS_VIEW, P.EXPORT_CSV, P.SESSION_BASIC}),
+        DESCRIPTIONS["customer"],
     ),
 }
+ROLES: dict[str, RoleDef] = dict(DEFAULT_ROLES)
 
 # What reads ask for (every route of theirs is a GET): with AUTH_MODE=disabled anyone
 # has them, as every read is open then (#188).
