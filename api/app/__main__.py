@@ -36,7 +36,7 @@ from app.auth import permissions
 from app.core.settings import get_settings
 from app.db import session
 from app.logs import config as logs
-from app.services import auth_service
+from app.services import auth_service, role_service
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
@@ -178,6 +178,8 @@ def roles_command(args) -> int:
     """The matrix (#685) and the groups that give each role (#691); with --groups, the
     role and permissions a user in those groups gets."""
     settings = get_settings()
+    # As the database has them (#713).
+    asyncio.run(role_service.refresh(force=True))
     if args.groups is not None:
         groups = [group for group in args.groups.split(",") if group.strip()]
         role = auth_service.role_from_groups(groups, settings)

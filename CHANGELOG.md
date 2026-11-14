@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Changed
+- **Roles are kept in the database** (#713): the five roles and their scopes are now in the app's database (new tables `roles`, `permissions`, and `identities` for what comes next), seeded with today's roles when the database is migrated. Who may do what is unchanged. A change there reaches every worker within 30 seconds; if the roles can't be read, the last ones read (or the built-in five) are used
 - **Permissions are scopes** (#711): `alerts.ack` is now `alerts:ack`, `status.links.view` is `status:links:view` and so on, in `GET /api/v1/me` (`access.permissions`) and in a refusal's `required_permission`. A role can hold `*` for any one part (`alerts:*`); the admin role holds `*`, `*:*` and `*:*:*`. Who may do what is unchanged. The first step towards signing in with AD and roles kept in the database
 
 ## [0.5.2] - 2026-11-14
