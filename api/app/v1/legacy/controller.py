@@ -3,6 +3,7 @@ the API page and its spec (#483), and /static/ (ported from
 nautobot_maps/api/views.py, #604). Untagged and left out of the endpoint list."""
 
 import pathlib
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
@@ -53,3 +54,20 @@ def openapi_moved(request: Request):
 def static(request: Request, path: str):
     """The pages' scripts, styles, images and vendored libraries."""
     return files.send(request, STATIC, path)
+
+
+# The NOC role's pages were DOV's until 0.5.1 (#703): /dov… opens /noc….
+@router.get(
+    "/dov",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="pages.dov_moved",
+    include_in_schema=False,
+)
+@router.get(
+    "/dov/{rest:path}",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="pages.dov_moved_item",
+    include_in_schema=False,
+)
+def dov_moved(request: Request, rest: str = ""):
+    return _moved(request, "/noc" + (f"/{quote(rest)}" if rest else ""))

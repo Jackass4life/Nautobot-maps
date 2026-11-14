@@ -135,7 +135,7 @@ Turning it on names **every** monitored device that already has a tenant. Check 
 
 ### Who can see it
 
-- **Staff:** customer, viewer, NWO (operator) and admin see each tenant's status in the app, by its name (`/tenants/<name>`, or in their workspace), with no link involved. A tenant's name on Availability or Customers opens it. DOV doesn't.
+- **Staff:** customer, viewer, NWO (operator) and admin see each tenant's status in the app, by its name (`/tenants/<name>`, or in their workspace), with no link involved. A tenant's name on Availability or Customers opens it. NOC doesn't.
 - **A customer:** a **status token** for their tenant, sent in a link.
 
 Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name. A link by name (`/status/Acme%20Corp`, the form used by older versions) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database; without it, `/api/v1/status/…` answers 503 and says so.

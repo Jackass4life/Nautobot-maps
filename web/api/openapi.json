@@ -40,7 +40,7 @@
                 "type": "null"
               }
             ],
-            "description": "customer, dov, viewer, operator (NWO) or admin; null when not signed in.",
+            "description": "customer, noc, viewer, operator (NWO) or admin; null when not signed in.",
             "title": "Role"
           }
         },
@@ -3541,7 +3541,7 @@
               "viewer",
               "operator",
               "admin",
-              "dov",
+              "noc",
               "customer",
               "status"
             ],
@@ -5488,7 +5488,7 @@
               "viewer",
               "operator",
               "admin",
-              "dov",
+              "noc",
               "customer",
               "status"
             ],
@@ -10276,7 +10276,7 @@
                     "type": "string"
                   },
                   "role": {
-                    "description": "viewer, operator (NWO), admin, dov, customer, or status with a tenant",
+                    "description": "viewer, operator (NWO), admin, noc, customer, or status with a tenant",
                     "title": "Role",
                     "type": "string"
                   },

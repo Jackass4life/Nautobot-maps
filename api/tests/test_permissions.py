@@ -117,6 +117,9 @@ CHANGED = {
         for suffix in ("", "/{tenant:path}")
         if not suffix or page == "tenants"
     },
+    # #703: the NOC role's pages were DOV's; the old addresses redirect.
+    ("/dov", "GET"): None,
+    ("/dov/{rest:path}", "GET"): None,
 }
 NOW = BEFORE | CHANGED
 LEVEL = {"viewer": 1, "operator": 2, "admin": 3}
@@ -202,6 +205,7 @@ FILL = {
     "link_id": "nolink",
     "slug": "overview",
     "name": "x.png",
+    "rest": "board",
 }
 
 
@@ -245,21 +249,21 @@ def test_every_role_is_refused_exactly_where_the_matrix_says(role, as_role, clie
     as_role(role)
     wrong = []
     for path, route, method in ROUTES:
-        response = client.request(method, _url(path))
+        response = client.request(method, _url(path), follow_redirects=False)
         if _refused(response) == allowed(route, role):
             wrong.append(f"{method} {path}: {response.status_code}")
     assert wrong == []
 
 
 def test_a_refusal_names_the_permission(as_role, client):
-    as_role("dov")
+    as_role("noc")
     refused = client.post("/api/v1/criticality-overrides", json={})
     assert refused.status_code == 403
     assert refused.json() == {
         "error": "Insufficient permissions",
         "required_permission": "criticality.override",
         "required_role": "operator",
-        "current_role": "dov",
+        "current_role": "noc",
     }
 
 
@@ -267,6 +271,8 @@ def test_a_refusal_names_the_permission(as_role, client):
 # declarations: a declaration that drifts fails here. Every role reaches the basics.
 BASICS = {
     "GET /_nuxt/{path:path}",
+    "GET /dov",
+    "GET /dov/{rest:path}",
     "GET /api/docs",
     "GET /api/healthz",
     "GET /api/openapi.json",
@@ -310,12 +316,12 @@ REACHES = {
         "GET /customer",
         "GET /customer/tenants",
         "GET /customer/tenants/{tenant:path}",
-        "GET /dov/availability",
+        "GET /noc/availability",
         "GET /nwo/availability",
         "GET /nwo/tenants",
         "GET /nwo/tenants/{tenant:path}",
     },
-    "dov": BASICS
+    "noc": BASICS
     | {
         "GET /alerts",
         "GET /api/v1/alerts",
@@ -337,10 +343,10 @@ REACHES = {
         "GET /api/v1/maintenance/history",
         "GET /api/v1/maintenance/history.csv",
         # #697: its workspace, and the same pages in the others'.
-        "GET /dov",
-        "GET /dov/board",
-        "GET /dov/availability",
-        "GET /dov/maintenance",
+        "GET /noc",
+        "GET /noc/board",
+        "GET /noc/availability",
+        "GET /noc/maintenance",
         "GET /customer",
         "GET /nwo/wall",
         "GET /nwo/board",
@@ -456,7 +462,7 @@ ALL_PAGES = ["map", "alerts", "wall", "availability", "maintenance", "circuits",
                 "docs",
             ],
         ),
-        ("dov", ["alerts", "wall", "availability", "maintenance", "help", "docs"]),
+        ("noc", ["alerts", "wall", "availability", "maintenance", "help", "docs"]),
         ("customer", ["availability", "tenants", "help", "docs"]),
     ],
 )
@@ -478,8 +484,8 @@ def test_the_menu_by_role(role, pages, as_role, client):
     [
         ("customer", ["/customer", "/customer/tenants", "/help", "/api/docs"]),
         (
-            "dov",
-            ["/dov/board", "/dov/availability", "/dov/maintenance", "/help", "/api/docs", "/dov"],
+            "noc",
+            ["/noc/board", "/noc/availability", "/noc/maintenance", "/help", "/api/docs", "/noc"],
         ),
         (
             "operator",
@@ -512,13 +518,13 @@ def test_the_menu_by_role(role, pages, as_role, client):
     ],
 )
 def test_the_menu_opens_the_roles_workspace(role, hrefs, as_role, client):
-    """Customer, DOV and NWO each have their own addresses (#697); the others the flat
+    """Customer, NOC and NWO each have their own addresses (#697); the others the flat
     ones. Each role lands on its workspace."""
     as_role(role)
     config = client.get("/api/v1/page-config").json()
     assert [page["href"] for page in config["pages"]] == hrefs
     landing = config["access"]["landing"]
-    assert landing == {"customer": "/customer", "dov": "/dov", "operator": "/nwo"}.get(role, "/")
+    assert landing == {"customer": "/customer", "noc": "/noc", "operator": "/nwo"}.get(role, "/")
 
 
 def test_the_web_knows_the_workspaces():
@@ -576,3 +582,14 @@ def test_the_web_knows_every_permission():
     ).read_text()
     union = source.split("export type Permission =", 1)[1].split(";", 1)[0]
     assert set(re.findall(r'"([a-z.]+)"', union)) == {str(p) for p in Permission}
+
+
+def test_the_old_dov_addresses_open_noc(flask_client):
+    """The NOC role was DOV until 0.5.1 (#703): a bookmark still opens its page."""
+    for old, new in (
+        ("/dov", "/noc"),
+        ("/dov/board?tenant=Acme", "/noc/board?tenant=Acme"),
+        ("/dov/maintenance", "/noc/maintenance"),
+    ):
+        answer = flask_client.get(old, follow_redirects=False)
+        assert answer.status_code == 301 and answer.headers["location"] == new, old

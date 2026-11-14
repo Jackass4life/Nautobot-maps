@@ -346,11 +346,11 @@ class TestStatusTokensForNwo:
         assert roles == {"admin", "operator", "viewer"}
 
 
-def test_a_dov_token_follows_the_matrix(flask_client):
-    """An API token with a new role (#691) is checked as a signed-in DOV user."""
-    dov = make("wall-screen", "dov")["token"]
-    assert flask_client.get("/api/v1/alerts", headers=bearer(dov)).status_code != 403
-    refused = flask_client.post("/api/v1/criticality-overrides", json={}, headers=bearer(dov))
+def test_a_noc_token_follows_the_matrix(flask_client):
+    """An API token with a new role (#691) is checked as a signed-in NOC user."""
+    noc = make("wall-screen", "noc")["token"]
+    assert flask_client.get("/api/v1/alerts", headers=bearer(noc)).status_code != 403
+    refused = flask_client.post("/api/v1/criticality-overrides", json={}, headers=bearer(noc))
     assert refused.status_code == 403
     assert refused.get_json()["required_permission"] == "criticality.override"
-    assert flask_client.get("/api/v1/tokens", headers=bearer(dov)).status_code == 403
+    assert flask_client.get("/api/v1/tokens", headers=bearer(noc)).status_code == 403

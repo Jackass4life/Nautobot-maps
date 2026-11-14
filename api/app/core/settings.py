@@ -475,10 +475,12 @@ class Settings(BaseSettings):
         _text(lambda v: v.strip().lower() if v.strip().lower() in ROLE_NAMES else ""),
     ] = ""
     # Group names (CSV, case-insensitive) that give each role; the first of admin,
-    # operator (NWO), dov, customer, viewer wins (#691): one role, never merged.
+    # operator (NWO), noc, customer, viewer wins (#691): one role, never merged.
     auth_viewer_groups: CsvSet = frozenset()
     auth_operator_groups: CsvSet = frozenset()
     auth_admin_groups: CsvSet = frozenset()
+    auth_noc_groups: CsvSet = frozenset()
+    # The NOC role was DOV until 0.5.1 (#703): read when AUTH_NOC_GROUPS is empty.
     auth_dov_groups: CsvSet = frozenset()
     auth_customer_groups: CsvSet = frozenset()
     # Reads need at least the viewer role too (otherwise reads are public).

@@ -565,7 +565,7 @@ class TestPages:
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
-    @pytest.mark.parametrize("role", ["admin", "operator", "viewer", "dov", "customer"])
+    @pytest.mark.parametrize("role", ["admin", "operator", "viewer", "noc", "customer"])
     def test_a_read_never_makes_a_link_and_shows_links_only_to_nwo_and_admins(
         self, flask_client, role, configure, monkeypatch
     ):

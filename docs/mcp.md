@@ -19,10 +19,10 @@ With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/
 | `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
 | `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |
 | `get_alert_feed` | Recent changes: devices down/up, level changes; for one tenant or text, only those sites' changes | viewer\* |
-| `get_alert_history` | Past and open incidents, downtime, cases | dov, operator (NWO), admin |
-| `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | dov, operator (NWO), admin |
+| `get_alert_history` | Past and open incidents, downtime, cases | noc, operator (NWO), admin |
+| `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | noc, operator (NWO), admin |
 
-\*viewer, dov, operator (NWO) and admin; a role is needed only with `AUTH_REQUIRE_VIEWER=true`. Not the customer role, which has no board ([roles](authentication.md#roles)).
+\*viewer, noc, operator (NWO) and admin; a role is needed only with `AUTH_REQUIRE_VIEWER=true`. Not the customer role, which has no board ([roles](authentication.md#roles)).
 
 `tenant` and `search` match sites as the board's `?tenant=` / `?q=` link does: the tenant's whole name with case ignored, and the text in the site's name, path, address or country. For `get_alert_feed` the server filters before the limit, so the newest changes asked for are that tenant's, not the whole network's. It counts every stored site, including those `get_alert_board` leaves out unless `include_non_operational` is set, and when no site matches it says so in `note` rather than looking like nothing changed.
 

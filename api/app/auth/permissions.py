@@ -8,7 +8,7 @@ Roles:
 - ``admin``: everything.
 - ``operator`` (NWO): everything but ``admin``, so a new permission reaches it at once.
 - ``viewer``: every page it could read before the matrix (#592), no changes.
-- ``dov``: the wall, the board, availability and maintenance (read only); it
+- ``noc``: the wall, the board, availability and maintenance (read only); it
   acknowledges and adds cases.
 - ``customer``: availability and each tenant's status, read only.
 - ``status``: an API token for one tenant's status page; no permission here, its
@@ -83,9 +83,9 @@ ROLES: dict[str, RoleDef] = {
     "admin": RoleDef("Admin", "/", ALL),
     "operator": RoleDef("NWO (operator)", "/nwo", ALL - {P.ADMIN}),
     "viewer": RoleDef("Viewer", "/", VIEWER),
-    "dov": RoleDef(
-        "DOV",
-        "/dov",
+    "noc": RoleDef(
+        "NOC",
+        "/noc",
         frozenset(
             {
                 P.PAGE_WALL,
@@ -149,8 +149,8 @@ PAGE_PERMISSIONS: dict[str, Permission] = {
 # web/utils/workspaces.ts holds the same table (tests/test_permissions.py checks).
 WORKSPACES: dict[str, tuple[str, dict[str, str]]] = {
     "customer": ("/customer", {"availability": "", "tenants": "/tenants"}),
-    "dov": (
-        "/dov",
+    "noc": (
+        "/noc",
         {
             "wall": "",
             "alerts": "/board",

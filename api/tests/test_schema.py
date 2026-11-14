@@ -7,6 +7,7 @@ import re
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import make_url, text
 
 from alembic import command
@@ -17,6 +18,7 @@ from tests.conftest import TEST_DATABASE_URL
 from tests.schema_snapshot import snapshot
 
 SNAPSHOT = json.loads((pathlib.Path(__file__).parent / "schema_v33.json").read_text("utf-8"))
+HEAD = ScriptDirectory.from_config(migrate.alembic_config(TEST_DATABASE_URL)).get_current_head()
 SCRATCH = make_url(TEST_DATABASE_URL).database + "_scratch"
 
 
@@ -192,7 +194,7 @@ def test_the_example_stacks_database_is_upgraded_with_its_items(scratch):
     with db.connect() as conn:
         assert conn.execute(text("SELECT name FROM items")).scalar() == "kept"
         assert conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
-    assert head(db) == migrate.ITEMS_REVISION
+    assert head(db) == HEAD
     assert migrate.migrate(make_url(url)) == "upgrade"
 
 
@@ -224,4 +226,23 @@ def test_a_failed_example_upgrade_leaves_it_as_it_was(scratch, monkeypatch):
         assert not conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
     monkeypatch.setattr(migrate.command, "stamp", real_stamp)
     assert migrate.migrate(make_url(url)) == "from-example"
-    assert head(db) == migrate.ITEMS_REVISION
+    assert head(db) == HEAD
+
+
+def test_dov_tokens_become_noc(scratch):
+    """The DOV role is NOC since 0.5.1 (#703): its tokens follow on the upgrade."""
+    db, url = scratch
+    config = migrate.alembic_config(url)
+    command.upgrade(config, migrate.ITEMS_REVISION)
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO api_tokens (name, token_hash, prefix, role, created_by) VALUES "
+                "('wall', 'hash-1', 'nmt_ab12', 'dov', 'cli'), "
+                "('ops', 'hash-2', 'nmt_cd34', 'operator', 'cli')"
+            )
+        )
+    assert migrate.migrate(make_url(url)) == "upgrade"
+    with db.connect() as conn:
+        roles = conn.execute(text("SELECT name, role FROM api_tokens ORDER BY name")).all()
+    assert [tuple(row) for row in roles] == [("ops", "operator"), ("wall", "noc")]

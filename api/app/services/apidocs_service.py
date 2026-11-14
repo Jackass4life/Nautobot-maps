@@ -87,6 +87,8 @@ HIDDEN_ENDPOINTS = {
     "frontend.asset",
     "pages.api_docs_moved",
     "ops.openapi_moved",
+    "pages.dov_moved",
+    "pages.dov_moved_item",
     # /healthz's old path, until the switchover (#594); and web's files.
     "healthz_alias",
     "asset",

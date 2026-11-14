@@ -1184,11 +1184,11 @@ class TestTenantStatusByName:
         as_role(role)
         assert flask_client.get("/api/v1/tenants/Acme%20Corp/status").status_code == 200
 
-    def test_dov_and_status_tokens_may_not(self, as_role, known_tenants, flask_client, board):
+    def test_noc_and_status_tokens_may_not(self, as_role, known_tenants, flask_client, board):
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         own = flask_client.get("/api/v1/tenants/Acme%20Corp/status", headers=bearer(token))
         assert own.status_code == 403, "a status token opens only its status page"
-        as_role("dov")
+        as_role("noc")
         refused = flask_client.get("/api/v1/tenants/Acme%20Corp/status")
         assert refused.status_code == 403
         assert refused.get_json()["required_permission"] == "tenant.status.view"

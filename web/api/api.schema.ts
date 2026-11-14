@@ -1302,7 +1302,7 @@ export interface components {
             permissions: string[];
             /**
              * Role
-             * @description customer, dov, viewer, operator (NWO) or admin; null when not signed in.
+             * @description customer, noc, viewer, operator (NWO) or admin; null when not signed in.
              */
             role: string | null;
         };
@@ -2822,7 +2822,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "viewer" | "operator" | "admin" | "dov" | "customer" | "status";
+            role: "viewer" | "operator" | "admin" | "noc" | "customer" | "status";
             /**
              * State
              * @enum {string}
@@ -3727,7 +3727,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "viewer" | "operator" | "admin" | "dov" | "customer" | "status";
+            role: "viewer" | "operator" | "admin" | "noc" | "customer" | "status";
             /**
              * State
              * @enum {string}
@@ -7174,7 +7174,7 @@ export interface operations {
                     name: string;
                     /**
                      * Role
-                     * @description viewer, operator (NWO), admin, dov, customer, or status with a tenant
+                     * @description viewer, operator (NWO), admin, noc, customer, or status with a tenant
                      */
                     role: string;
                     /** Tenant */

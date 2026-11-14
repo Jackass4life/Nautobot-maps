@@ -37,7 +37,7 @@ class Access(Answer):
     hide by it; the API checks every route itself."""
 
     role: str | None = Field(
-        description="customer, dov, viewer, operator (NWO) or admin; null when not signed in."
+        description="customer, noc, viewer, operator (NWO) or admin; null when not signed in."
     )
     label: str = Field(description='The role as people call it, e.g. "NWO (operator)".')
     landing: str = Field(description="The page the role opens on, e.g. /alerts?view=wall.")

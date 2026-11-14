@@ -70,14 +70,28 @@ def role_level(role: str) -> int:
 
 def group_roles(settings: Settings) -> list[tuple[str, frozenset[str]]]:
     """Each role groups can give and its groups, first wins (#691): admin, operator
-    (NWO), dov, customer, viewer."""
+    (NWO), noc, customer, viewer."""
     return [
         ("admin", settings.auth_admin_groups),
         ("operator", settings.auth_operator_groups),
-        ("dov", settings.auth_dov_groups),
+        ("noc", noc_groups(settings)),
         ("customer", settings.auth_customer_groups),
         ("viewer", settings.auth_viewer_groups),
     ]
+
+
+def noc_groups(settings: Settings) -> frozenset[str]:
+    """AUTH_NOC_GROUPS, or the old AUTH_DOV_GROUPS when it is empty (#703)."""
+    if settings.auth_noc_groups or not settings.auth_dov_groups:
+        return settings.auth_noc_groups
+    global _dov_warned
+    if not _dov_warned:
+        _dov_warned = True
+        logger.warning("AUTH_DOV_GROUPS is deprecated: rename it AUTH_NOC_GROUPS (#703)")
+    return settings.auth_dov_groups
+
+
+_dov_warned = False
 
 
 def role_from_groups(groups: list[str], settings: Settings) -> str:

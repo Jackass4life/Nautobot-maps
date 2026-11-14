@@ -249,14 +249,14 @@ def test_no_cors_without_origins(client):
     assert "Origin" not in response.headers.get("vary", "")
 
 
-# --- The customer and DOV roles from groups (#691) ---------------------------------
+# --- The customer and NOC roles from groups (#691) ---------------------------------
 
-PRIORITY = ("admin", "operator", "dov", "customer", "viewer")
+PRIORITY = ("admin", "operator", "noc", "customer", "viewer")
 
 
 @pytest.mark.parametrize("first", range(len(PRIORITY)))
 def test_the_first_role_in_order_wins_and_roles_never_merge(configure, first):
-    """In groups for several roles, a user gets the first of admin, operator, dov,
+    """In groups for several roles, a user gets the first of admin, operator, noc,
     customer, viewer: with every lower one too, still that one."""
     from app.core.settings import get_settings
     from app.services import auth_service
@@ -271,17 +271,17 @@ def test_the_first_role_in_order_wins_and_roles_never_merge(configure, first):
     ("group", "role", "may", "may_not"),
     [
         ("kam", "customer", "/api/v1/availability", "/api/v1/alerts"),
-        ("noc-dov", "dov", "/api/v1/alerts", "/api/v1/locations/coordinate-check"),
+        ("noc-duty", "noc", "/api/v1/alerts", "/api/v1/locations/coordinate-check"),
     ],
 )
-def test_a_user_in_a_customer_or_dov_group(configure, via_proxy, group, role, may, may_not):
+def test_a_user_in_a_customer_or_noc_group(configure, via_proxy, group, role, may, may_not):
     """Signed in through the proxy (with AUTH_REQUIRE_VIEWER): that role, and the
     matrix's permissions, end to end."""
     configure(
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
         AUTH_CUSTOMER_GROUPS="kam",
-        AUTH_DOV_GROUPS="noc-dov",
+        AUTH_NOC_GROUPS="noc-duty",
         AUTH_VIEWER_GROUPS="staff",
     )
     headers = as_user("olga", f"staff,{group}")
@@ -289,3 +289,13 @@ def test_a_user_in_a_customer_or_dov_group(configure, via_proxy, group, role, ma
     assert via_proxy.get(may, headers=headers).status_code != 403
     refused = via_proxy.get(may_not, headers=headers)
     assert refused.status_code == 403 and refused.json()["current_role"] == role
+
+
+def test_the_old_dov_groups_still_give_noc(configure, via_proxy):
+    """AUTH_DOV_GROUPS, the NOC role's setting until 0.5.1 (#703), when AUTH_NOC_GROUPS
+    is empty; AUTH_NOC_GROUPS wins when both are set."""
+    configure(AUTH_MODE="header", AUTH_DOV_GROUPS="noc-duty")
+    assert me(via_proxy, as_user("olga", "noc-duty"))["role"] == "noc"
+    configure(AUTH_MODE="header", AUTH_DOV_GROUPS="noc-duty", AUTH_NOC_GROUPS="wall")
+    assert me(via_proxy, as_user("olga", "noc-duty"))["role"] != "noc"
+    assert me(via_proxy, as_user("olga", "wall"))["role"] == "noc"

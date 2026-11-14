@@ -42,6 +42,9 @@ from app.services import status_link_service as statuslinks
 from app.services import token_service as tokens
 from app.services import wireless_service as wireless
 
+# Other names for a token's role: what the pages call it, and an old name.
+ROLE_ALIASES = {"nwo": "operator", "dov": "noc"}
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app")
@@ -53,8 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     token_commands = token.add_subparsers(dest="token_command", required=True)
     create = token_commands.add_parser("create", help="create a token and print it (shown once)")
     create.add_argument("name")
-    # nwo: the operator role, as the pages name it (#691).
-    create.add_argument("--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE, "nwo"))
+    # nwo: the operator role, as the pages name it (#691); dov: noc's name until 0.5.1 (#703).
+    create.add_argument(
+        "--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE, *ROLE_ALIASES)
+    )
     create.add_argument(
         "--tenant", default=None, help="with --role status: the tenant whose status page it opens"
     )
@@ -201,7 +206,7 @@ def print_token(token: dict) -> None:
 
 async def token_command(db, args) -> int:
     if args.token_command == "create":
-        role = "operator" if args.role == "nwo" else args.role
+        role = ROLE_ALIASES.get(args.role, args.role)
         body = {"name": args.name, "role": role, "expires_in_days": args.expires_days}
         if args.tenant is not None:
             body["tenant"] = args.tenant
