@@ -102,6 +102,11 @@ class TestTokens:
             ({"name": "ok", "role": "viewer", "notify_email": "a@b.dk x"}, "notify_email: 'a@b"),
             ({"name": "ok", "role": "viewer", "notify_email": "nobody"}, "notify_email: 'nobody'"),
             (
+                {"name": "ok", "role": "viewer", "notify_email": "a@b..dk"},
+                "notify_email: 'a@b..dk'",
+            ),
+            ({"name": "ok", "role": "viewer", "notify_email": "a@b"}, "notify_email: 'a@b'"),
+            (
                 {
                     "name": "ok",
                     "role": "viewer",

@@ -47,7 +47,8 @@ class TokenError(ValueError):
 
 
 def looks_like_email(address: str) -> bool:
-    """"name@example.com": no regular expression, so no input can make it slow."""
+    """An address such as name@example.com, checked without a regular expression
+    (CodeQL on #708: no input can make it slow)."""
     local, at, domain = address.partition("@")
     return bool(
         at
