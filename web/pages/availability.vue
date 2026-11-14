@@ -168,7 +168,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
 
       <template v-if="report && summary">
         <p class="availability-note text-sm text-muted">
-          {{ periodNote }} · maintenance is not downtime<template v-if="can('export.csv')">
+          {{ periodNote }} · maintenance is not downtime<template v-if="can('export:csv')">
             · CSV <HelpTip :text="HELP.csv" />:
             <a
               class="text-primary hover:underline"
@@ -270,7 +270,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
           :limit="10"
-          :share="can('status.links.view')"
+          :share="can('status:links:view')"
         />
         <AvailTable
           kind="sites"

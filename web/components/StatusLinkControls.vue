@@ -1,5 +1,5 @@
 <!-- "Share…" next to a tenant on Availability (#530): its status page link.
-     status.links.view (NWO, admin): the link, to copy.  status.links.manage:
+     status:links:view (NWO, admin): the link, to copy.  status:links:manage:
      a customer link (a status token with the tenant's page, the key shown once),
      replacing a link that leaked, deleting it (#695).  The tenant's name opens
      its status in the app. -->
@@ -18,7 +18,7 @@ import { apiError, errorMessage } from "~/utils/format";
 
 const props = defineProps<{ tenant: string }>();
 const { can } = useCan();
-const manage = computed(() => can("status.links.manage"));
+const manage = computed(() => can("status:links:manage"));
 
 const open = ref(false);
 const expiry = ref("365");
@@ -180,7 +180,7 @@ onBeforeUnmount(() => clearTimeout(confirmTimer));
       >
         <p class="font-semibold text-highlighted">{{ tenant }}'s status page</p>
 
-        <!-- The link as it is (no key): for everyone here (status.links.view). -->
+        <!-- The link as it is (no key): for everyone here (status:links:view). -->
         <section class="share-current space-y-2">
           <p v-if="current === ''" class="text-muted">Loading the link…</p>
           <p v-else-if="current === null" class="share-none text-muted">{{

@@ -174,7 +174,7 @@ def api_notifications_test():
 # --- API tokens (#297, #592): admin only, /api/v1/tokens ---------------------
 
 tokens_router = APIRouter(prefix="/tokens", tags=sections.tag("administration"))
-# Admins keep every token; NWO (status.links.manage) only the status tokens, the keys
+# Admins keep every token; NWO (status:links:manage) only the status tokens, the keys
 # they send customers with a status link (#687).
 ADMIN_OR_STATUS_TOKENS = Depends(
     require_permission(Permission.ADMIN, Permission.STATUS_LINKS_MANAGE)

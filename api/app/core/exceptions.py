@@ -26,7 +26,7 @@ class Error(BaseModel):
     detail: str | None = Field(None, description="How to allow it, when the setup refuses it.")
     required_role: Literal["viewer", "operator", "admin"] | None = None
     required_permission: str | None = Field(
-        None, description="The permission it needs (#685): e.g. alerts.ack, admin."
+        None, description="The permission it needs (#685): e.g. alerts:ack, admin."
     )
     current_role: str | None = None
     missing_device_ids: list[str] | None = Field(
@@ -56,6 +56,31 @@ class NotFoundError(ApiError):
 class ConflictError(ApiError):
     def __init__(self, message: str) -> None:
         super().__init__({"error": message}, 409)
+
+
+# The example's s_exceptions (#711), written here: refusals with a message.
+class UnauthenticatedException(ApiError):
+    """Not signed in, or a sign-in that didn't work: 401."""
+
+    def __init__(self, message: str = "Authentication required") -> None:
+        super().__init__({"error": message}, 401)
+
+
+class UnauthorizedException(ApiError):
+    """Signed in, without the scope: 403."""
+
+    def __init__(self, message: str = "Insufficient permissions") -> None:
+        super().__init__({"error": message}, 403)
+
+
+class NotFoundException(ApiError):
+    def __init__(self, message: str = "Not found") -> None:
+        super().__init__({"error": message}, 404)
+
+
+class ValidationErrorException(ApiError):
+    def __init__(self, message: str) -> None:
+        super().__init__({"error": message}, 400)
 
 
 ERROR_RESPONSES: dict[int | str, dict[str, object]] = {

@@ -570,7 +570,7 @@ class TestPages:
         self, flask_client, role, configure, monkeypatch
     ):
         """#687: a link id opens a tenant's page; reading the report never makes one, and
-        only status.links.view (NWO, admin) sees those there are."""
+        only status:links:view (NWO, admin) sees those there are."""
         from app.services import auth_service, status_link_service
         from app.services.auth_service import CurrentUser
 

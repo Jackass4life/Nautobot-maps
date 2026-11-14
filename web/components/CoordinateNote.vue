@@ -102,7 +102,7 @@ onBeforeUnmount(() => clearInterval(timer));
         <li v-if="list.more" class="coordinate-more">+{{ list.more }} more in the CSV</li>
       </ul>
       <a
-        v-if="can('export.csv')"
+        v-if="can('export:csv')"
         class="coordinate-csv text-primary hover:underline"
         :href="`/api/v1/locations/coordinate-check.csv${suffix}`"
         >Download CSV</a

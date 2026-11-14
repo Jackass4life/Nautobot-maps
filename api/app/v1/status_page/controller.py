@@ -94,7 +94,7 @@ def status_page(link_id: str):
 )
 def tenant_page(tenant: str):
     """A tenant's status in the app, by its name (#695), for those with
-    ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``."""
+    ``tenant:status:view``; the page reads ``/api/v1/tenants/<name>/status``."""
     return frontend.shell()
 
 
@@ -185,7 +185,7 @@ async def _answer(tenant: str | None):
     response_model=dtos.TenantStatus,
     responses={
         401: {"model": common.Error, "description": "Not signed in"},
-        403: {"model": common.Error, "description": "A role without tenant.status.view"},
+        403: {"model": common.Error, "description": "A role without tenant:status:view"},
         404: {"model": common.Error, "description": "No such tenant, or no sites for it"},
         503: {
             "model": common.Error,
@@ -196,7 +196,7 @@ async def _answer(tenant: str | None):
 )
 async def api_tenant_status(tenant: str):
     """A tenant's status page, by its name (#689), for those signed in with
-    ``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as
+    ``tenant:status:view`` (customer, viewer, NWO, admin): the same answer as
     ``/api/v1/status/<id>``, with no link involved, so none is shown or made.
     Capitals don't matter; a tenant Nautobot doesn't have answers 404."""
     session = db_session.current()

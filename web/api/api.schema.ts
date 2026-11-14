@@ -236,7 +236,7 @@ export interface paths {
          *     down) or ``critical`` (the site at Critical); default
          *     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
          *     ``status_links``: each tenant's status page link id, ``/status/<id>``, for
-         *     those that have one; only with the ``status.links.view`` permission.
+         *     those that have one; only with the ``status:links:view`` permission.
          */
         get: operations["getAvailability"];
         put?: never;
@@ -1000,9 +1000,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A tenant's status page, by its name, for those signed in with ``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as ``/api/v1/status/<id>``, with no link involved, so none is shown or made. Capitals don't matter; a tenant Nautobot doesn't have answers 404.
+         * A tenant's status page, by its name, for those signed in with ``tenant:status:view`` (customer, viewer, NWO, admin): the same answer as ``/api/v1/status/<id>``, with no link involved, so none is shown or made. Capitals don't matter; a tenant Nautobot doesn't have answers 404.
          * @description A tenant's status page, by its name (#689), for those signed in with
-         *     ``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as
+         *     ``tenant:status:view`` (customer, viewer, NWO, admin): the same answer as
          *     ``/api/v1/status/<id>``, with no link involved, so none is shown or made.
          *     Capitals don't matter; a tenant Nautobot doesn't have answers 404.
          */
@@ -1257,9 +1257,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A tenant's status in the app, by its name, for those with ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.
+         * A tenant's status in the app, by its name, for those with ``tenant:status:view``; the page reads ``/api/v1/tenants/<name>/status``.
          * @description A tenant's status in the app, by its name (#695), for those with
-         *     ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.
+         *     ``tenant:status:view``; the page reads ``/api/v1/tenants/<name>/status``.
          */
         get: operations["getTenantPage"];
         put?: never;
@@ -1297,7 +1297,7 @@ export interface components {
             pages: string[];
             /**
              * Permissions
-             * @description What the API allows it, e.g. alerts.ack, page.board; with AUTH_MODE=disabled every read and the board's own changes.
+             * @description What the API allows it, e.g. alerts:ack, page:board; with AUTH_MODE=disabled every read and the board's own changes.
              */
             permissions: string[];
             /**
@@ -2092,7 +2092,7 @@ export interface components {
             missing_device_ids?: string[] | null;
             /**
              * Required Permission
-             * @description The permission it needs (#685): e.g. alerts.ack, admin.
+             * @description The permission it needs (#685): e.g. alerts:ack, admin.
              */
             required_permission?: string | null;
             /** Required Role */
@@ -2654,7 +2654,7 @@ export interface components {
             /**
              * Can Write
              * @deprecated
-             * @description Deprecated: alerts.ack in access.permissions.
+             * @description Deprecated: alerts:ack in access.permissions.
              */
             can_write: boolean;
             /** Groups */
@@ -3061,7 +3061,7 @@ export interface components {
             sites: components["schemas"]["SiteRow"][];
             /**
              * Status Links
-             * @description Tenant name to its status page link id: /status/<id> (#500), for the tenants that have one; only with the status.links.view permission (#687), absent otherwise.
+             * @description Tenant name to its status page link id: /status/<id> (#500), for the tenants that have one; only with the status:links:view permission (#687), absent otherwise.
              */
             status_links?: {
                 [key: string]: string;
@@ -7071,7 +7071,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description A role without tenant.status.view */
+            /** @description A role without tenant:status:view */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7079,7 +7079,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "A role without tenant.status.view"
+                     *       "error": "A role without tenant:status:view"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

@@ -26,7 +26,7 @@ const props = withDefaults(
 const { data: config } = usePageConfig();
 // The search's results open on the map and the board: each link with its page (#695).
 const { can } = useCan();
-const searchable = computed(() => can("page.map") || can("page.board"));
+const searchable = computed(() => can("page:map") || can("page:board"));
 const { dark, toggle: toggleTheme } = useTheme();
 
 // The menu: every page, this one marked; Admin, only for admins (#530); Sign
@@ -264,8 +264,8 @@ onBeforeUnmount(() => {
           >
             <a
               class="bar-hit-map min-w-0 flex-1 rounded px-2 py-1.5 hover:bg-elevated focus:bg-elevated focus:outline-none"
-              :href="can('page.map') ? mapHref(site) : boardHref(site)"
-              :title="can('page.map') ? 'Show on the map' : 'Show on the board'"
+              :href="can('page:map') ? mapHref(site) : boardHref(site)"
+              :title="can('page:map') ? 'Show on the map' : 'Show on the board'"
             >
               <span class="block truncate font-medium text-highlighted">{{
                 site.name || site.id
@@ -278,7 +278,7 @@ onBeforeUnmount(() => {
               </span>
             </a>
             <a
-              v-if="can('page.map') && can('page.board')"
+              v-if="can('page:map') && can('page:board')"
               class="bar-hit-board shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-elevated"
               :href="boardHref(site)"
               :aria-label="`${site.name || site.id} on the board`"

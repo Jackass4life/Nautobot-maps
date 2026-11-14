@@ -99,7 +99,7 @@ ROUTER_DEPENDENCIES = [Depends(bind_request), Depends(check_request)]
 def require_permission(*required: permissions.Permission, open_when_disabled: bool = False):  # type: ignore[no-untyped-def]
     """A route dependency: one of *required* (app/auth/permissions.py, #685), or a
     refusal (#592's rules). Several on a route: each is needed (a CSV: the page's
-    permission and ``export.csv``)."""
+    permission and ``export:csv``)."""
     return Depends(
         auth_dependencies.require_permission(*required, open_when_disabled=open_when_disabled)
     )
@@ -146,7 +146,7 @@ def required_role(route: APIRoute) -> str | None:
     for names in required_permissions(route):
         if names == (permissions.PUBLIC,):
             continue
-        roles = [permissions.lowest_old_role(permissions.Permission(n)) for n in names]
+        roles = [permissions.lowest_old_role(n) for n in names]
         candidates = [r for r in roles if r]
         if not candidates:
             continue

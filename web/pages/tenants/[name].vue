@@ -1,5 +1,5 @@
 <!-- A tenant's status in the app, by its name (#695): for those signed in with
-     tenant.status.view (customer, viewer, NWO, admin), from
+     tenant:status:view (customer, viewer, NWO, admin), from
      GET /api/v1/tenants/{name}/status: no link or key involved. -->
 <script setup lang="ts">
 import type { TenantStatus } from "~/utils/status";

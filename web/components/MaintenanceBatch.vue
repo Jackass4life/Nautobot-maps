@@ -31,7 +31,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 // Ending a window needs its permission (#695): read only without it.
 const { can } = useCan();
 const actions = computed(
-  () => !props.history && props.batch.group !== "past" && can("maintenance.write"),
+  () => !props.history && props.batch.group !== "past" && can("maintenance:write"),
 );
 const ids = computed(() => props.batch.windows.map((window) => window.id));
 const many = computed(() => props.batch.windows.length > 1);

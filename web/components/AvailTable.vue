@@ -24,7 +24,7 @@ const props = defineProps<{
   title: string;
   help: string;
   tenantChoices?: string[];
-  // Those with status.links.view share a tenant's status page from its row (#530, #695).
+  // Those with status:links:view share a tenant's status page from its row (#530, #695).
   share?: boolean;
 }>();
 

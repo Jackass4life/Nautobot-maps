@@ -27,7 +27,7 @@ function at(value: string | null | undefined): string {
 
 <template>
   <div class="space-y-3">
-    <div v-if="can('export.csv')" class="history-export flex flex-wrap items-center gap-2 text-sm">
+    <div v-if="can('export:csv')" class="history-export flex flex-wrap items-center gap-2 text-sm">
       <USelect
         v-model="days"
         class="history-export-days w-36"

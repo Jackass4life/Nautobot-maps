@@ -316,7 +316,7 @@ function statusClass(status: string) {
               >Open in Nautobot ↗</a
             >
             <a
-              v-if="can('page.maintenance')"
+              v-if="can('page:maintenance')"
               class="nautobot-link text-primary hover:underline"
               :href="maintenanceHistoryHref(loc.id)"
               >Maintenance history</a

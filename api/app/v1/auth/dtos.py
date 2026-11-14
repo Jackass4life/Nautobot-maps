@@ -13,9 +13,9 @@ class MeDto(BaseModel):
     groups: list[str]
     auth_mode: Literal["disabled", "header"]
     access: Access
-    # From access.permissions (#693): alerts.ack and admin.
+    # From access.permissions (#693): alerts:ack and admin.
     can_write: bool = Field(
-        deprecated=True, description="Deprecated: alerts.ack in access.permissions."
+        deprecated=True, description="Deprecated: alerts:ack in access.permissions."
     )
     can_administer: bool = Field(
         deprecated=True, description="Deprecated: admin in access.permissions."

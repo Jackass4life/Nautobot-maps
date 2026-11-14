@@ -147,14 +147,14 @@ class TestRoles:
             assert f"\n{role} (" in "\n" + out, role
         assert "groups: noc-duty" in out and "groups: kam" in out
         assert "operator (NWO (operator)), opens /nwo; groups: no groups set" in out
-        assert "  criticality.override" in out and "  tenant.status.view" in out
+        assert "  criticality:override" in out and "  tenant:status:view" in out
 
     def test_the_role_some_groups_give(self, configure, capsys):
         configure(AUTH_NOC_GROUPS="noc", AUTH_CUSTOMER_GROUPS="kam", AUTH_VIEWER_GROUPS="staff")
         assert cli.main(["roles", "--groups", "staff,KAM"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("customer (Customer), opens /customer")
-        assert "  page.availability" in out and "page.map" not in out
+        assert "  page:availability" in out and "page:map" not in out
         assert cli.main(["roles", "--groups", "strangers"]) == 0
         assert capsys.readouterr().out.startswith("No role")
 

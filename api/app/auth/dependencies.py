@@ -35,15 +35,21 @@ def check_request(request: Request, user: CurrentUserDep) -> None:
 
 
 def require_permission(
-    *required: Permission, open_when_disabled: bool = False
+    *required: Permission | str, open_when_disabled: bool = False
 ) -> Callable[..., None]:
     """Dependency: the caller's role has one of *required* (app/auth/permissions.py,
-    #685). With AUTH_MODE=disabled, reads and *open_when_disabled* routes (the board's
+    #685): permissions, or scopes naming a path parameter (``tenant:{tenant}:view``,
+    #711). With AUTH_MODE=disabled, reads and *open_when_disabled* routes (the board's
     own changes) run for anyone; the rest need ALLOW_UNAUTHENTICATED_WRITES."""
 
     def check(request: Request, user: CurrentUserDep) -> None:
         refused = auth_service.permission_problem(
-            user, get_settings(), required, request.method, open_when_disabled
+            user,
+            get_settings(),
+            required,
+            request.method,
+            open_when_disabled,
+            dict(request.path_params),
         )
         if refused is not None:
             raise ApiError(*refused)
@@ -51,6 +57,10 @@ def require_permission(
     check.required_permissions = tuple(str(p) for p in required)  # type: ignore[attr-defined]
     check.open_when_disabled = open_when_disabled  # type: ignore[attr-defined]
     return check
+
+
+# The example's name for it (#711): ``authorize("alerts:ack")``.
+authorize = require_permission
 
 
 def public() -> None:

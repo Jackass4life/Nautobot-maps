@@ -1,8 +1,10 @@
 """Who may do what (#685): one matrix, the only place a role's rights are written.
 
 Every API route names the permission it needs (``deps.require_permission``); a role
-has a set of them. The API is the only real security: the pages hide what a role
-can't use, from the same matrix, for convenience only.
+has a set of them. A permission is a scope (#711, ``alerts:ack``): a role holds
+scopes, and ``*`` in one stands for any one part (``app/auth/scopes.py``). The API
+is the only real security: the pages hide what a role can't use, from the same
+matrix, for convenience only.
 
 Roles:
 - ``admin``: everything.
@@ -18,34 +20,36 @@ Roles:
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.auth import scopes as scope_rules
+
 
 class Permission(StrEnum):
     # Pages, and the data they read.
-    PAGE_MAP = "page.map"
-    PAGE_BOARD = "page.board"
-    PAGE_WALL = "page.wall"
-    PAGE_AVAILABILITY = "page.availability"
-    PAGE_CIRCUITS = "page.circuits"
-    PAGE_MAINTENANCE = "page.maintenance"
-    ALERTS_HISTORY = "alerts.history"
-    TENANT_STATUS_VIEW = "tenant.status.view"
-    STATUS_LINKS_VIEW = "status.links.view"
-    EXPORT_CSV = "export.csv"
+    PAGE_MAP = "page:map"
+    PAGE_BOARD = "page:board"
+    PAGE_WALL = "page:wall"
+    PAGE_AVAILABILITY = "page:availability"
+    PAGE_CIRCUITS = "page:circuits"
+    PAGE_MAINTENANCE = "page:maintenance"
+    ALERTS_HISTORY = "alerts:history"
+    TENANT_STATUS_VIEW = "tenant:status:view"
+    STATUS_LINKS_VIEW = "status:links:view"
+    EXPORT_CSV = "export:csv"
     # Changes.
-    ALERTS_ACK = "alerts.ack"
-    ALERTS_UNACK = "alerts.unack"
-    ALERTS_CASE = "alerts.case"
-    CRITICALITY_OVERRIDE = "criticality.override"
-    MAINTENANCE_WRITE = "maintenance.write"
-    STATUS_LINKS_MANAGE = "status.links.manage"
+    ALERTS_ACK = "alerts:ack"
+    ALERTS_UNACK = "alerts:unack"
+    ALERTS_CASE = "alerts:case"
+    CRITICALITY_OVERRIDE = "criticality:override"
+    MAINTENANCE_WRITE = "maintenance:write"
+    STATUS_LINKS_MANAGE = "status:links:manage"
     # Integrations' pushes: Alertmanager, device status, LibreNMS (API tokens).
-    ALERTS_INGEST = "alerts.ingest"
+    ALERTS_INGEST = "alerts:ingest"
     # The examples section's items (#572).
-    EXAMPLES_WRITE = "examples.write"
+    EXAMPLES_WRITE = "examples:write"
     ADMIN = "admin"
     # What every signed-in role may read: the top bar, the help pages, the API's
     # description, MCP (whose tools are checked call by call).
-    SESSION_BASIC = "session.basic"
+    SESSION_BASIC = "session:basic"
 
 
 # Routes anyone reaches without signing in (health, metrics, the status page): a
@@ -60,7 +64,13 @@ class RoleDef:
     label: str
     # The page a role opens on.
     landing: str
-    permissions: frozenset[Permission]
+    # What it holds (#711): permissions, or scopes with ``*`` for any one part.
+    scopes: frozenset[str]
+
+    @property
+    def permissions(self) -> frozenset[Permission]:
+        """Every permission one of its scopes covers."""
+        return covered(self.scopes)
 
 
 P = Permission
@@ -80,7 +90,8 @@ VIEWER = frozenset(
 )
 
 ROLES: dict[str, RoleDef] = {
-    "admin": RoleDef("Admin", "/", ALL),
+    # Everything, also permissions added later (#711): any one-, two- or three-part scope.
+    "admin": RoleDef("Admin", "/", frozenset({"*", "*:*", "*:*:*"})),
     "operator": RoleDef("NWO (operator)", "/nwo", ALL - {P.ADMIN}),
     "viewer": RoleDef("Viewer", "/", VIEWER),
     "noc": RoleDef(
@@ -187,12 +198,30 @@ def workspace_path(role: str | None, page: str) -> str | None:
 OLD_ROLES = ("viewer", "operator", "admin")
 
 
+def covered(granted: frozenset[str]) -> frozenset[Permission]:
+    """The permissions *granted* (scopes, maybe with wildcards) covers (#711)."""
+    return frozenset(p for p in Permission if scope_rules.is_scope_covered(p, granted))
+
+
+def role_scopes(role: str) -> frozenset[str]:
+    """*role*'s scopes as written (wildcards kept); none for an unknown role."""
+    found = ROLES.get((role or "").strip().lower())
+    return found.scopes if found else frozenset()
+
+
 def role_permissions(role: str) -> frozenset[Permission]:
     """*role*'s permissions; none for an unknown role (or a status token)."""
     found = ROLES.get((role or "").strip().lower())
     return found.permissions if found else frozenset()
 
 
-def lowest_old_role(permission: Permission) -> str | None:
+def lowest_old_role(permission: str) -> str | None:
     """The lowest of viewer, operator, admin holding *permission*, or None."""
-    return next((role for role in OLD_ROLES if permission in ROLES[role].permissions), None)
+    return next(
+        (
+            role
+            for role in OLD_ROLES
+            if scope_rules.is_scope_covered(permission, ROLES[role].scopes)
+        ),
+        None,
+    )

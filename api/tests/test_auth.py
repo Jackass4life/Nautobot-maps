@@ -54,8 +54,8 @@ def test_disabled_mode_opens_reads_and_the_boards_changes(client, configure):
     }
     # #693: every read and the board's own changes, nothing administrative.
     assert (access["role"], access["label"], access["landing"]) == (None, "Not signed in", "/")
-    assert "alerts.ack" in access["permissions"] and "page.map" in access["permissions"]
-    assert "admin" not in access["permissions"] and "maintenance.write" not in access["permissions"]
+    assert "alerts:ack" in access["permissions"] and "page:map" in access["permissions"]
+    assert "admin" not in access["permissions"] and "maintenance:write" not in access["permissions"]
     assert client.post("/api/v1/items", json={"name": "open"}).status_code == 201
     refused = client.post("/api/v1/tokens", json={"name": "x", "role": "viewer"})
     assert refused.status_code == 403
@@ -104,7 +104,7 @@ def test_headers_from_an_untrusted_peer_are_ignored(header_mode, direct):
     }
     # Anonymous without AUTH_REQUIRE_VIEWER: the viewer's reads (#693), never more.
     assert access["role"] is None and "admin" not in access["permissions"]
-    assert "alerts.ack" not in access["permissions"] and "page.board" in access["permissions"]
+    assert "alerts:ack" not in access["permissions"] and "page:board" in access["permissions"]
     assert (
         direct.post(
             "/api/v1/items", json={"name": "x"}, headers=as_user("mallory", "netadmins")
@@ -144,7 +144,7 @@ def test_writes_need_operator(header_mode, via_proxy):
     assert viewer.status_code == 403
     assert viewer.json() == {
         "error": "Insufficient permissions",
-        "required_permission": "examples.write",
+        "required_permission": "examples:write",
         "required_role": "operator",
         "current_role": "viewer",
     }

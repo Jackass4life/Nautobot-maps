@@ -2,7 +2,7 @@
      "+N" that shows the rest in place; an (i) for a tenant's description. -->
 <script setup lang="ts">
 // A tenant's name opens its status in the app, /tenants/<name> (#695), for
-// those with tenant.status.view; in a new tab so the report stays as it was (#494).
+// those with tenant:status:view; in a new tab so the report stays as it was (#494).
 const props = defineProps<{
   tenants: string[];
   descriptions?: Record<string, string>;
@@ -18,7 +18,7 @@ const shown = computed(() => (all.value ? props.tenants : props.tenants.slice(0,
       <span v-if="index" class="text-muted">,</span>
       <!-- relative: the screen-reader note stays inside a table's scroll box. -->
       <a
-        v-if="can('tenant.status.view')"
+        v-if="can('tenant:status:view')"
         class="tenant-link relative hover:text-primary hover:underline"
         :href="`/tenants/${encodeURIComponent(tenant)}`"
         target="_blank"
