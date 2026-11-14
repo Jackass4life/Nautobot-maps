@@ -32,8 +32,8 @@ MAX_EXPIRY_DAYS = 3650
 LAST_USED_INTERVAL = timedelta(minutes=5)
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
 # A status token's notification addresses (#707): a plain check, the mail server
-# has the last word. No spaces, one @, a dot in the domain.
-EMAIL_PATTERN = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
+# has the last word. One @, a dot inside the domain, none of these characters.
+EMAIL_FORBIDDEN = frozenset(' \t\r\n,;<>"()[]\\')
 MAX_NOTIFY_EMAILS = 10
 MAX_EMAIL_LENGTH = 254
 
@@ -44,6 +44,21 @@ class TokenError(ValueError):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def looks_like_email(address: str) -> bool:
+    """"name@example.com": no regular expression, so no input can make it slow."""
+    local, at, domain = address.partition("@")
+    return bool(
+        at
+        and local
+        and "@" not in domain
+        and ".." not in domain
+        and "." in domain.strip(".")
+        and not domain.startswith(".")
+        and not domain.endswith(".")
+        and not EMAIL_FORBIDDEN.intersection(address)
+    )
 
 
 def notify_emails(value: object) -> str:
@@ -58,7 +73,7 @@ def notify_emails(value: object) -> str:
         address = part.strip()
         if not address:
             continue
-        if len(address) > MAX_EMAIL_LENGTH or not EMAIL_PATTERN.match(address):
+        if len(address) > MAX_EMAIL_LENGTH or not looks_like_email(address):
             raise TokenError(f"notify_email: {address[:60]!r} is not an email address")
         if address.lower() not in (known.lower() for known in found):
             found.append(address)
