@@ -266,7 +266,7 @@ Authorization: Bearer nmt_...
 - Changes made with it are recorded as `token:<name>` (e.g. on cases and maintenance windows).
 - A wrong, expired or revoked token gets **401** on every request except `/healthz` and `/metrics` (always public), so a script notices.
 - Only the token's SHA-256 is stored. The token itself is shown once, when it is created.
-- A token with role `status` belongs to one tenant and opens only that tenant's [status page](status-page.md) (403 everywhere else). Create it with `--role status --tenant "Acme Corp"` or `{"role": "status", "tenant": "Acme Corp"}`.
+- A token with role `status` belongs to one tenant and opens only that tenant's [status page](status-page.md) (403 everywhere else). Create it with `--role status --tenant "Acme Corp"` or `{"role": "status", "tenant": "Acme Corp"}`. It can carry the customer's addresses for [alarm mails](notifications.md#customers) (`--notify-email`, `"notify_email"`); to change them, revoke it and make a new one.
 - Other `Bearer` values (not starting with `nmt_`, e.g. an access token your proxy forwards) are ignored; sign-in then works as without a token.
 
 ### Creating and revoking
@@ -281,7 +281,7 @@ docker compose exec api python -m app token revoke 3
 docker compose exec api python -m app token purge --older-than 90 --dry-run
 ```
 
-On the **Admin** page (☰ → **Admin**, only for admins) the same without a command line: the active tokens newest first (a search past 25), **New token** (name, role, for a status token its tenant picked from Nautobot's, and how long it works) shows the key once with **Copy**, **Revoke** per row (asks once more), and "+N revoked or expired" opens them, with **Purge**. With `AUTH_MODE=disabled` the page is there only with `ALLOW_UNAUTHENTICATED_WRITES=true`, as the routes it uses.
+On the **Admin** page (☰ → **Admin**, only for admins) the same without a command line: the active tokens newest first (a search past 25), **New token** (name, role, for a status token its tenant picked from Nautobot's and its optional notification email, and how long it works) shows the key once with **Copy**, **Revoke** per row (asks once more), and "+N revoked or expired" opens them, with **Purge**. With `AUTH_MODE=disabled` the page is there only with `ALLOW_UNAUTHENTICATED_WRITES=true`, as the routes it uses.
 
 `token list` shows the tokens that work, then "+N revoked or expired (--all to show)"; `--all` lists those too, and `--tenant "Acme Corp"` only that tenant's status tokens.
 

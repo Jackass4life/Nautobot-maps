@@ -140,7 +140,7 @@ Turning it on names **every** monitored device that already has a tenant. Check 
 
 Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name. A link by name (`/status/Acme%20Corp`, the form used by older versions) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database; without it, `/api/v1/status/…` answers 503 and says so.
 
-**On Availability or Customers** (NWO, the operator role, and admins): **Share…** next to a tenant's name shows its link to copy; **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** replaces a link that leaked and **Delete link…** deletes it (each asks once more). Nobody else sees a link, and reading Availability never makes one (#687, #695).
+**On Availability or Customers** (NWO, the operator role, and admins): **Share…** next to a tenant's name shows its link to copy; **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. An optional **Notification email** (several separated by commas) gets a [mail](notifications.md#customers) when one of the tenant's sites goes into alarm or recovers; to change it, revoke the token and make a new link. **Replace link…** replaces a link that leaked and **Delete link…** deletes it (each asks once more). Nobody else sees a link, and reading Availability never makes one (#687, #695).
 
 **On the command line:**
 
@@ -148,12 +148,14 @@ Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 chara
 docker compose exec api python -m app token create acme-status --role status --tenant "Acme Corp" --expires-days 365
 ```
 
+Add `--notify-email "it@acme.example, noc@acme.example"` for the customer's [alarm mails](notifications.md#customers).
+
 It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`. The tenant must be one Nautobot has (as of the last sync; capitals don't matter), and the token keeps Nautobot's spelling: a typo such as `"Acme"` for "Acme Corp" is refused with `no tenant 'Acme' in Nautobot (as of the last sync)`, instead of making a link that shows nothing.
 
 The tenant's page link on its own: `python -m app status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --replace` (or `--new`) replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working). `status-link "Acme Corp" --delete` deletes it, and `status-link --list` lists every tenant's link (#691).
 
 **Through the API** (NWO, the operator role, or admin; #687):
-- `POST /api/v1/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`. Without admin, only status tokens can be made, listed and revoked.
+- `POST /api/v1/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`, and optionally `"notify_email": "it@acme.example"` ([customer mails](notifications.md#customers)). The answer's `status_link` is the tenant's page, `/status/<id>`. Without admin, only status tokens can be made, listed and revoked.
 - `POST /api/v1/status-links/Acme%20Corp` makes the tenant's link (asking again answers the same one): `{"tenant": "Acme Corp", "status_link": "/status/<id>"}`.
 - `GET /api/v1/status-links/Acme%20Corp` reads it (404 when it has none: reading never makes one), `GET /api/v1/status-links` lists every link.
 - `POST /api/v1/status-links/Acme%20Corp/replace` replaces it; `DELETE /api/v1/status-links/Acme%20Corp` deletes it, and every key sent with it stops working at once.

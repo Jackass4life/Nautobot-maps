@@ -1032,8 +1032,8 @@ export interface paths {
         /**
          * Create Token
          * @description Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``
-         *     (viewer, operator, admin, or status with a ``tenant``), optional
-         *     ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
+         *     (viewer, operator, admin, or status with a ``tenant`` and optional
+         *     ``notify_email``, customer addresses for alarm mails), optional ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
          *     status token also answers ``status_link``, its tenant's page.
          */
         post: operations["createToken"];
@@ -2810,6 +2810,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Notify Email
+             * @description A status token's customer addresses for alarm and recovery mails (#707), comma-separated; "" for none.
+             */
+            notify_email: string;
+            /**
              * Prefix
              * @description Its first characters, to recognise it.
              */
@@ -3714,6 +3719,11 @@ export interface components {
             last_used_at: string | null;
             /** Name */
             name: string;
+            /**
+             * Notify Email
+             * @description A status token's customer addresses for alarm and recovery mails (#707), comma-separated; "" for none.
+             */
+            notify_email: string;
             /**
              * Prefix
              * @description Its first characters, to recognise it.
@@ -7172,6 +7182,11 @@ export interface operations {
                     expires_in_days?: number | null;
                     /** Name */
                     name: string;
+                    /**
+                     * Notify Email
+                     * @description Role status only: up to 10 customer addresses, comma-separated, that get a mail when one of the tenant's sites goes into alarm or recovers (#707). Set once: to change them, revoke the token and make a new one.
+                     */
+                    notify_email?: string | null;
                     /**
                      * Role
                      * @description viewer, operator (NWO), admin, noc, customer, or status with a tenant

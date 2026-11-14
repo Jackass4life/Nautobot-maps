@@ -3,6 +3,7 @@
 Nautobot Maps can send a message when a site goes into alarm and when it recovers, so an outage is noticed even when nobody is watching the board. Messages go to **Microsoft Teams**, **email** and/or a **webhook** (for a ticket system, PagerDuty, Opsgenie or your own script).
 
 - **[Using it](#using-it)**: when a message is sent and what it says.
+- **[Customers](#customers)**: a mail to the customer about their own sites.
 - **[Setting it up](#setting-it-up)**: Teams, email, webhook, and a test.
 - **[Details](#details)**: the exact rules, the webhook format, and reliability.
 
@@ -25,6 +26,16 @@ When more than 5 messages are due at once, they are combined into **summaries** 
 ### What a message says
 
 The site, where it is, its customers, the level before and after, why, the down devices (name, IP, role, down since, case), and a link to the board.
+
+## Customers
+
+A customer can get a mail too, about **their own sites only** (#707). Give their addresses when you make their [status link](status-page.md#who-can-see-it): **Share…** → **Notification email** before **Create customer link** (or Admin → **New token**, role `status`). Several addresses are separated by commas, up to 10.
+
+- **When:** the same rules as above (`NOTIFY_MIN_LEVEL`, its tiers, no mail for planned maintenance, summaries in a big outage), for every site that has the token's tenant. `NOTIFY_TENANTS` is for your own channels only and doesn't limit customers.
+- **What it says:** what their status page shows: the site, its address, the customer, the status before and after, and the time, with a link to their status page (with `NOTIFY_BOARD_URL`; without the key, so they open it with the link they were given). Never device names, IPs, cases, reasons or the board. A summary is titled "Your sites: …".
+- **To whom:** each address gets its own mail; no customer sees another's address. One address on several tokens gets one mail.
+- **Needs:** `SMTP_HOST` (and the other `SMTP_*` settings as needed); `NOTIFY_EMAIL_TO` isn't needed.
+- **Changing it:** the addresses can't be edited. Revoke the token and make a new link with the new addresses (the customer gets the new link). A revoked or expired token gets no more mail.
 
 ## Setting it up
 

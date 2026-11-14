@@ -1244,10 +1244,20 @@ def test_share_a_tenants_status_page_from_availability(admin_page, browser):
         assert status.locator(".status-site").count() == 0
     finally:
         customer.close()
-    # A new customer link makes a new page link (other tests open the tenant's).
+    # A new customer link makes a new page link (other tests open the tenant's), this
+    # one with the customer's addresses for alarm mails (#707).
+    page.locator(".share-notify-email input").fill("it@customer.example, noc@customer.example")
     page.locator(".share-create").click()
     page.locator(".share-link input").wait_for()
     assert page.locator(".share-current-link input").input_value() != url.split("#")[0]
+    tokens = page.evaluate(
+        "(t) => fetch('/api/v1/tokens?tenant=' + encodeURIComponent(t)).then((r) => r.json())",
+        tenant,
+    )["tokens"]
+    assert tokens[0]["notify_email"] == "it@customer.example, noc@customer.example"
+    page.goto(f"{BASE_URL}/admin")
+    row = page.locator(f'.token-row[data-name="{tokens[0]["name"]}"]')
+    assert row.locator(".token-notify").inner_text() == "Mails it@customer.example, noc@customer.example"
 
 
 def test_no_administration_without_the_role(page):

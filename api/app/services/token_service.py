@@ -31,6 +31,11 @@ MAX_EXPIRY_DAYS = 3650
 # last_used_at is written at most this often, not on every request.
 LAST_USED_INTERVAL = timedelta(minutes=5)
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
+# A status token's notification addresses (#707): a plain check, the mail server
+# has the last word. No spaces, one @, a dot in the domain.
+EMAIL_PATTERN = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
+MAX_NOTIFY_EMAILS = 10
+MAX_EMAIL_LENGTH = 254
 
 
 class TokenError(ValueError):
@@ -39,6 +44,27 @@ class TokenError(ValueError):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def notify_emails(value: object) -> str:
+    """A status token's notification addresses (#707), checked: "a@x.dk, b@y.dk", or
+    "" for none. Comma-separated (semicolons too), duplicates dropped."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TokenError("notify_email must be text: addresses separated by commas")
+    found: list[str] = []
+    for part in re.split(r"[,;]", value):
+        address = part.strip()
+        if not address:
+            continue
+        if len(address) > MAX_EMAIL_LENGTH or not EMAIL_PATTERN.match(address):
+            raise TokenError(f"notify_email: {address[:60]!r} is not an email address")
+        if address.lower() not in (known.lower() for known in found):
+            found.append(address)
+    if len(found) > MAX_NOTIFY_EMAILS:
+        raise TokenError(f"notify_email: at most {MAX_NOTIFY_EMAILS} addresses")
+    return ", ".join(found)
 
 
 def hash_token(token: str) -> str:
@@ -65,7 +91,8 @@ def _with_state(token: dict, at: datetime) -> dict:
 
 async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
     """Validate *body* (``name``, ``role``, optional ``expires_in_days``; with role
-    ``status``, the ``tenant`` it may see) and store a new token. The result has
+    ``status``, the ``tenant`` it may see and optional ``notify_email``, #707) and
+    store a new token. The result has
     ``token``, the secret: the only time it is available."""
     name = body.get("name")
     if not isinstance(name, str) or not name.strip():
@@ -97,6 +124,10 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
         tenant = found
     elif tenant is not None:
         raise TokenError("tenant is only for role status")
+    # Set once (#707): to change the addresses, revoke the token and make a new one.
+    notify_email = notify_emails(body.get("notify_email"))
+    if notify_email and role != STATUS_ROLE:
+        raise TokenError("notify_email is only for role status")
     days = body.get("expires_in_days")
     current = timeutil.now()
     expires_at = None
@@ -122,6 +153,7 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
             "created_by": created_by,
             "created_at": current,
             "expires_at": expires_at,
+            "notify_email": notify_email,
         },
     )
     if row is None:

@@ -34,6 +34,8 @@ class ApiToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_by: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
     tenant: Mapped[str | None] = mapped_column(Text)
+    # A status token's customer addresses for notifications (#707), comma-separated.
+    notify_email: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
 
 
 class StatusLink(Base):

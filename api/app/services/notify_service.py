@@ -13,7 +13,9 @@ Failures are retried per row with a growing delay and given up after
 once for a channel go out as summaries of at most ``SUMMARY_MAX_EVENTS``.
 
 Channels: a generic JSON webhook (optionally signed), a Microsoft Teams
-Workflows webhook (Adaptive Card) and email (SMTP).  Webhook URLs and SMTP
+Workflows webhook (Adaptive Card) and email (SMTP).  Customers (#707): a status
+token's notification addresses get their own, customer-safe mail about their
+tenant's sites (``customer_email``, one row per address), with SMTP_HOST alone.  Webhook URLs and SMTP
 passwords are secrets: errors are logged and reported without them.
 
 Ported from nautobot_maps/notify.py (#602): only the imports changed.
@@ -48,7 +50,8 @@ LEVEL_LABEL = {
     "critical": "Critical",
     "maintenance": "Maintenance",
 }
-CHANNELS = ("webhook", "teams", "email")
+CHANNELS = ("webhook", "teams", "email", "customer_email")
+CUSTOMER_CHANNEL = "customer_email"
 MAX_ATTEMPTS = 10
 # Delay before attempt n+1 (minutes), capped at the last value.
 RETRY_MINUTES = (1, 2, 5, 10, 15, 30)
@@ -73,6 +76,11 @@ def configured_channels() -> list[str]:
     if settings.NOTIFY_EMAIL_TO and settings.SMTP_HOST:
         channels.append("email")
     return channels
+
+
+def customer_mail_on() -> bool:
+    """Whether customers' addresses (status tokens', #707) can be mailed."""
+    return bool(settings.SMTP_HOST)
 
 
 def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
@@ -181,12 +189,15 @@ async def enqueue_change(
 
     *quiet_recovery*: the level dropped because devices went into
     maintenance (#283), which is planned, not a recovery to announce.
-    Returns how many rows were queued (one per configured channel).
+    Returns how many rows were queued: one per configured channel, and one per
+    customer address (#707).
     """
     channels = configured_channels()
+    if not channels and not customer_mail_on():
+        return 0
     tier = (site or {}).get("tier") or ""
     kind = event_kind(from_level, to_level, tier)
-    if channels and kind is None and site_id and dropped_below_minimum(from_level, to_level, tier):
+    if kind is None and site_id and dropped_below_minimum(from_level, to_level, tier):
         # The alarm went out under another threshold (the site's tier changed
         # since, #293): its end is still a recovery.
         row = (
@@ -197,19 +208,132 @@ async def enqueue_change(
         ).fetchone()
         if row is not None and row["kind"] == "alarm":
             kind = "recovery"
-    if not channels or kind is None or (quiet_recovery and kind == "recovery"):
+    if kind is None or (quiet_recovery and kind == "recovery"):
         return 0
     site = site or {"id": site_id}
-    if not tenant_matches(status.site_tenants(site)):
-        return 0
-    payload = json.dumps(build_event(kind, from_level, to_level, site, changed_at), sort_keys=True)
-    for channel in channels:
-        await conn.execute(
-            "INSERT INTO notification_outbox (channel, kind, site_id, payload_json, created_at, next_attempt_at) "
-            "VALUES (%s, %s, %s, %s, %s::text::timestamptz, %s::text::timestamptz)",
-            (channel, kind, site_id, payload, changed_at, changed_at),
+    queued = 0
+    if channels and tenant_matches(status.site_tenants(site)):
+        payload = json.dumps(
+            build_event(kind, from_level, to_level, site, changed_at), sort_keys=True
         )
-    return len(channels)
+        for channel in channels:
+            await _queue(conn, channel, kind, site_id, payload, changed_at)
+        queued += len(channels)
+    if customer_mail_on():
+        for recipient, payload in await customer_events(
+            conn, kind, from_level, to_level, site, changed_at
+        ):
+            await _queue(conn, CUSTOMER_CHANNEL, kind, site_id, payload, changed_at, recipient)
+            queued += 1
+    return queued
+
+
+async def _queue(
+    conn: aconnection.Connection,
+    channel: str,
+    kind: str,
+    site_id: str,
+    payload: str,
+    changed_at: str,
+    recipient: str = "",
+) -> None:
+    await conn.execute(
+        "INSERT INTO notification_outbox (channel, kind, site_id, payload_json, recipient, "
+        "created_at, next_attempt_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s::text::timestamptz, %s::text::timestamptz)",
+        (channel, kind, site_id, payload, recipient, changed_at, changed_at),
+    )
+
+
+async def customer_events(
+    conn: aconnection.Connection,
+    kind: str,
+    from_level: str,
+    to_level: str,
+    site: dict,
+    changed_at: str,
+) -> list[tuple[str, str]]:
+    """``(address, payload)`` for each customer address to mail about *site* (#707):
+    those of the active status tokens of the site's tenants (case-folded, as the
+    status page matches them), one per address. The payload holds only what the
+    customer's status page shows: no devices, IPs, cases or board."""
+    tenants = {tenant.strip().casefold(): tenant for tenant in status.site_tenants(site)}
+    if not tenants:
+        return []
+    rows = (
+        await conn.execute(
+            "SELECT tenant, notify_email FROM api_tokens WHERE role = 'status' "
+            "AND notify_email <> '' AND revoked_at IS NULL "
+            "AND (expires_at IS NULL OR expires_at > %s)",
+            (_now(),),
+        )
+    ).fetchall()
+    # Each address and the site's tenants it is a customer of.
+    addresses: dict[str, tuple[str, list[str]]] = {}
+    for row in rows:
+        key = (row["tenant"] or "").strip().casefold()
+        if key not in tenants:
+            continue
+        for address in (part.strip() for part in row["notify_email"].split(",")):
+            if not address:
+                continue
+            spelled, its_tenants = addresses.setdefault(address.lower(), (address, []))
+            if tenants[key] not in its_tenants:
+                its_tenants.append(tenants[key])
+    if not addresses:
+        return []
+    links = await _status_links(
+        conn, sorted({t.casefold() for _, ts in addresses.values() for t in ts})
+    )
+    found = []
+    for spelled, its_tenants in addresses.values():
+        event = customer_event(kind, from_level, to_level, site, changed_at, its_tenants, links)
+        found.append((spelled, json.dumps(event, sort_keys=True)))
+    return found
+
+
+async def _status_links(conn: aconnection.Connection, keys: list[str]) -> dict[str, str]:
+    """Each case-folded tenant's status page address, when it has a link and
+    NOTIFY_BOARD_URL says where the app is."""
+    if not settings.NOTIFY_BOARD_URL or not keys:
+        return {}
+    rows = (
+        await conn.execute(
+            "SELECT tenant_key, link_id FROM status_links WHERE tenant_key = ANY(%s)", (keys,)
+        )
+    ).fetchall()
+    return {
+        row["tenant_key"]: f"{settings.NOTIFY_BOARD_URL}/status/{row['link_id']}" for row in rows
+    }
+
+
+def customer_event(
+    kind: str,
+    from_level: str,
+    to_level: str,
+    site: dict,
+    changed_at: str,
+    tenants: list[str],
+    links: dict[str, str],
+) -> dict:
+    """A customer mail's content (#707): the site, the change and the status page."""
+    site_id = site.get("id") or ""
+    return {
+        "id": hashlib.sha256(
+            f"{site_id}|{changed_at}|{from_level}|{to_level}".encode()
+        ).hexdigest()[:32],
+        "type": kind,
+        "changed_at": changed_at,
+        "level": to_level,
+        "previous_level": from_level,
+        "site": {
+            "id": site_id,
+            "name": site.get("name") or "",
+            "address": status.site_address(site),
+        },
+        "tenants": tenants,
+        "status_pages": [links[t.casefold()] for t in tenants if t.casefold() in links],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +461,53 @@ def summary_lines(events: list[dict]) -> list[str]:
     return lines
 
 
+def customer_title(event: dict) -> str:
+    site = event["site"]["name"] or event["site"]["id"]
+    level = LEVEL_LABEL.get(event["level"], event["level"])
+    if event["type"] == "recovery":
+        return f"✅ {site} recovered (now {level})"
+    return f"🔴 {site} is {level}"
+
+
+def customer_lines(event: dict) -> list[str]:
+    """A customer mail's body (#707): what their status page shows, nothing internal."""
+    lines = [f"Site: {event['site']['name'] or event['site']['id']}"]
+    if event["site"]["address"]:
+        lines.append(f"Address: {event['site']['address']}")
+    if event["tenants"]:
+        lines.append(f"Customer: {', '.join(event['tenants'])}")
+    lines.append(
+        f"Status: {LEVEL_LABEL.get(event['previous_level'], event['previous_level'])} → "
+        f"{LEVEL_LABEL.get(event['level'], event['level'])}"
+    )
+    lines.append(f"Time: {readable_time(event['changed_at'])}")
+    lines += _status_page_lines(event["status_pages"])
+    return lines
+
+
+def customer_summary_title(events: list[dict]) -> str:
+    return summary_title(events).replace("Nautobot Maps: ", "Your sites: ", 1)
+
+
+def customer_summary_lines(events: list[dict]) -> list[str]:
+    lines = []
+    for event in events:
+        site = event["site"]["name"] or event["site"]["id"]
+        level = LEVEL_LABEL.get(event["level"], event["level"])
+        mark = "✅" if event["type"] == "recovery" else "🔴"
+        lines.append(f"{mark} {site}: {level} ({readable_time(event['changed_at'])})")
+    pages = sorted({page for event in events for page in event["status_pages"]})
+    return lines + _status_page_lines(pages)
+
+
+def _status_page_lines(pages: list[str]) -> list[str]:
+    # The key isn't stored, so the link is without it: the customer's own link opens it.
+    if not pages:
+        return []
+    label = "Status page" if len(pages) == 1 else "Status pages"
+    return [f"{label} (open it with the link you were given): {', '.join(pages)}"]
+
+
 # ---------------------------------------------------------------------------
 # Channels
 # ---------------------------------------------------------------------------
@@ -419,11 +590,12 @@ def send_teams(heading: str, lines: list[str], url: str, kind: str) -> None:
     _post_json(settings.NOTIFY_TEAMS_WEBHOOK_URL, body, {})
 
 
-def send_email(heading: str, lines: list[str]) -> None:
+def send_email(heading: str, lines: list[str], to: str = "") -> None:
+    """To NOTIFY_EMAIL_TO, or to *to* alone (a customer, #707: never with others)."""
     message = EmailMessage()
     message["Subject"] = heading
     message["From"] = settings.SMTP_FROM or settings.SMTP_USERNAME or "nautobot-maps@localhost"
-    message["To"] = ", ".join(settings.NOTIFY_EMAIL_TO)
+    message["To"] = to or ", ".join(settings.NOTIFY_EMAIL_TO)
     message.set_content("\n".join(lines))
     message.add_alternative(
         f"<h3>{html.escape(heading)}</h3>"
@@ -443,8 +615,17 @@ def send_email(heading: str, lines: list[str]) -> None:
         raise SendError(type(exc).__name__) from None
 
 
-def deliver(channel: str, events: list[dict]) -> None:
-    """Send one message (or one summary for several events) on *channel*."""
+def deliver(channel: str, events: list[dict], recipient: str = "") -> None:
+    """Send one message (or one summary for several events) on *channel*; a customer
+    mail to *recipient*."""
+    if channel == CUSTOMER_CHANNEL:
+        if not recipient:
+            raise SendError("no recipient")
+        if len(events) == 1:
+            send_email(customer_title(events[0]), customer_lines(events[0]), recipient)
+        else:
+            send_email(customer_summary_title(events), customer_summary_lines(events), recipient)
+        return
     if len(events) == 1:
         heading, lines = title(events[0]), detail_lines(events[0])
         kind, url = events[0]["type"], events[0]["board_url"]
@@ -497,7 +678,7 @@ async def _send_channel(conn: aconnection.Connection, channel: str) -> int:
     async with conn.transaction():
         rows = (
             await conn.execute(
-                "SELECT id, payload_json, attempts FROM notification_outbox "
+                "SELECT id, payload_json, attempts, recipient FROM notification_outbox "
                 "WHERE channel = %s AND status = 'pending' AND next_attempt_at <= %s "
                 "ORDER BY id FOR UPDATE SKIP LOCKED",
                 (channel, now),
@@ -505,22 +686,28 @@ async def _send_channel(conn: aconnection.Connection, channel: str) -> int:
         ).fetchall()
         if not rows:
             return 0
-        # A burst (e.g. a wide outage) goes out as summaries, not one message per
-        # site, each small enough for the channel.
-        if len(rows) > settings.NOTIFY_SUMMARY_THRESHOLD:
-            batches = [
-                rows[start : start + SUMMARY_MAX_EVENTS]
-                for start in range(0, len(rows), SUMMARY_MAX_EVENTS)
-            ]
-        else:
-            batches = [[row] for row in rows]
+        # Each recipient on its own (customers, #707; one group for the others).
+        by_recipient: dict[str, list] = {}
+        for row in rows:
+            by_recipient.setdefault(row["recipient"], []).append(row)
+        batches = []
+        for recipient, its_rows in by_recipient.items():
+            # A burst (e.g. a wide outage) goes out as summaries, not one message per
+            # site, each small enough for the channel.
+            if len(its_rows) > settings.NOTIFY_SUMMARY_THRESHOLD:
+                batches += [
+                    (recipient, its_rows[start : start + SUMMARY_MAX_EVENTS])
+                    for start in range(0, len(its_rows), SUMMARY_MAX_EVENTS)
+                ]
+            else:
+                batches += [(recipient, [row]) for row in its_rows]
         sent = 0
-        for batch_rows in batches:
+        for recipient, batch_rows in batches:
             batch = [json.loads(row["payload_json"]) for row in batch_rows]
             ids = [row["id"] for row in batch_rows]
             try:
                 # Sent from a thread: SMTP and the posts are blocking calls.
-                await asyncio.to_thread(deliver, channel, batch)
+                await asyncio.to_thread(deliver, channel, batch, recipient)
             except Exception as exc:
                 error = str(exc) if isinstance(exc, SendError) else type(exc).__name__
                 logger.warning(

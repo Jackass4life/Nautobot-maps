@@ -198,8 +198,8 @@ See [notifications](notifications.md). Each channel is on when its setting is fi
 | `NOTIFY_WEBHOOK_URL` | — | Webhook: JSON `POST` to this URL |
 | `NOTIFY_WEBHOOK_SECRET` | — | Signs the webhook body (`X-Nautobot-Maps-Signature: sha256=…`) |
 | `NOTIFY_TEAMS_WEBHOOK_URL` | — | Microsoft Teams Workflows webhook URL |
-| `NOTIFY_EMAIL_TO` | — | Email recipients (comma-separated); needs `SMTP_HOST` |
-| `SMTP_HOST` / `SMTP_PORT` | — / `587` | Mail server |
+| `NOTIFY_EMAIL_TO` | — | Your own email recipients (comma-separated); needs `SMTP_HOST`. Customers' addresses are set on their status tokens ([customer mails](notifications.md#customers)) |
+| `SMTP_HOST` / `SMTP_PORT` | — / `587` | Mail server; also turns on [customer mails](notifications.md#customers) |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | — | Login; none for an internal relay |
 | `SMTP_FROM` | `SMTP_USERNAME`, else `nautobot-maps@localhost` | Sender address |
 | `SMTP_STARTTLS` | `true` | Encrypt the connection with STARTTLS |

@@ -22,6 +22,8 @@ const manage = computed(() => can("status.links.manage"));
 
 const open = ref(false);
 const expiry = ref("365");
+// The customer's addresses for alarm mails (#707), optional; set once with the key.
+const notifyEmail = ref("");
 const busy = ref(false);
 const error = ref("");
 // The link just made, with its key: shown only now.
@@ -87,6 +89,7 @@ async function createLink() {
               name: statusTokenName(props.tenant, new Date(), extra),
               role: "status",
               tenant: props.tenant,
+              ...(notifyEmail.value.trim() ? { notify_email: notifyEmail.value.trim() } : {}),
               ...expiryBody(expiry.value),
             } as never,
           }),
@@ -101,6 +104,7 @@ async function createLink() {
     if (!token.status_link)
       throw new Error("The token was made, but its link could not be read: try again");
     made.value = shareUrl(window.location.origin, token.status_link, token.token);
+    notifyEmail.value = "";
     current.value = shareUrl(window.location.origin, token.status_link, "");
     deleted.value = "";
   } catch (err) {
@@ -202,6 +206,21 @@ onBeforeUnmount(() => clearTimeout(confirmTimer));
             <p class="text-muted"
               >A link for the customer, with a key of its own. It works until it expires or you
               revoke it.</p
+            >
+            <UInput
+              v-model="notifyEmail"
+              class="share-notify-email w-full"
+              size="sm"
+              type="text"
+              inputmode="email"
+              autocomplete="off"
+              placeholder="Notification email (optional)"
+              aria-label="Notification email, optional: addresses separated by commas"
+              aria-describedby="share-notify-hint"
+            />
+            <p id="share-notify-hint" class="text-xs text-muted"
+              >Mailed when one of {{ tenant }}'s sites goes into alarm or recovers; several
+              separated by commas. To change it, revoke the key and make a new link.</p
             >
             <div class="flex items-center gap-2">
               <USelect

@@ -106,8 +106,16 @@ async function purge() {
 }
 
 // A new token.
+const NOTIFY_EMAIL_HINT =
+  "Optional, comma-separated: mailed when one of the tenant's sites goes into alarm or recovers. To change it, revoke the token and make a new one.";
 const creating = ref(false);
-const form = reactive({ name: "", role: "operator" as Role, tenant: "", expiry: "365" });
+const form = reactive({
+  name: "",
+  role: "operator" as Role,
+  tenant: "",
+  notifyEmail: "",
+  expiry: "365",
+});
 const formError = ref("");
 const created = shallowRef<NewToken | null>(null);
 const announce = ref("");
@@ -161,13 +169,22 @@ async function create() {
           name: form.name.trim(),
           role: form.role,
           ...(form.role === "status" ? { tenant: form.tenant } : {}),
+          ...(form.role === "status" && form.notifyEmail.trim()
+            ? { notify_email: form.notifyEmail.trim() }
+            : {}),
           ...expiryBody(form.expiry),
         } as never,
       }),
     )) as { token: NewToken };
     created.value = answer.token;
     creating.value = false;
-    Object.assign(form, { name: "", role: "operator", tenant: "", expiry: "365" });
+    Object.assign(form, {
+      name: "",
+      role: "operator",
+      tenant: "",
+      notifyEmail: "",
+      expiry: "365",
+    });
     await load();
   } catch (err) {
     formError.value = errorMessage(err);
@@ -302,6 +319,22 @@ const STATE_CLASS: Record<string, string> = {
           placeholder="Pick a tenant"
         />
       </UFormField>
+      <!-- The customer's addresses for alarm mails (#707); set once. -->
+      <UFormField
+        v-if="form.role === 'status'"
+        label="Notification email"
+        :hint="NOTIFY_EMAIL_HINT"
+        class="sm:col-span-2"
+      >
+        <UInput
+          v-model="form.notifyEmail"
+          class="token-notify-email w-full"
+          type="text"
+          inputmode="email"
+          autocomplete="off"
+          placeholder="it@customer.example, noc@customer.example"
+        />
+      </UFormField>
       <UFormField label="Works for">
         <USelect v-model="form.expiry" class="token-expiry w-full" :items="EXPIRY_CHOICES" />
       </UFormField>
@@ -359,6 +392,9 @@ const STATE_CLASS: Record<string, string> = {
             <td class="px-4 py-2">
               {{ token.role
               }}<span v-if="token.tenant" class="text-muted"> · {{ token.tenant }}</span>
+              <span v-if="token.notify_email" class="token-notify block text-xs text-muted"
+                >Mails {{ token.notify_email }}</span
+              >
               <UBadge
                 v-if="token.state !== 'active'"
                 class="ml-1"

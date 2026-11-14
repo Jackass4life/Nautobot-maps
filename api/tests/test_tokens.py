@@ -96,6 +96,19 @@ class TestTokens:
             ({"name": "ok", "role": "viewer", "tenant": "Acme"}, "tenant is only for role status"),
             ({"name": "ok", "role": "status"}, "tenant is required for role status"),
             ({"name": "ok", "role": "status", "tenant": "Acme"}, "no tenant 'Acme' in Nautobot"),
+            # #707: a status token's addresses only, each one checked.
+            ({"name": "ok", "role": "viewer", "notify_email": "a@b.dk"}, "notify_email is only"),
+            ({"name": "ok", "role": "viewer", "notify_email": 5}, "notify_email must be text"),
+            ({"name": "ok", "role": "viewer", "notify_email": "a@b.dk x"}, "notify_email: 'a@b"),
+            ({"name": "ok", "role": "viewer", "notify_email": "nobody"}, "notify_email: 'nobody'"),
+            (
+                {
+                    "name": "ok",
+                    "role": "viewer",
+                    "notify_email": ",".join(f"{n}@b.dk" for n in range(11)),
+                },
+                "notify_email: at most 10",
+            ),
         ],
     )
     def test_validation(self, clock, body, message):
@@ -325,6 +338,24 @@ class TestApi:
             "tokens"
         ]
         assert [t["name"] for t in tenant_only] == ["acme"]
+
+    def test_a_status_token_with_notification_addresses(self, client, clock):
+        """#707: kept as given, tidied (spaces, ";", duplicates), listed with the token."""
+        acme_in_nautobot()
+        admin = make("bootstrap", "admin")["token"]
+        body = {
+            "name": "acme",
+            "role": "status",
+            "tenant": "Acme",
+            "notify_email": " it@acme.example; ops@acme.example,IT@acme.example ,",
+        }
+        created = client.post("/api/v1/tokens", json=body, headers=bearer(admin)).json()["token"]
+        assert created["notify_email"] == "it@acme.example, ops@acme.example"
+        listing = client.get("/api/v1/tokens", headers=bearer(admin)).json()["tokens"]
+        assert {t["name"]: t["notify_email"] for t in listing} == {
+            "acme": "it@acme.example, ops@acme.example",
+            "bootstrap": "",
+        }
 
 
 class TestStatusLinkFailure:

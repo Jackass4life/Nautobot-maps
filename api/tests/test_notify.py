@@ -489,3 +489,77 @@ class TestTestEndpoint:
             resp.get_json()["error"]
             == "NOTIFY_EMAIL_TO is set, but SMTP_HOST is not: email needs a mail server"
         )
+
+
+class TestCustomerMail:
+    """A status token's addresses get a customer-safe mail about its tenant's sites (#707)."""
+
+    @pytest.fixture
+    def smtp_only(self, channels, monkeypatch):
+        """Mail on, no NOC channel: customers' mails need SMTP_HOST alone."""
+        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")
+        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
+        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        return channels
+
+    @staticmethod
+    def token(name, tenant, emails, revoked=False, expires="2027-01-01T00:00:00Z"):
+        adb.sql(
+            "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, notify_email, "
+            "expires_at, revoked_at) VALUES (%s, %s, 'nmt_x', 'status', %s, %s, %s, %s)",
+            (name, f"hash-{name}", tenant, emails, expires, NOW if revoked else None),
+        )
+
+    def test_only_the_active_tokens_of_the_sites_tenants(self, smtp_only):
+        self.token("acme", "ACME", "it@acme.example, ops@acme.example")
+        self.token("acme-2", "acme", "IT@acme.example")  # the same address: one mail
+        self.token("old", "Acme", "old@acme.example", revoked=True)
+        self.token("gone", "Acme", "gone@acme.example", expires="2026-01-01T00:00:00Z")
+        self.token("other", "Globex", "it@globex.example")
+        self.token("quiet", "Acme", "")
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        rows = outbox()
+        assert {row["channel"] for row in rows} == {"customer_email"}
+        assert sorted(row["recipient"] for row in rows) == ["it@acme.example", "ops@acme.example"]
+
+    def test_noc_tenant_filter_is_not_the_customers(self, channels, monkeypatch):
+        monkeypatch.setattr(settings, "NOTIFY_TENANTS", {"other"})
+        self.token("acme", "Acme", "it@acme.example")
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        assert [row["channel"] for row in outbox()] == ["customer_email"]
+
+    def test_nothing_without_smtp(self, monkeypatch):
+        monkeypatch.setattr(timeutil, "iso_utc_now", lambda: NOW)
+        self.token("acme", "Acme", "it@acme.example")
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        assert outbox() == []
+
+    def test_the_mail_is_customer_safe(self, smtp_only):
+        self.token("acme", "Acme", "it@acme.example, ops@acme.example")
+        adb.sql("INSERT INTO status_links (tenant_key, link_id) VALUES ('acme', 'lnk123')")
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        assert asyncio.run(notify.send_pending()) == 2
+        mails = sorted(smtp_only["mails"], key=lambda mail: mail["To"])
+        assert [mail["To"] for mail in mails] == ["it@acme.example", "ops@acme.example"]
+        mail = mails[0]
+        assert mail["Subject"] == "🔴 Aarhus HQ is Critical"
+        body = mail.get_body(("plain",)).get_content()
+        assert "Havnegade 1" in body and "Customer: Acme" in body and "OK → Critical" in body
+        assert "https://maps.example.com/status/lnk123" in body
+        for internal in ("core01", "10.0.0.1", "INC-7", "/alerts", "Core device", "EMEA"):
+            assert internal not in body, internal
+        payload = outbox()[0]["payload_json"]
+        assert "10.0.0.1" not in payload and "core01" not in payload
+
+    def test_the_recovery_and_a_burst_per_address(self, smtp_only, monkeypatch):
+        self.token("acme", "Acme", "it@acme.example")
+        self.token("globex", "Globex", "it@globex.example")
+        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 2)
+        sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(3)}
+        sites["loc-g"] = site("loc-g", "Globex HQ", tenants=("Globex",))
+        change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
+        assert asyncio.run(notify.send_pending()) == 4
+        by_to = {mail["To"]: mail for mail in smtp_only["mails"]}
+        assert by_to["it@acme.example"]["Subject"] == "Your sites: 3 sites in alarm"
+        assert by_to["it@globex.example"]["Subject"] == "🔴 Globex HQ is Critical"
+        assert "Site 0" not in by_to["it@globex.example"].get_body(("plain",)).get_content()
