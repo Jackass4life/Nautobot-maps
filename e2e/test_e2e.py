@@ -1270,7 +1270,7 @@ def test_no_administration_without_the_role(page):
 # --- Each role's workspace (#697) ---------------------------------------------------
 
 ROLE_TOKENS = {
-    "dov": "E2E_DOV_TOKEN",
+    "noc": "E2E_NOC_TOKEN",
     "customer": "E2E_CUSTOMER_TOKEN",
     "operator": "E2E_OPERATOR_TOKEN",
 }
@@ -1287,7 +1287,7 @@ def as_role(page, role: str):
 @pytest.mark.parametrize(
     ("role", "landing", "shows"),
     [
-        ("dov", "/dov", ".wall-view"),
+        ("noc", "/noc", ".wall-view"),
         ("customer", "/customer", ".avail-card"),
         ("operator", "/nwo", "#map"),
     ],
@@ -1298,9 +1298,9 @@ def test_each_role_opens_on_its_workspace(page, role, landing, shows):
     page.goto(f"{BASE_URL}/")
     page.wait_for_url(f"{BASE_URL}{landing}")
     page.locator(shows).first.wait_for()
-    if role == "dov":
+    if role == "noc":
         # The wall has no menu: the board's.
-        page.goto(f"{BASE_URL}/dov/board")
+        page.goto(f"{BASE_URL}/noc/board")
         page.locator("table tbody tr").first.wait_for()
     open_menu(page)
     hrefs = page.locator(".app-nav-link").evaluate_all("links => links.map(a => a.getAttribute('href'))")
@@ -1311,16 +1311,16 @@ def test_each_role_opens_on_its_workspace(page, role, landing, shows):
 def test_a_flat_address_opens_in_the_workspace(page):
     """A bookmark or another page's link (/alerts?tenant=…) opens the same page in the
     role's workspace, the scope kept; another role's workspace too."""
-    page = as_role(page, "dov")
+    page = as_role(page, "noc")
     tenant = next(t for row in api("/api/v1/alerts")["alerts"] for t in row.get("tenants") or [])
     query = urllib.parse.urlencode({"tenant": tenant})
     page.goto(f"{BASE_URL}/alerts?{query}")
-    page.wait_for_url(f"{BASE_URL}/dov/board?{query}")
+    page.wait_for_url(f"{BASE_URL}/noc/board?{query}")
     page.locator("table tbody tr").first.wait_for()
     page.goto(f"{BASE_URL}/alerts?view=wall")
-    page.wait_for_url(f"{BASE_URL}/dov")
+    page.wait_for_url(f"{BASE_URL}/noc")
     page.goto(f"{BASE_URL}/customer")
-    page.wait_for_url(f"{BASE_URL}/dov/availability")
+    page.wait_for_url(f"{BASE_URL}/noc/availability")
     page.locator(".avail-card").first.wait_for()
 
 

@@ -79,7 +79,7 @@ export default defineNuxtConfig({
   // page route with it.
   nitro: { prerender: { routes: ["/200.html"] } },
   hooks: {
-    // Each role's workspace (#697): the same page files at /customer, /dov, /nwo;
+    // Each role's workspace (#697): the same page files at /customer, /noc, /nwo;
     // the wall is the board's page with meta.view.
     "pages:extend"(pages) {
       for (const route of workspaceRoutes()) {

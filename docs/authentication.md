@@ -18,7 +18,7 @@ Who can open the app, and who can change things in it. The app has no login scre
 |---|---|
 | **viewer** | Look: the map, the board, availability |
 | **customer** (account managers) | Availability and each customer's status, read only; never a status link |
-| **dov** | The wall view, the board, availability and maintenance (read only); acknowledge and add cases |
+| **noc** | The wall view, the board, availability and maintenance (read only); acknowledge and add cases |
 | **operator** (NWO) | Everything but administration: also maintenance, criticality, history, and customers' status links and their keys |
 | **admin** | Everything: also API tokens, test notifications, the wireless check |
 
@@ -27,11 +27,13 @@ Who can open the app, and who can change things in it. The app has no login scre
 | Role | Opens on | Its pages |
 |---|---|---|
 | customer | `/customer` (Availability) | `/customer/tenants`: Customers, each opening its status |
-| dov | `/dov` (the wall view) | `/dov/board`, `/dov/availability`, `/dov/maintenance` |
+| noc | `/noc` (the wall view) | `/noc/board`, `/noc/availability`, `/noc/maintenance` |
 | operator (NWO) | `/nwo` (the map) | `/nwo/wall`, `/nwo/board`, `/nwo/availability`, `/nwo/maintenance`, `/nwo/circuits`, `/nwo/tenants` |
 | viewer, admin | `/` (the map) | the usual addresses: `/alerts`, `/availability`, … (admins also `/admin`) |
 
-**Which role for whom:** the NOC on duty → `dov` (or `operator` for those who also plan maintenance and send customers their links); account managers → `customer`; a wall screen → an [API token](#api-tokens) with role `dov`.
+**Which role for whom:** the NOC on duty → `noc` (or `operator` for those who also plan maintenance and send customers their links); account managers → `customer`; a wall screen → an [API token](#api-tokens) with role `noc`.
+
+**Was DOV:** until 0.5.1 the `noc` role was called `dov`. The old names still work: `AUTH_DOV_GROUPS` (read when `AUTH_NOC_GROUPS` is empty; the log warns), `/dov…` addresses (they open `/noc…`) and `token create --role dov`; tokens made with role `dov` become `noc` when the app migrates its database at start. Rename `AUTH_DOV_GROUPS` to `AUTH_NOC_GROUPS` when you can.
 
 **Scripts and tools** (LibreNMS, Alertmanager, MCP) use an [API token](#api-tokens) instead of a login.
 
@@ -54,7 +56,7 @@ AUTH_HEADER_GROUPS=X-Forwarded-Groups
 AUTH_VIEWER_GROUPS=noc
 AUTH_OPERATOR_GROUPS=nautobot-operators
 AUTH_ADMIN_GROUPS=nautobot-admins
-AUTH_DOV_GROUPS=noc-dov
+AUTH_NOC_GROUPS=noc-duty
 AUTH_CUSTOMER_GROUPS=account-managers
 ```
 
@@ -64,15 +66,15 @@ AUTH_CUSTOMER_GROUPS=account-managers
 |---|---|
 | `viewer` | Open the map, the board and the read APIs, when `AUTH_REQUIRE_VIEWER=true` (otherwise they are open to everyone) |
 | `customer` | Availability (and its CSV) and each tenant's status in the app (`GET /api/v1/tenants/<tenant>/status`), read only; never a status link |
-| `dov` | The wall view, the board with its history, availability and maintenance (read only); acknowledge, remove an acknowledgement, add cases |
+| `noc` | The wall view, the board with its history, availability and maintenance (read only); acknowledge, remove an acknowledgement, add cases |
 | `operator` (NWO) | Everything but administration: also maintenance windows, criticality overrides, alert history, and customers' status page links (`/api/v1/status-links/…`) with their status tokens |
 | `admin` | Everything an operator can, send test notifications (`POST /api/v1/notifications/test`), manage every API token and check the wireless controllers (`POST /api/v1/wireless/check`) |
 
-A user has one role: the first of **admin, operator, dov, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them.
+A user has one role: the first of **admin, operator, noc, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them.
 
 The pages follow the role: the menu lists only the pages it can open, and each page shows only the buttons the role may use (#695). `GET /api/v1/me` and the pages' configuration say, in `access`, the role, its label, the page it opens on, its pages and its permissions (#693).
 
-Customers, DOV and NWO each have their own addresses (`/customer`, `/dov`, `/nwo`, [above](#in-short); #697). Their menu links stay there, and the old addresses still work: a bookmark or a link such as `/alerts?tenant=Acme` opens the same page in the role's workspace, `/dov/board?tenant=Acme`. A page that isn't part of the role's workspace opens its start page, with a note. Viewers and admins keep the usual addresses. All of this is convenience only: every API route checks the permission itself.
+Customers, NOC and NWO each have their own addresses (`/customer`, `/noc`, `/nwo`, [above](#in-short); #697). Their menu links stay there, and the old addresses still work: a bookmark or a link such as `/alerts?tenant=Acme` opens the same page in the role's workspace, `/noc/board?tenant=Acme`. A page that isn't part of the role's workspace opens its start page, with a note. Viewers and admins keep the usual addresses. All of this is convenience only: every API route checks the permission itself.
 
 See who gets what, from the running app:
 
@@ -273,7 +275,7 @@ On the command line (this is how the first admin token is made):
 
 ```sh
 docker compose exec api python -m app token create librenms --role operator --expires-days 365
-docker compose exec api python -m app token create wall-screen --role dov   # also customer; nwo = operator
+docker compose exec api python -m app token create wall-screen --role noc   # also customer; nwo = operator
 docker compose exec api python -m app token list
 docker compose exec api python -m app token revoke 3
 docker compose exec api python -m app token purge --older-than 90 --dry-run

@@ -140,17 +140,17 @@ class TestRoles:
     """``python -m app roles`` (#691): who may do what, and which groups give it."""
 
     def test_every_role_its_permissions_and_groups(self, configure, capsys):
-        configure(AUTH_DOV_GROUPS="noc-dov", AUTH_CUSTOMER_GROUPS="KAM", AUTH_OPERATOR_GROUPS="")
+        configure(AUTH_NOC_GROUPS="noc-duty", AUTH_CUSTOMER_GROUPS="KAM", AUTH_OPERATOR_GROUPS="")
         assert cli.main(["roles"]) == 0
         out = capsys.readouterr().out
-        for role in ("admin", "operator", "dov", "customer", "viewer"):
+        for role in ("admin", "operator", "noc", "customer", "viewer"):
             assert f"\n{role} (" in "\n" + out, role
-        assert "groups: noc-dov" in out and "groups: kam" in out
+        assert "groups: noc-duty" in out and "groups: kam" in out
         assert "operator (NWO (operator)), opens /nwo; groups: no groups set" in out
         assert "  criticality.override" in out and "  tenant.status.view" in out
 
     def test_the_role_some_groups_give(self, configure, capsys):
-        configure(AUTH_DOV_GROUPS="noc-dov", AUTH_CUSTOMER_GROUPS="kam", AUTH_VIEWER_GROUPS="staff")
+        configure(AUTH_NOC_GROUPS="noc", AUTH_CUSTOMER_GROUPS="kam", AUTH_VIEWER_GROUPS="staff")
         assert cli.main(["roles", "--groups", "staff,KAM"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("customer (Customer), opens /customer")
@@ -190,8 +190,8 @@ class TestStatusLinkFlags:
             cli.main(["status-link", "Acme Corp", "--replace", "--delete"])
 
     def test_new_token_roles(self, pg_database, clock, capsys):
-        for role in ("dov", "customer", "nwo"):
+        for role in ("noc", "customer", "nwo", "dov"):
             assert cli.main(["token", "create", f"t-{role}", "--role", role]) == 0
             secret = capsys.readouterr().out.strip()
-            expected = "operator" if role == "nwo" else role
+            expected = {"nwo": "operator", "dov": "noc"}.get(role, role)
             assert verify(secret)["role"] == expected, role

@@ -229,7 +229,7 @@ def status_page(browser, base, token, out):
 
 
 # The name each role's key has, shown in the top bar as the user's.
-ROLE_NAMES = {"customer": "account-manager", "dov": "noc-dov", "operator": "noc-nwo"}
+ROLE_NAMES = {"customer": "account-manager", "noc": "noc-duty", "operator": "noc-nwo"}
 
 
 def role_token(base, token, role):
@@ -248,7 +248,7 @@ def role_token(base, token, role):
 # Each role's own pages (#697): (role, page, what shows it has loaded, file).
 WORKSPACES = [
     ("customer", "/customer", "table tbody tr", "customer-workspace"),
-    ("dov", "/dov/board", "#alerts-table-body tr", "dov-board"),
+    ("noc", "/noc/board", "#alerts-table-body tr", "noc-board"),
     ("operator", "/nwo/tenants", ".tenant-row", "customers"),
 ]
 
@@ -271,8 +271,8 @@ def workspaces(browser, base, token, out):
                 row = page.locator(f'.tenant-row[data-name="{STATUS_TENANT}"]')
                 row.locator(".share-status").click()
                 page.wait_for_selector(".share-copy-link, .share-none", timeout=20000)
-            elif role == "dov":
-                # A row's ⋯: what DOV may do (acknowledge, history), no maintenance.
+            elif role == "noc":
+                # A row's ⋯: what NOC may do (acknowledge, history), no maintenance.
                 page.locator("#alerts-table-body .row-menu-btn").first.click()
                 page.wait_for_selector("[role=menuitem]", timeout=20000)
             page.wait_for_timeout(1000)

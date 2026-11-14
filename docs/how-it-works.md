@@ -133,7 +133,7 @@ The top bar's freshness dot reads what the scheduler records once a minute (`GET
 | Maintenance | `/maintenance` |
 | Customers | `/tenants`; a customer's status in the app `/tenants/<name>` |
 | Tenant status | `/status/<id>` (a random link per tenant) |
-| Each role's own pages | `/customer`, `/dov`, `/nwo` and their pages ([roles](authentication.md#in-short)); the addresses above lead there |
+| Each role's own pages | `/customer`, `/noc`, `/nwo` and their pages ([roles](authentication.md#in-short)); the addresses above lead there |
 | Admin | `/admin` *(admins only)* |
 | Documentation | `/help` |
 | API | `/api/docs`, the OpenAPI spec at `/api/openapi.json`. The old `/docs` and `/openapi.json` redirect there for good (301) |
