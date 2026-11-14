@@ -5,6 +5,18 @@
         "additionalProperties": false,
         "description": "What the caller may do (#693), from the permission matrix: the pages show and\nhide by it; the API checks every route itself.",
         "properties": {
+          "identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The identity it signed in as (#715); null without one (a token, or a role from groups).",
+            "title": "Identity"
+          },
           "label": {
             "description": "The role as people call it, e.g. \"NWO (operator)\".",
             "title": "Label",
@@ -42,6 +54,14 @@
             ],
             "description": "customer, noc, viewer, operator (NWO) or admin; null when not signed in.",
             "title": "Role"
+          },
+          "roles": {
+            "description": "Every role it has, the highest first (an identity may have several, #715).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
           }
         },
         "required": [
@@ -2270,6 +2290,97 @@
           "tz"
         ],
         "title": "HistoryPeriod",
+        "type": "object"
+      },
+      "Identities": {
+        "additionalProperties": false,
+        "properties": {
+          "identities": {
+            "description": "By name.",
+            "items": {
+              "$ref": "#/components/schemas/IdentityDto"
+            },
+            "title": "Identities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "identities"
+        ],
+        "title": "Identities",
+        "type": "object"
+      },
+      "IdentityAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/IdentityDto"
+          }
+        },
+        "required": [
+          "identity"
+        ],
+        "title": "IdentityAnswer",
+        "type": "object"
+      },
+      "IdentityDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "description": "The name: it can no longer sign in as an identity.",
+            "title": "Deleted",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "IdentityDeleted",
+        "type": "object"
+      },
+      "IdentityDto": {
+        "additionalProperties": false,
+        "description": "A person the app knows by the user name a sign-in gives.",
+        "properties": {
+          "common_name": {
+            "description": "Their name as people know it; \"\" when not set.",
+            "title": "Common Name",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "roles": {
+            "description": "Their roles, the highest first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "scopes": {
+            "description": "Scopes of their own, besides their roles'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "unique_name": {
+            "description": "The user name a sign-in gives, lowercase.",
+            "title": "Unique Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unique_name",
+          "common_name",
+          "description",
+          "roles",
+          "scopes"
+        ],
+        "title": "IdentityDto",
         "type": "object"
       },
       "Incident": {
@@ -7793,6 +7904,631 @@
         "summary": "One documentation page: its title and HTML, and the list of guides.",
         "tags": [
           "Documentation"
+        ]
+      }
+    },
+    "/api/v1/identities": {
+      "get": {
+        "description": "Who may sign in: each identity, its roles and own scopes.",
+        "operationId": "listIdentities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Identities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "List Identities",
+        "tags": [
+          "Administration"
+        ]
+      },
+      "post": {
+        "description": "A person who may sign in, by the user name the sign-in gives, with ``roles``\nand own ``scopes``; ``common_name`` and ``description`` optional.",
+        "operationId": "createIdentity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A new identity (#715).",
+                "properties": {
+                  "common_name": {
+                    "default": "",
+                    "title": "Common Name",
+                    "type": "string"
+                  },
+                  "description": {
+                    "default": "",
+                    "title": "Description",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The user name the sign-in gives (the proxy's).",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "roles": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Roles",
+                    "type": "array"
+                  },
+                  "scopes": {
+                    "description": "e.g. maintenance:write",
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Scopes",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "IdentityCreate",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "Create Identity",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/identities/{name}": {
+      "delete": {
+        "description": "The identity goes: with AUTH_GROUP_ROLES=false the person can no longer sign\nin; otherwise their groups decide again.",
+        "operationId": "deleteIdentity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete Identity",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/identities/{name}/roles": {
+      "post": {
+        "description": "Give the identity a role (``{\"role\": \"noc\"}``).",
+        "operationId": "addIdentityRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "title": "Role",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "title": "IdentityRole",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Add Identity Role",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/identities/{name}/roles/{role}": {
+      "delete": {
+        "description": "Take a role from the identity.",
+        "operationId": "removeIdentityRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Remove Identity Role",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/identities/{name}/scopes": {
+      "post": {
+        "description": "Give the identity a scope of its own (``{\"scope\": \"maintenance:write\"}``).",
+        "operationId": "addIdentityScope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "scope": {
+                    "description": "e.g. alerts:ack, alerts:*",
+                    "title": "Scope",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scope"
+                ],
+                "title": "IdentityScope",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Add Identity Scope",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/identities/{name}/scopes/{scope}": {
+      "delete": {
+        "description": "Take a scope of its own from the identity.",
+        "operationId": "removeIdentityScope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scope",
+            "required": true,
+            "schema": {
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Remove Identity Scope",
+        "tags": [
+          "Administration"
         ]
       }
     },

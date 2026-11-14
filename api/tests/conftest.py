@@ -189,8 +189,10 @@ def default_roles(monkeypatch):
     own (#713): a request's refresh would query in the middle of tests that count
     connections. tests/test_roles.py reads them on purpose (``role_service.forget``)."""
     from app.auth import permissions
-    from app.services import role_service
+    from app.services import identity_service, role_service
 
+    # Identities (#715) read afresh in each test.
+    identity_service.forget()
     permissions.ROLES.clear()
     permissions.ROLES.update(permissions.DEFAULT_ROLES)
     monkeypatch.setattr(role_service, "CACHE_SECONDS", float("inf"))

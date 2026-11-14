@@ -454,6 +454,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Identities
+         * @description Who may sign in: each identity, its roles and own scopes.
+         */
+        get: operations["listIdentities"];
+        put?: never;
+        /**
+         * Create Identity
+         * @description A person who may sign in, by the user name the sign-in gives, with ``roles``
+         *     and own ``scopes``; ``common_name`` and ``description`` optional.
+         */
+        post: operations["createIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Identity
+         * @description The identity goes: with AUTH_GROUP_ROLES=false the person can no longer sign
+         *     in; otherwise their groups decide again.
+         */
+        delete: operations["deleteIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{name}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Identity Role
+         * @description Give the identity a role (``{"role": "noc"}``).
+         */
+        post: operations["addIdentityRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{name}/roles/{role}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Identity Role
+         * @description Take a role from the identity.
+         */
+        delete: operations["removeIdentityRole"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{name}/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Identity Scope
+         * @description Give the identity a scope of its own (``{"scope": "maintenance:write"}``).
+         */
+        post: operations["addIdentityScope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{name}/scopes/{scope}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Identity Scope
+         * @description Take a scope of its own from the identity.
+         */
+        delete: operations["removeIdentityScope"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/items": {
         parameters: {
             query?: never;
@@ -1281,6 +1407,11 @@ export interface components {
          */
         Access: {
             /**
+             * Identity
+             * @description The identity it signed in as (#715); null without one (a token, or a role from groups).
+             */
+            identity?: string | null;
+            /**
              * Label
              * @description The role as people call it, e.g. "NWO (operator)".
              */
@@ -1305,6 +1436,11 @@ export interface components {
              * @description customer, noc, viewer, operator (NWO) or admin; null when not signed in.
              */
             role: string | null;
+            /**
+             * Roles
+             * @description Every role it has, the highest first (an identity may have several, #715).
+             */
+            roles?: string[];
         };
         /** AckChanged */
         AckChanged: {
@@ -2259,6 +2395,54 @@ export interface components {
              * @example Europe/Copenhagen
              */
             tz: string;
+        };
+        /** Identities */
+        Identities: {
+            /**
+             * Identities
+             * @description By name.
+             */
+            identities: components["schemas"]["IdentityDto"][];
+        };
+        /** IdentityAnswer */
+        IdentityAnswer: {
+            identity: components["schemas"]["IdentityDto"];
+        };
+        /** IdentityDeleted */
+        IdentityDeleted: {
+            /**
+             * Deleted
+             * @description The name: it can no longer sign in as an identity.
+             */
+            deleted: string;
+        };
+        /**
+         * IdentityDto
+         * @description A person the app knows by the user name a sign-in gives.
+         */
+        IdentityDto: {
+            /**
+             * Common Name
+             * @description Their name as people know it; "" when not set.
+             */
+            common_name: string;
+            /** Description */
+            description: string;
+            /**
+             * Roles
+             * @description Their roles, the highest first.
+             */
+            roles: string[];
+            /**
+             * Scopes
+             * @description Scopes of their own, besides their roles'.
+             */
+            scopes: string[];
+            /**
+             * Unique Name
+             * @description The user name a sign-in gives, lowercase.
+             */
+            unique_name: string;
         };
         /** Incident */
         Incident: {
@@ -5225,6 +5409,538 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": "No such guide"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listIdentities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Identities"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Common Name
+                     * @default
+                     */
+                    common_name?: string;
+                    /**
+                     * Description
+                     * @default
+                     */
+                    description?: string;
+                    /**
+                     * Name
+                     * @description The user name the sign-in gives (the proxy's).
+                     */
+                    name: string;
+                    /** Roles */
+                    roles?: string[];
+                    /**
+                     * Scopes
+                     * @description e.g. maintenance:write
+                     */
+                    scopes?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityAnswer"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityDeleted"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    addIdentityRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Role */
+                    role: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityAnswer"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    removeIdentityRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityAnswer"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    addIdentityScope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Scope
+                     * @description e.g. alerts:ack, alerts:*
+                     */
+                    scope: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityAnswer"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    removeIdentityScope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                scope: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityAnswer"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not found"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

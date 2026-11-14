@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+- **Identities** (#715): people the app knows by the user name the sign-in proxy sends, with one or more roles and scopes of their own, managed with `python -m app identity create|list|delete|add-role|remove-role|add-scope|remove-scope` or `/api/v1/identities` (admin). Someone with an identity gets their roles' and own permissions, whatever their groups. Without one, `AUTH_GROUP_ROLES=true` (the default) gives the role their groups give, as before, and logs the name once; `AUTH_GROUP_ROLES=false` gives no access. `access` in `/api/v1/me` and page-config gains `roles` and `identity`
+
 ### Changed
 - **Roles are kept in the database** (#713): the five roles and their scopes are now in the app's database (new tables `roles`, `permissions`, and `identities` for what comes next), seeded with today's roles when the database is migrated. Who may do what is unchanged. A change there reaches every worker within 30 seconds; if the roles can't be read, the last ones read (or the built-in five) are used
 - **Permissions are scopes** (#711): `alerts.ack` is now `alerts:ack`, `status.links.view` is `status:links:view` and so on, in `GET /api/v1/me` (`access.permissions`) and in a refusal's `required_permission`. A role can hold `*` for any one part (`alerts:*`); the admin role holds `*`, `*:*` and `*:*:*`. Who may do what is unchanged. The first step towards signing in with AD and roles kept in the database

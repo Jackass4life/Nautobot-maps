@@ -485,6 +485,9 @@ class Settings(BaseSettings):
     auth_customer_groups: CsvSet = frozenset()
     # Reads need at least the viewer role too (otherwise reads are public).
     auth_require_viewer: Flag(False) = False
+    # Someone signed in without an identity (#715): a role from AUTH_*_GROUPS as before
+    # (true), or no access (false: set it once everyone has an identity).
+    auth_group_roles: Flag(True) = True
     # Identity headers count only from these peer addresses (CSV of CIDRs) and, when
     # AUTH_PROXY_SECRET is set, only with it in X-Auth-Proxy-Secret.
     auth_trusted_proxies: Annotated[
