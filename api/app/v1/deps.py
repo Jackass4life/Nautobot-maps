@@ -109,7 +109,7 @@ def workspace_pages(  # type: ignore[no-untyped-def]
     router, page: str, endpoint, *required: permissions.Permission, suffix: str = ""
 ):
     """*endpoint* (a page's shell) also at *page*'s address in each role's workspace
-    (#697: /customer, /dov, /nwo), with the same permission; *suffix*: more of the
+    (#697: /customer, /noc, /nwo), with the same permission; *suffix*: more of the
     path (``/{tenant:path}``). Any role with the permission may open it there."""
     for role, (prefix, paths) in permissions.WORKSPACES.items():
         if page not in paths:

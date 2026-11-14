@@ -1,12 +1,12 @@
-// Each role's own addresses (#697): customer, DOV and NWO (operator) have a
+// Each role's own addresses (#697): customer, NOC and NWO (operator) have a
 // workspace; viewer and admin keep the flat addresses. The same table as the API's
 // permissions.WORKSPACES (api/tests/test_permissions.py checks): each page's path in
 // the workspace, "" = the workspace itself (the role's landing page). A tenant's
 // status is at <workspace>/tenants/<name> with "tenants".
 export const WORKSPACES = {
   customer: { prefix: "/customer", pages: { availability: "", tenants: "/tenants" } },
-  dov: {
-    prefix: "/dov",
+  noc: {
+    prefix: "/noc",
     pages: {
       wall: "",
       alerts: "/board",
@@ -92,11 +92,15 @@ export function pageAt(path: string, wall: boolean): { page: WorkspacePage; rest
   return null;
 }
 
-// "/DOV/Board" → "/dov/board": the workspace and its page lowercase, a tenant's name
-// as it is.
+// A workspace's old address (#703: the NOC role was DOV until 0.5.1).
+const RENAMED: Record<string, string> = { "/dov": "/noc" };
+
+// "/NOC/Board" → "/noc/board": the workspace and its page lowercase, a tenant's name
+// as it is; an old workspace address ("/dov/board") at its new one.
 function lowercased(path: string): string {
   const parts = path.split("/");
-  const prefix = `/${(parts[1] ?? "").toLowerCase()}`;
+  const asked = `/${(parts[1] ?? "").toLowerCase()}`;
+  const prefix = RENAMED[asked] ?? asked;
   const workspace = Object.values(TABLE).find((w) => w.prefix === prefix);
   if (!workspace) return path;
   parts[1] = prefix.slice(1);
@@ -113,7 +117,7 @@ export type WorkspaceMove = { to: string; refused: boolean } | null;
  * page; a page (flat or in another workspace) to the same page in its own workspace,
  * the query kept; a page outside its workspace to its landing page (*refused*: say
  * so). Roles without a workspace (viewer, admin, nobody signed in) go from a
- * workspace address to the flat one. A capitalised workspace ("/DOV") goes lowercase.
+ * workspace address to the flat one. A capitalised workspace ("/NOC") goes lowercase.
  * Convenience only: the API checks every page and request.
  */
 export function workspaceMove(

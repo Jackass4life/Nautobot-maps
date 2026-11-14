@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- **The DOV role is now NOC** (#703): role `noc` (label NOC), pages at `/noc` (the wall; `/noc/board`, `/noc/availability`, `/noc/maintenance`) and its groups in `AUTH_NOC_GROUPS`. The old names keep working: `AUTH_DOV_GROUPS` is read when `AUTH_NOC_GROUPS` is empty (with a warning in the log), `/dov…` addresses open the same page at `/noc…`, API tokens made with role `dov` become `noc` when the database is migrated, and `token create --role dov` makes a `noc` token
+
 ## [0.5.0] - 2026-11-14
 
 ### Added
