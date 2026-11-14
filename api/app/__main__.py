@@ -7,7 +7,8 @@ and the current app's schema version when the database has one.
 
 ``contract-docs`` prints docs/data-contract.md from the data contract (#309).
 
-``token create NAME --role operator [--expires-days N]``, ``token list
+``token create NAME --role operator [--expires-days N]`` (role status: ``--tenant
+T [--notify-email ADDRESSES]``, #707), ``token list
 [--all] [--tenant TENANT]``, ``token revoke ID`` and ``token purge
 [--older-than DAYS] [--dry-run]`` manage API tokens (#297, #528); ``create``
 is how the first admin token is made (``docker compose exec app python -m
@@ -62,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument(
         "--tenant", default=None, help="with --role status: the tenant whose status page it opens"
+    )
+    create.add_argument(
+        "--notify-email",
+        default=None,
+        help="with --role status: customer addresses (comma-separated) mailed when one of "
+        "the tenant's sites goes into alarm or recovers (#707)",
     )
     create.add_argument("--expires-days", type=int, default=None)
     listing = token_commands.add_parser("list", help="list the active tokens (never the secrets)")
@@ -196,6 +203,8 @@ def roles_command(args) -> int:
 
 def print_token(token: dict) -> None:
     tenant = f"  (tenant {token['tenant']})" if token.get("tenant") else ""
+    if token.get("notify_email"):
+        tenant += f"  mails {token['notify_email']}"
     ended = f"  revoked {token['revoked_at']}" if token.get("revoked_at") else ""
     print(
         f"{token['id']:>4}  {token['prefix']}…  {token['role']:<8}  {token['state']:<7}  "
@@ -210,6 +219,8 @@ async def token_command(db, args) -> int:
         body = {"name": args.name, "role": role, "expires_in_days": args.expires_days}
         if args.tenant is not None:
             body["tenant"] = args.tenant
+        if args.notify_email is not None:
+            body["notify_email"] = args.notify_email
         try:
             token = await tokens.create(db, body, "cli")
         except tokens.TokenError as exc:

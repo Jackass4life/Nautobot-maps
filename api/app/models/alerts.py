@@ -236,6 +236,8 @@ class NotificationOutbox(Base):
         DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A customer mail's one address (#707); "" for the configured channels.
+    recipient: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
 
 
 class DeviceCriticalityOverride(Base):

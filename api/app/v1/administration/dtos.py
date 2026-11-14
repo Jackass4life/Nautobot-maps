@@ -65,6 +65,10 @@ class Token(common.Answer):
     prefix: str = Field(description="Its first characters, to recognise it.")
     role: Literal["viewer", "operator", "admin", "noc", "customer", "status"]
     tenant: str | None = Field(description="The tenant a status token opens.")
+    notify_email: str = Field(
+        description="A status token's customer addresses for alarm and recovery mails "
+        '(#707), comma-separated; "" for none.'
+    )
     created_by: str
     created_at: str
     expires_at: str | None
@@ -114,6 +118,12 @@ class TokenCreate(BaseModel):
         description="viewer, operator (NWO), admin, noc, customer, or status with a tenant"
     )
     tenant: str | None = None
+    notify_email: str | None = Field(
+        None,
+        description="Role status only: up to 10 customer addresses, comma-separated, that "
+        "get a mail when one of the tenant's sites goes into alarm or recovers (#707). "
+        "Set once: to change them, revoke the token and make a new one.",
+    )
     expires_in_days: int | None = None
 
 

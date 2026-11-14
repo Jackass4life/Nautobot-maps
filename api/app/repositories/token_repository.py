@@ -12,7 +12,7 @@ from app.utils import timeutil
 
 COLUMNS = (
     "id, name, prefix, role, tenant, created_by, created_at, expires_at, last_used_at, "
-    "revoked_at, revoked_by"
+    "revoked_at, revoked_by, notify_email"
 )
 # When it stopped working: revoked or expired, whichever came first.
 INACTIVE = (
@@ -35,8 +35,9 @@ async def insert(db: AsyncSession, values: dict) -> dict | None:
         await _rows(
             db,
             "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, created_by, "
-            "created_at, expires_at) VALUES (:name, :token_hash, :prefix, :role, :tenant, "
-            ":created_by, :created_at, :expires_at) ON CONFLICT (name) DO NOTHING "
+            "created_at, expires_at, notify_email) VALUES (:name, :token_hash, :prefix, :role, "
+            ":tenant, :created_by, :created_at, :expires_at, :notify_email) "
+            "ON CONFLICT (name) DO NOTHING "
             f"RETURNING {COLUMNS}",
             values,
         )

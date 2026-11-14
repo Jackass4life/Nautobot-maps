@@ -3516,6 +3516,11 @@
             "title": "Name",
             "type": "string"
           },
+          "notify_email": {
+            "description": "A status token's customer addresses for alarm and recovery mails (#707), comma-separated; \"\" for none.",
+            "title": "Notify Email",
+            "type": "string"
+          },
           "prefix": {
             "description": "Its first characters, to recognise it.",
             "title": "Prefix",
@@ -3593,6 +3598,7 @@
           "prefix",
           "role",
           "tenant",
+          "notify_email",
           "created_by",
           "created_at",
           "expires_at",
@@ -5463,6 +5469,11 @@
             "title": "Name",
             "type": "string"
           },
+          "notify_email": {
+            "description": "A status token's customer addresses for alarm and recovery mails (#707), comma-separated; \"\" for none.",
+            "title": "Notify Email",
+            "type": "string"
+          },
           "prefix": {
             "description": "Its first characters, to recognise it.",
             "title": "Prefix",
@@ -5523,6 +5534,7 @@
           "prefix",
           "role",
           "tenant",
+          "notify_email",
           "created_by",
           "created_at",
           "expires_at",
@@ -10252,7 +10264,7 @@
         ]
       },
       "post": {
-        "description": "Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``\n(viewer, operator, admin, or status with a ``tenant``), optional\n``expires_in_days``. The answer's ``token`` is the secret, shown this once. A\nstatus token also answers ``status_link``, its tenant's page.",
+        "description": "Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``\n(viewer, operator, admin, or status with a ``tenant`` and optional\n``notify_email``, customer addresses for alarm mails), optional ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A\nstatus token also answers ``status_link``, its tenant's page.",
         "operationId": "createToken",
         "requestBody": {
           "content": {
@@ -10274,6 +10286,18 @@
                   "name": {
                     "title": "Name",
                     "type": "string"
+                  },
+                  "notify_email": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Role status only: up to 10 customer addresses, comma-separated, that get a mail when one of the tenant's sites goes into alarm or recovers (#707). Set once: to change them, revoke the token and make a new one.",
+                    "title": "Notify Email"
                   },
                   "role": {
                     "description": "viewer, operator (NWO), admin, noc, customer, or status with a tenant",

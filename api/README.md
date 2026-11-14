@@ -96,7 +96,7 @@ app python -m app …`); same options, output and exit status:
 | `python -m app migrate` | `python -m app.migrate`: adopt the first app's database, upgrade to head. |
 | `python -m app schema-version` | The database's Alembic revision and this release's head; the first app's schema version when it has one. |
 | `python -m app contract-docs` | `docs/data-contract.md` from the data contract. |
-| `python -m app token create NAME --role ROLE [--tenant T] [--expires-days N]` | A token, printed once (the first admin token is made so). Roles: viewer, operator (`nwo`), admin, noc, customer, status. |
+| `python -m app token create NAME --role ROLE [--tenant T] [--notify-email A,B] [--expires-days N]` | A token, printed once (the first admin token is made so). Roles: viewer, operator (`nwo`), admin, noc, customer, status. A status token can carry customer addresses, mailed when one of the tenant's sites goes into alarm or recovers (#707). |
 | `python -m app token list [--all] [--tenant T]` | The active tokens (`--all`: revoked and expired too), never the secrets. |
 | `python -m app token revoke ID` | Revoke one. |
 | `python -m app token purge [--older-than DAYS] [--dry-run]` | Delete revoked and expired ones for good. |

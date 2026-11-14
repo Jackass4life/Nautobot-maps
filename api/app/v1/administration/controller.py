@@ -263,8 +263,8 @@ async def create_token(
     request: Request, body: Body, db: AsyncDbSession, user: CurrentUserDep
 ) -> JSONResponse:
     """Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``
-    (viewer, operator, admin, or status with a ``tenant``), optional
-    ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
+    (viewer, operator, admin, or status with a ``tenant`` and optional
+    ``notify_email``, customer addresses for alarm mails), optional ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
     status token also answers ``status_link``, its tenant's page."""
     if not isinstance(body, dict):
         raise ApiError({"error": "Expected a JSON object"}, 400)

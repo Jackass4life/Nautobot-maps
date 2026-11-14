@@ -189,6 +189,18 @@ class TestStatusLinkFlags:
         with pytest.raises(SystemExit):
             cli.main(["status-link", "Acme Corp", "--replace", "--delete"])
 
+    def test_a_status_token_with_addresses(self, tenants, clock, capsys):
+        """#707: --notify-email, shown in the list; refused without role status."""
+        args = ["token", "create", "acme", "--role", "status", "--tenant", "Acme Corp"]
+        assert cli.main([*args, "--notify-email", "it@acme.example,ops@acme.example"]) == 0
+        capsys.readouterr()
+        assert cli.main(["token", "list"]) == 0
+        assert "mails it@acme.example, ops@acme.example" in capsys.readouterr().out
+        assert (
+            cli.main(["token", "create", "x", "--role", "viewer", "--notify-email", "a@b.dk"]) == 1
+        )
+        assert "notify_email is only for role status" in capsys.readouterr().err
+
     def test_new_token_roles(self, pg_database, clock, capsys):
         for role in ("noc", "customer", "nwo", "dov"):
             assert cli.main(["token", "create", f"t-{role}", "--role", role]) == 0

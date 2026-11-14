@@ -22,10 +22,12 @@ HEAD = ScriptDirectory.from_config(migrate.alembic_config(TEST_DATABASE_URL)).ge
 SCRATCH = make_url(TEST_DATABASE_URL).database + "_scratch"
 
 
-def test_alembic_builds_the_current_apps_schema():
-    """Column by column, constraint by constraint, index by index (and sequences)."""
-    engine = adb.SyncEngine(TEST_DATABASE_URL)
-    with engine.connect() as conn:
+def test_alembic_builds_the_current_apps_schema(scratch):
+    """The baseline revision, column by column, constraint by constraint, index by
+    index (and sequences); later revisions change the schema from there (#707)."""
+    db, url = scratch
+    command.upgrade(migrate.alembic_config(url), migrate.BASELINE)
+    with db.connect() as conn:
         assert json.loads(json.dumps(conn.run_sync(snapshot))) == SNAPSHOT
 
 
@@ -99,10 +101,15 @@ def test_an_existing_database_is_adopted_with_its_data(scratch):
 
 
 def test_an_empty_database_is_created(scratch):
+    """At head: what the models describe (the baseline is v33, checked above)."""
     db, url = scratch
     assert migrate.migrate(make_url(url)) == "upgrade"
+    assert head(db) == HEAD
     with db.connect() as conn:
-        assert json.loads(json.dumps(conn.run_sync(snapshot))) == SNAPSHOT
+        differences = conn.run_sync(
+            lambda sync: compare_metadata(MigrationContext.configure(sync), Base.metadata)
+        )
+    assert differences == []
 
 
 @pytest.mark.parametrize(
