@@ -22,6 +22,7 @@ from fastapi import Request
 from loguru import logger
 
 from app.auth import permissions
+from app.auth import scopes as scope_rules
 from app.auth.permissions import Permission
 from app.core.settings import Settings
 from app.db import session
@@ -186,17 +187,23 @@ def disabled_mode_allows(method: str, open_when_disabled: bool, settings: Settin
     return method in SAFE_METHODS or open_when_disabled or settings.allow_unauthenticated_writes
 
 
-def granted(user: CurrentUser, settings: Settings) -> frozenset[Permission]:
-    """What this caller may do (#685): a signed-in user's or token's role's permissions.
-    Nobody signed in (or no role) in header mode without AUTH_REQUIRE_VIEWER: the
-    viewer's, which every route without a role check gave anyone before (#592)."""
+def granted_scopes(user: CurrentUser, settings: Settings) -> frozenset[str]:
+    """The scopes this caller holds (#685, #711), wildcards kept: a signed-in user's
+    or token's role's. Nobody signed in (or no role) in header mode without
+    AUTH_REQUIRE_VIEWER: the viewer's, which every route without a role check gave
+    anyone before (#592)."""
     if user.is_authenticated and user.role in permissions.ROLES:
-        return permissions.role_permissions(user.role)
+        return permissions.role_scopes(user.role)
     if user.token or is_status_token(user):
         return frozenset()
     if settings.auth_mode == "header" and not settings.auth_require_viewer:
-        return permissions.role_permissions("viewer")
+        return permissions.role_scopes("viewer")
     return frozenset()
+
+
+def granted(user: CurrentUser, settings: Settings) -> frozenset[Permission]:
+    """The permissions ``granted_scopes`` covers."""
+    return permissions.covered(granted_scopes(user, settings))
 
 
 def effective_permissions(user: CurrentUser, settings: Settings) -> frozenset[Permission]:
@@ -231,13 +238,15 @@ def access(user: CurrentUser, settings: Settings) -> dict:
 def permission_problem(
     user: CurrentUser,
     settings: Settings,
-    required: tuple[Permission, ...],
+    required: tuple[str, ...],
     method: str,
     open_when_disabled: bool = False,
+    params: dict | None = None,
 ) -> Refusal | None:
-    """None when this request may use a route needing one of *required*, else the
-    refusal: 401 nobody signed in, 403 a role without any of them (naming the first,
-    and the lowest of the old roles that has it)."""
+    """None when this request may use a route needing one of *required* (scopes, a
+    ``{name}`` filled in from the path *params*, #711), else the refusal: 401 nobody
+    signed in, 403 a role without any of them (naming the first, and the lowest of
+    the old roles that has it)."""
     # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
     if settings.auth_mode == "disabled" and not user.token:
         if disabled_mode_allows(method, open_when_disabled, settings):
@@ -250,14 +259,16 @@ def permission_problem(
     if settings.auth_mode not in ("disabled", "header"):
         # Startup refuses another value; one set in code answers as the current app.
         return {"error": "Unsupported AUTH_MODE configuration"}, 503
-    if granted(user, settings) & set(required):
+    held = granted_scopes(user, settings)
+    wanted = [scope_rules.fill(str(scope), params or {}) for scope in required]
+    if any(scope_rules.is_scope_covered(scope, held) for scope in wanted):
         return None
     if not user.is_authenticated:
         return {"error": "Authentication required"}, 401
     return {
         "error": "Insufficient permissions",
-        "required_permission": str(required[0]),
-        "required_role": permissions.lowest_old_role(required[0]),
+        "required_permission": wanted[0],
+        "required_role": permissions.lowest_old_role(wanted[0]),
         "current_role": user.role or None,
     }, 403
 

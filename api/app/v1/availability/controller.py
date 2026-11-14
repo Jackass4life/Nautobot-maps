@@ -92,7 +92,7 @@ async def api_availability(period: PeriodQuery):
     down) or ``critical`` (the site at Critical); default
     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
     ``status_links``: each tenant's status page link id (#500), ``/status/<id>``, for
-    those that have one; only with the ``status.links.view`` permission (#687).
+    those that have one; only with the ``status:links:view`` permission (#687).
     """
     async with aconnection.connect() as conn:
         report, error, status = await _availability_report(period, conn)

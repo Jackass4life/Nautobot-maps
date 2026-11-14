@@ -24,7 +24,7 @@
             "type": "array"
           },
           "permissions": {
-            "description": "What the API allows it, e.g. alerts.ack, page.board; with AUTH_MODE=disabled every read and the board's own changes.",
+            "description": "What the API allows it, e.g. alerts:ack, page:board; with AUTH_MODE=disabled every read and the board's own changes.",
             "items": {
               "type": "string"
             },
@@ -1902,7 +1902,7 @@
                 "type": "null"
               }
             ],
-            "description": "The permission it needs (#685): e.g. alerts.ack, admin.",
+            "description": "The permission it needs (#685): e.g. alerts:ack, admin.",
             "title": "Required Permission"
           },
           "required_role": {
@@ -3147,7 +3147,7 @@
           },
           "can_write": {
             "deprecated": true,
-            "description": "Deprecated: alerts.ack in access.permissions.",
+            "description": "Deprecated: alerts:ack in access.permissions.",
             "title": "Can Write",
             "type": "boolean"
           },
@@ -4043,7 +4043,7 @@
                 "type": "null"
               }
             ],
-            "description": "Tenant name to its status page link id: /status/<id> (#500), for the tenants that have one; only with the status.links.view permission (#687), absent otherwise.",
+            "description": "Tenant name to its status page link id: /status/<id> (#500), for the tenants that have one; only with the status:links:view permission (#687), absent otherwise.",
             "title": "Status Links"
           },
           "summary": {
@@ -6972,7 +6972,7 @@
     },
     "/api/v1/availability": {
       "get": {
-        "description": "Query parameters: ``month`` (``2026-10``; default the current month, up\nto now), or ``from`` and ``to`` (``2026-10-03``, both days included, at\nmost 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site\ndown) or ``critical`` (the site at Critical); default\n``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.\n``status_links``: each tenant's status page link id, ``/status/<id>``, for\nthose that have one; only with the ``status.links.view`` permission.",
+        "description": "Query parameters: ``month`` (``2026-10``; default the current month, up\nto now), or ``from`` and ``to`` (``2026-10-03``, both days included, at\nmost 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site\ndown) or ``critical`` (the site at Critical); default\n``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.\n``status_links``: each tenant's status page link id, ``/status/<id>``, for\nthose that have one; only with the ``status:links:view`` permission.",
         "operationId": "getAvailability",
         "parameters": [
           {
@@ -10082,7 +10082,7 @@
     },
     "/api/v1/tenants/{tenant}/status": {
       "get": {
-        "description": "A tenant's status page, by its name (#689), for those signed in with\n``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as\n``/api/v1/status/<id>``, with no link involved, so none is shown or made.\nCapitals don't matter; a tenant Nautobot doesn't have answers 404.",
+        "description": "A tenant's status page, by its name (#689), for those signed in with\n``tenant:status:view`` (customer, viewer, NWO, admin): the same answer as\n``/api/v1/status/<id>``, with no link involved, so none is shown or made.\nCapitals don't matter; a tenant Nautobot doesn't have answers 404.",
         "operationId": "getTenantStatus",
         "parameters": [
           {
@@ -10136,14 +10136,14 @@
             "content": {
               "application/json": {
                 "example": {
-                  "error": "A role without tenant.status.view"
+                  "error": "A role without tenant:status:view"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
               }
             },
-            "description": "A role without tenant.status.view"
+            "description": "A role without tenant:status:view"
           },
           "404": {
             "content": {
@@ -10172,7 +10172,7 @@
             "description": "No board yet, it can't be read, or no database"
           }
         },
-        "summary": "A tenant's status page, by its name, for those signed in with ``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as ``/api/v1/status/<id>``, with no link involved, so none is shown or made. Capitals don't matter; a tenant Nautobot doesn't have answers 404.",
+        "summary": "A tenant's status page, by its name, for those signed in with ``tenant:status:view`` (customer, viewer, NWO, admin): the same answer as ``/api/v1/status/<id>``, with no link involved, so none is shown or made. Capitals don't matter; a tenant Nautobot doesn't have answers 404.",
         "tags": [
           "Status page"
         ]
@@ -10772,7 +10772,7 @@
     },
     "/tenants/{tenant}": {
       "get": {
-        "description": "A tenant's status in the app, by its name (#695), for those with\n``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.",
+        "description": "A tenant's status in the app, by its name (#695), for those with\n``tenant:status:view``; the page reads ``/api/v1/tenants/<name>/status``.",
         "operationId": "getTenantPage",
         "parameters": [
           {
@@ -10795,7 +10795,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "A tenant's status in the app, by its name, for those with ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.",
+        "summary": "A tenant's status in the app, by its name, for those with ``tenant:status:view``; the page reads ``/api/v1/tenants/<name>/status``.",
         "tags": [
           "Status page"
         ]

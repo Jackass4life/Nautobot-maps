@@ -1146,7 +1146,7 @@ class TestStatusTokens:
 
 class TestTenantStatusByName:
     """``GET /api/v1/tenants/<tenant>/status`` (#689): the status page in the app, by
-    the tenant's name, for tenant.status.view; no link id shown or made."""
+    the tenant's name, for tenant:status:view; no link id shown or made."""
 
     @pytest.fixture
     def as_role(self, configure, monkeypatch):  # type: ignore[no-untyped-def]
@@ -1191,7 +1191,7 @@ class TestTenantStatusByName:
         as_role("noc")
         refused = flask_client.get("/api/v1/tenants/Acme%20Corp/status")
         assert refused.status_code == 403
-        assert refused.get_json()["required_permission"] == "tenant.status.view"
+        assert refused.get_json()["required_permission"] == "tenant:status:view"
 
     def test_an_unknown_tenant_and_one_with_a_slash(self, known_tenants, flask_client, board):
         unknown = flask_client.get("/api/v1/tenants/Acme/status")

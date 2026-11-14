@@ -81,9 +81,9 @@ const menu = computed<DropdownMenuItem[]>(() => {
   if (devices.value.length) {
     if (withCase.value.length) {
       const all = withCase.value.every((device) => device.acknowledged);
-      if (all && can("alerts.unack"))
+      if (all && can("alerts:unack"))
         items.push({ label: "Remove ack", class: "unack-btn", onSelect: () => emit("ack", true) });
-      else if (!all && can("alerts.ack"))
+      else if (!all && can("alerts:ack"))
         items.push({
           label: "Acknowledge",
           class: "ack-btn",
@@ -99,17 +99,17 @@ const menu = computed<DropdownMenuItem[]>(() => {
       onSelect: () => emit("copy"),
     });
   }
-  if (canMaintain.value && can("maintenance.write"))
+  if (canMaintain.value && can("maintenance:write"))
     items.push({
       label: "Maint.",
       class: "maint-open-btn",
       title: "Maintenance window",
       onSelect: () => emit("maintenance"),
     });
-  if (can("alerts.history"))
+  if (can("alerts:history"))
     items.push({ label: "History", class: "history-btn", onSelect: () => emit("history") });
   // The site's maintenance history (#353).
-  if (props.item.id && can("page.maintenance"))
+  if (props.item.id && can("page:maintenance"))
     items.push({
       label: "Maint. history",
       class: "maint-history-link",
@@ -147,7 +147,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
         <div class="min-w-0">
           <div class="site-title font-medium text-highlighted">
             <a
-              v-if="!wall && onTheMap(item) && can('page.map')"
+              v-if="!wall && onTheMap(item) && can('page:map')"
               class="site-name hover:underline"
               :href="`/?location_id=${encodeURIComponent(item.id)}`"
               title="Show on the map"
@@ -220,7 +220,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
     <td v-if="!wall" class="col-action">
       <div class="action-row flex items-center justify-end gap-1">
         <UButton
-          v-if="withCase.length && can('alerts.case')"
+          v-if="withCase.length && can('alerts:case')"
           class="case-open-btn whitespace-nowrap"
           size="xs"
           color="primary"

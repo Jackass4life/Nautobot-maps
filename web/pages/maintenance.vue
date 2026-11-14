@@ -436,7 +436,7 @@ function until(ready: () => unknown): Promise<void> {
           </button>
         </span>
         <UButton
-          v-if="can('export.csv')"
+          v-if="can('export:csv')"
           id="maint-history-csv"
           :to="csvHref"
           external
@@ -473,7 +473,7 @@ function until(ready: () => unknown): Promise<void> {
           class="w-full sm:w-56"
         />
         <UButton
-          v-if="!historyView && can('maintenance.write')"
+          v-if="!historyView && can('maintenance:write')"
           id="maint-plan-open"
           icon="i-lucide-calendar-plus"
           :aria-expanded="planOpen"

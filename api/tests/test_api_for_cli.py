@@ -117,7 +117,7 @@ class TestStatusLinks:
         for method, path in paths:
             refused = getattr(flask_client, method)(path, headers=bearer(viewer))
             assert refused.status_code == 403, path
-            assert refused.get_json()["required_permission"].startswith("status.links."), path
+            assert refused.get_json()["required_permission"].startswith("status:links:"), path
         for method, path in paths[1:]:
             unknown = getattr(flask_client, method)(
                 path.replace("Acme%20Corp", "Acme"), headers=bearer(operator)
@@ -352,5 +352,5 @@ def test_a_noc_token_follows_the_matrix(flask_client):
     assert flask_client.get("/api/v1/alerts", headers=bearer(noc)).status_code != 403
     refused = flask_client.post("/api/v1/criticality-overrides", json={}, headers=bearer(noc))
     assert refused.status_code == 403
-    assert refused.get_json()["required_permission"] == "criticality.override"
+    assert refused.get_json()["required_permission"] == "criticality:override"
     assert flask_client.get("/api/v1/tokens", headers=bearer(noc)).status_code == 403

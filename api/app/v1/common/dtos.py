@@ -46,7 +46,7 @@ class Access(Answer):
         "maintenance, circuits, help, docs."
     )
     permissions: list[str] = Field(
-        description="What the API allows it, e.g. alerts.ack, page.board; with "
+        description="What the API allows it, e.g. alerts:ack, page:board; with "
         "AUTH_MODE=disabled every read and the board's own changes."
     )
 

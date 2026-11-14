@@ -1,5 +1,5 @@
 <!-- Customers (#697): every tenant, each opening its status in the app; for NWO and
-     admins (status.links.view) its "Share…" too. At /tenants, /customer/tenants and
+     admins (status:links:view) its "Share…" too. At /tenants, /customer/tenants and
      /nwo/tenants. -->
 <script setup lang="ts">
 import { errorMessage } from "~/utils/format";
@@ -75,7 +75,7 @@ onMounted(async () => {
               >
               <p v-if="tenant.description" class="text-sm text-muted">{{ tenant.description }}</p>
             </div>
-            <StatusLinkControls v-if="can('status.links.view')" :tenant="tenant.name" />
+            <StatusLinkControls v-if="can('status:links:view')" :tenant="tenant.name" />
           </li>
         </ul>
       </UCard>

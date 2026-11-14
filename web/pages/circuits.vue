@@ -114,7 +114,7 @@ onMounted(async () => {
           class="w-full sm:w-96"
         />
         <UButton
-          v-if="can('export.csv')"
+          v-if="can('export:csv')"
           id="circuit-csv"
           to="/api/v1/circuit-mapping.csv"
           external

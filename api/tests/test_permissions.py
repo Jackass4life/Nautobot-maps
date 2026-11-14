@@ -102,7 +102,7 @@ CHANGED = {
     ("/api/v1/tokens", "GET"): "operator",
     ("/api/v1/tokens", "POST"): "operator",
     ("/api/v1/tokens/{token_id}/revoke", "POST"): "operator",
-    # #689: a tenant's status in the app, by its name (tenant.status.view: viewer and up).
+    # #689: a tenant's status in the app, by its name (tenant:status:view: viewer and up).
     ("/api/v1/tenants/{tenant:path}/status", "GET"): None,
     # #695: its page in the app.
     ("/tenants/{tenant:path}", "GET"): None,
@@ -261,7 +261,7 @@ def test_a_refusal_names_the_permission(as_role, client):
     assert refused.status_code == 403
     assert refused.json() == {
         "error": "Insufficient permissions",
-        "required_permission": "criticality.override",
+        "required_permission": "criticality:override",
         "required_role": "operator",
         "current_role": "noc",
     }
@@ -581,7 +581,7 @@ def test_the_web_knows_every_permission():
         pathlib.Path(__file__).resolve().parents[2] / "web" / "composables" / "useCan.ts"
     ).read_text()
     union = source.split("export type Permission =", 1)[1].split(";", 1)[0]
-    assert set(re.findall(r'"([a-z.]+)"', union)) == {str(p) for p in Permission}
+    assert set(re.findall(r'"([a-z:]+)"', union)) == {str(p) for p in Permission}
 
 
 def test_the_old_dov_addresses_open_noc(flask_client):

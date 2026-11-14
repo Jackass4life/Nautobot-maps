@@ -1,6 +1,6 @@
 <!-- A tenant's status (#291; on Nuxt since #463): its sites and their state.
      Shown at a customer's random link /status/<id> (#500) and, in the app, at
-     /tenants/<name> for those with tenant.status.view (#695).  `load` fetches
+     /tenants/<name> for those with tenant:status:view (#695).  `load` fetches
      one answer; the view refreshes it every minute. -->
 <script setup lang="ts">
 import { ApiRequestError } from "~/utils/api";
