@@ -12,17 +12,17 @@ Lets an AI assistant (Claude Code, Claude Desktop, or any MCP client) answer que
 
 With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/) server at `/mcp`, so an AI assistant (Claude Code, Claude Desktop, or any MCP client) can answer questions like "which sites are down and since when?" and add a case to an alarm.
 
-| Tool | What it does | Role when sign-in is on |
+| Tool | What it does | Roles when sign-in is on |
 |---|---|---|
 | `get_alert_board` | Sites with alarms (or one level, `wireless` for only access points down, or all): level, reason, down devices with IP, role and stack, downtime, cases; filter by tenant or text | viewer\* |
 | `get_site` | One site by id or name | viewer\* |
 | `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
 | `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |
 | `get_alert_feed` | Recent changes: devices down/up, level changes; for one tenant or text, only those sites' changes | viewer\* |
-| `get_alert_history` | Past and open incidents, downtime, cases | operator |
-| `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | operator |
+| `get_alert_history` | Past and open incidents, downtime, cases | dov, operator (NWO), admin |
+| `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | dov, operator (NWO), admin |
 
-\*only with `AUTH_REQUIRE_VIEWER=true`.
+\*viewer, dov, operator (NWO) and admin; a role is needed only with `AUTH_REQUIRE_VIEWER=true`. Not the customer role, which has no board ([roles](authentication.md#roles)).
 
 `tenant` and `search` match sites as the board's `?tenant=` / `?q=` link does: the tenant's whole name with case ignored, and the text in the site's name, path, address or country. For `get_alert_feed` the server filters before the limit, so the newest changes asked for are that tenant's, not the whole network's. It counts every stored site, including those `get_alert_board` leaves out unless `include_non_operational` is set, and when no site matches it says so in `note` rather than looking like nothing changed.
 

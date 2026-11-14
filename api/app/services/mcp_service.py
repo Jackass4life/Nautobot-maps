@@ -539,8 +539,8 @@ TOOLS = {
         "handler": tool_get_alert_history,
         "title": "Alert history",
         "description": "Past and open alert incidents per device: when it went down and came back, downtime, "
-        "events and case numbers, newest first. Needs the operator role when sign-in is on."
-        + _UNTRUSTED,
+        "events and case numbers, newest first. Needs the dov, operator (NWO) or admin role when "
+        "sign-in is on." + _UNTRUSTED,
         "inputSchema": _schema(
             {
                 "site_id": {"type": "string"},
@@ -569,7 +569,7 @@ TOOLS = {
         "description": "Attach a case/ticket number to the open alerts of devices at a site, as the board's "
         "+ Case does. Without device_ids: every down device of the site. All or nothing: if any device has no "
         "open alert, nothing changes. Confirm the case number and devices with the user first. Needs the "
-        "operator role when sign-in is on.",
+        "dov, operator (NWO) or admin role when sign-in is on.",
         "inputSchema": _schema(
             {
                 "site_id": {
