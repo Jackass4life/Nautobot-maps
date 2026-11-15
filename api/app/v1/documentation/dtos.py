@@ -12,6 +12,10 @@ class Guide(common.Answer):
     slug: str = Field(examples=["authentication"])
     title: str = Field(examples=["Sign-in and roles"])
     href: str = Field(examples=["/help/authentication"])
+    group: str = Field(
+        examples=["Set up"],
+        description="Its heading in the list (#733): Start, Set up, Use, Connect more, Reference.",
+    )
 
 
 class HelpPage(common.Answer):

@@ -20,14 +20,14 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    ```bash
    pip install --user uv
    (cd api && uv sync)                                  # the API's dependencies, dev tools included
-   (cd web && bun install && bun run generate)          # the pages the API serves
+   (cd web && bun install && bun run generate)          # the pages, for the development server
    ```
 3. **Make** your changes in small, focused commits.
 4. **Test** your changes:
    ```bash
    (cd api && uv run pytest && uv run ruff check . && uv run ruff format --check .)
    (cd web && bun run format:check && bun run lint && bun run type:check && bun run test)
-   uv run --project api ruff check e2e demo scripts deploy   # the files outside api/ and web/
+   uv run --project api ruff check . && uv run --project api ruff format --check .   # the files outside api/ and web/, as CI
    ```
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
    ```bash
@@ -149,12 +149,12 @@ can replace a function where it is defined.
 
 ### The pages (#463, #609)
 
-Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) in `web/`, to static files the API serves; no Node in production.
+Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) in `web/`. In production the `web` image serves them (Nuxt's server on bun, port 3000) and passes the API's paths on to `api`; in development `python run.py` serves the static build (`WEB_BUILD_DIR`). No Node anywhere.
 
 ```bash
 cd web
 bun install         # bun 1.4 (the version in package.json's packageManager)
-bun run generate    # the static build the API serves: web/.output/public
+bun run generate    # the static build the development server serves: web/.output/public
 bun run dev         # or: a dev server on :3000 with live reload; /api/ goes to the API on :8000
 bun run format:check && bun run lint && bun run type:check && bun run test
 ```

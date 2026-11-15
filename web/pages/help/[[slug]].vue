@@ -111,7 +111,15 @@ function onClick(event: MouseEvent) {
         </summary>
         <nav aria-label="Guides" class="px-1.5 pb-2 md:p-0">
           <ul class="space-y-0.5">
-            <li v-for="item in page?.contents ?? []" :key="item.slug">
+            <li v-for="(item, index) in page?.contents ?? []" :key="item.slug">
+              <!-- The guides in the order the app is set up, in groups (#733). -->
+              <p
+                v-if="item.group !== page?.contents[index - 1]?.group"
+                class="help-group px-3 pt-3 pb-1 text-xs font-semibold tracking-wide text-dimmed uppercase"
+                :class="{ 'pt-1': index === 0 }"
+              >
+                {{ item.group }}
+              </p>
               <NuxtLink
                 :to="item.href"
                 class="block rounded-md px-3 py-1.5 text-sm"

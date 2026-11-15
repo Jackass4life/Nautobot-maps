@@ -16,6 +16,22 @@ def test_every_guide_renders_with_a_title(flask_client, frontend_build):
     assert flask_client.get("/api/v1/help/nope").status_code == 404
 
 
+def test_the_guides_in_the_order_the_app_is_set_up():
+    """Grouped (#733); every guide in docs/ is listed, and the README's list
+    follows the same order."""
+    groups = [group for group, _slug, _file in guide.GUIDES]
+    assert list(dict.fromkeys(groups)) == ["Start", "Set up", "Use", "Connect more", "Reference"]
+    # Each group in one run, not split.
+    assert groups == sorted(groups, key=list(dict.fromkeys(groups)).index)
+    assert [item["group"] for item in guide.contents()] == groups
+    docs = {f"docs/{path.name}" for path in (guide.ROOT / "docs").glob("*.md")}
+    assert docs <= set(guide.FILE_BY_SLUG.values())
+    readme = (guide.ROOT / "README.md").read_text(encoding="utf-8")
+    listed = re.findall(r"^\| \[[^]]+\]\((docs/[\w-]+\.md|CONTRIBUTING\.md)\)", readme, re.M)
+    in_order = [file for _slug, file in guide.PAGES if file != "README.md"]
+    assert listed == in_order
+
+
 def test_links_between_the_docs_open_their_page():
     html = guide.page("overview")["html"]
     assert 'href="/help/how-it-works#circuit-mapping"' in html
