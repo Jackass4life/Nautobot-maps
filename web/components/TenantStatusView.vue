@@ -34,24 +34,24 @@ useHead({
 // plans the next (a new key, #527, starts a new one).
 let generation = 0;
 
-// Load the status; whether to try again later (not for a refused one).
-// Undefined when a newer load has started meanwhile.
-async function refresh(mine: number): Promise<boolean | undefined> {
+// Load the status; false when a newer load has started meanwhile.  A refused
+// answer is tried again too (#727): staff's sign-in can be refused once while
+// oauth2-proxy renews it, and the next answer clears the error.
+async function refresh(mine: number): Promise<boolean> {
   try {
     const answer = await props.load();
-    if (mine !== generation) return undefined;
+    if (mine !== generation) return false;
     data.value = answer;
     error.value = "";
     now.value = new Date();
-    return true;
   } catch (err) {
-    if (mine !== generation) return undefined;
+    if (mine !== generation) return false;
     // unwrap() throws ApiRequestError with the answer's status (#613: not ofetch's FetchError).
     const code = err instanceof ApiRequestError ? err.statusCode : 0;
     error.value = errorText(code);
     data.value = null;
-    return code === 0 || code >= 500;
   }
+  return true;
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
