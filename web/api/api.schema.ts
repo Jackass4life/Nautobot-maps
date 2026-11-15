@@ -3233,6 +3233,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Notify After Minutes
+             * @description How long one of the tenant's sites is in alarm before those addresses get the mail (#729), in minutes; null: NOTIFY_CUSTOMER_DELAY_MINUTES.
+             */
+            notify_after_minutes?: number | null;
+            /**
              * Notify Email
              * @description A status token's customer addresses for alarm and recovery mails (#707), comma-separated; "" for none.
              */
@@ -4210,6 +4215,11 @@ export interface components {
             last_used_at: string | null;
             /** Name */
             name: string;
+            /**
+             * Notify After Minutes
+             * @description How long one of the tenant's sites is in alarm before those addresses get the mail (#729), in minutes; null: NOTIFY_CUSTOMER_DELAY_MINUTES.
+             */
+            notify_after_minutes?: number | null;
             /**
              * Notify Email
              * @description A status token's customer addresses for alarm and recovery mails (#707), comma-separated; "" for none.
@@ -8864,6 +8874,11 @@ export interface operations {
                     identity?: string | null;
                     /** Name */
                     name: string;
+                    /**
+                     * Notify After Minutes
+                     * @description With notify_email: how long a site is in alarm before the mail, 0 to 1440 minutes (#729); back up sooner, no mail. Unset: NOTIFY_CUSTOMER_DELAY_MINUTES.
+                     */
+                    notify_after_minutes?: number | null;
                     /**
                      * Notify Email
                      * @description Role status only: up to 10 customer addresses, comma-separated, that get a mail when one of the tenant's sites goes into alarm or recovers (#707). Set once: to change them, revoke the token and make a new one.

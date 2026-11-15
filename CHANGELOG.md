@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+- **Customers' alarm mails wait as long as you choose** (#729): each customer link (status token) can say how long a site must be in alarm before its addresses get the mail: **Share…** → **Mail** (at once, 5 minutes to 2 hours), Admin → New token, or `token create … --notify-after 15` (0–1440 minutes). Back up sooner, and they get nothing. Without a choice, `NOTIFY_CUSTOMER_DELAY_MINUTES` (default 0, at once, as before).
+
+### Changed
+- **One customer alarm mail per outage** (#729): no second alarm mail while a site stays down, even if it gets worse; the next one after it has recovered. The recovery mail goes only to those who got the alarm. Your own channels (Teams, webhook, `NOTIFY_EMAIL_TO`) are unchanged.
+
 ## [0.6.0] - 2026-11-15
 
 ### Added

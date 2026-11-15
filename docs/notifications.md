@@ -32,10 +32,12 @@ The site, where it is, its customers, the level before and after, why, the down 
 A customer can get a mail too, about **their own sites only** (#707). Give their addresses when you make their [status link](status-page.md#who-can-see-it): **Share…** → **Notification email** before **Create customer link** (or Admin → **New token**, role `status`). Several addresses are separated by commas, up to 10.
 
 - **When:** the same rules as above (`NOTIFY_MIN_LEVEL`, its tiers, no mail for planned maintenance, summaries in a big outage), for every site that has the token's tenant. `NOTIFY_TENANTS` is for your own channels only and doesn't limit customers.
+- **After a wait of their own** (#729): choose **Mail** next to the address (at once, after 5, 10, 15 or 30 minutes, 1 or 2 hours), or `--notify-after 15` on the command line (any whole number of minutes up to 1440). The alarm mail goes out only once the site has been in alarm that long; back up (or in planned maintenance) sooner, and the customer gets nothing, not even a recovery. **Default wait** is `NOTIFY_CUSTOMER_DELAY_MINUTES` (0: at once). The mail goes out at the first send after the wait (at least every 30 seconds), and the wait counts from when the app saw the change, so it also depends on how often LibreNMS is read ([when exactly](#when-exactly)).
+- **Once per outage:** one alarm mail while the site is down, also if it gets worse (Medium, then Critical); the next only after it has recovered. The recovery mail goes out at once, and only to those who got the alarm.
 - **What it says:** what their status page shows: the site, its address, the customer, the status before and after, and the time, with a link to their status page (with `NOTIFY_BOARD_URL`; without the key, so they open it with the link they were given). Never device names, IPs, cases, reasons or the board. A summary is titled "Your sites: …".
-- **To whom:** each address gets its own mail; no customer sees another's address. One address on several tokens gets one mail.
+- **To whom:** each address gets its own mail; no customer sees another's address. One address on several tokens gets one mail, after the shortest of their waits.
 - **Needs:** `SMTP_HOST` (and the other `SMTP_*` settings as needed); `NOTIFY_EMAIL_TO` isn't needed.
-- **Changing it:** the addresses can't be edited. Revoke the token and make a new link with the new addresses (the customer gets the new link). A revoked or expired token gets no more mail.
+- **Changing it:** the addresses and the wait can't be edited. Revoke the token and make a new link with the new addresses (the customer gets the new link). A revoked or expired token gets no more mail.
 
 ## Setting it up
 

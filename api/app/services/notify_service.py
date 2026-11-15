@@ -15,7 +15,10 @@ once for a channel go out as summaries of at most ``SUMMARY_MAX_EVENTS``.
 Channels: a generic JSON webhook (optionally signed), a Microsoft Teams
 Workflows webhook (Adaptive Card) and email (SMTP).  Customers (#707): a status
 token's notification addresses get their own, customer-safe mail about their
-tenant's sites (``customer_email``, one row per address), with SMTP_HOST alone.  Webhook URLs and SMTP
+tenant's sites (``customer_email``, one row per address), with SMTP_HOST alone.
+A customer's alarm waits the token's ``notify_after_minutes`` (#729) and is
+cancelled when the site is back first; one alarm per outage, and a recovery only
+after an alarm that went out.  Webhook URLs and SMTP
 passwords are secrets: errors are logged and reported without them.
 
 Ported from nautobot_maps/notify.py (#602): only the imports changed.
@@ -113,6 +116,16 @@ def dropped_below_minimum(from_level: str, to_level: str, tier: str = "") -> boo
     return after < before and before < minimum
 
 
+def in_alarm(level: str, tier: str = "") -> bool:
+    """Whether *level* is at the site's minimum or worse (not maintenance)."""
+    if level == "maintenance":
+        return False
+    minimum = LEVEL_RANK[
+        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
+    ]
+    return LEVEL_RANK.get(level, 0) >= minimum
+
+
 def tenant_matches(tenants: list[str]) -> bool:
     if not settings.NOTIFY_TENANTS:
         return True
@@ -196,6 +209,14 @@ async def enqueue_change(
     if not channels and not customer_mail_on():
         return 0
     tier = (site or {}).get("tier") or ""
+    if site_id and customer_mail_on() and not in_alarm(to_level, tier):
+        # Back up (or in maintenance) before a customer's alarm went out (#729):
+        # it never does, and no recovery follows.
+        await conn.execute(
+            "UPDATE notification_outbox SET status = 'cancelled' WHERE channel = %s "
+            "AND site_id = %s AND kind = 'alarm' AND status = 'pending'",
+            (CUSTOMER_CHANNEL, site_id),
+        )
     kind = event_kind(from_level, to_level, tier)
     if kind is None and site_id and dropped_below_minimum(from_level, to_level, tier):
         # The alarm went out under another threshold (the site's tier changed
@@ -220,12 +241,39 @@ async def enqueue_change(
             await _queue(conn, channel, kind, site_id, payload, changed_at)
         queued += len(channels)
     if customer_mail_on():
-        for recipient, payload in await customer_events(
+        last = await _last_customer_mails(conn, site_id)
+        for recipient, payload, delay in await customer_events(
             conn, kind, from_level, to_level, site, changed_at
         ):
-            await _queue(conn, CUSTOMER_CHANNEL, kind, site_id, payload, changed_at, recipient)
+            before = last.get(recipient.lower())
+            alarm_out = before is not None and before["kind"] == "alarm"
+            if kind == "alarm":
+                # One alarm per outage (#729): not while one waits or went out.
+                if alarm_out and before["status"] in ("pending", "sent"):
+                    continue
+                due = (timeutil.parse_iso_datetime(changed_at) or _now()) + timedelta(minutes=delay)
+            else:
+                # A recovery only for an alarm the customer got.
+                if not (alarm_out and before["status"] == "sent"):
+                    continue
+                due = None
+            await _queue(conn, CUSTOMER_CHANNEL, kind, site_id, payload, changed_at, recipient, due)
             queued += 1
     return queued
+
+
+async def _last_customer_mails(conn: aconnection.Connection, site_id: str) -> dict[str, dict]:
+    """Each address's last customer mail about *site_id* (cancelled ones aside), by
+    lowercase address: its ``kind`` and ``status``."""
+    rows = (
+        await conn.execute(
+            "SELECT DISTINCT ON (lower(recipient)) lower(recipient) AS address, kind, status "
+            "FROM notification_outbox WHERE channel = %s AND site_id = %s "
+            "AND status <> 'cancelled' ORDER BY lower(recipient), id DESC",
+            (CUSTOMER_CHANNEL, site_id),
+        )
+    ).fetchall()
+    return {row["address"]: row for row in rows}
 
 
 async def _queue(
@@ -236,12 +284,22 @@ async def _queue(
     payload: str,
     changed_at: str,
     recipient: str = "",
+    due: datetime | None = None,
 ) -> None:
+    """One message to send from *due* on (default: at once, *changed_at*)."""
     await conn.execute(
         "INSERT INTO notification_outbox (channel, kind, site_id, payload_json, recipient, "
         "created_at, next_attempt_at) "
         "VALUES (%s, %s, %s, %s, %s, %s::text::timestamptz, %s::text::timestamptz)",
-        (channel, kind, site_id, payload, recipient, changed_at, changed_at),
+        (
+            channel,
+            kind,
+            site_id,
+            payload,
+            recipient,
+            changed_at,
+            due.isoformat() if due is not None else changed_at,
+        ),
     )
 
 
@@ -252,43 +310,50 @@ async def customer_events(
     to_level: str,
     site: dict,
     changed_at: str,
-) -> list[tuple[str, str]]:
-    """``(address, payload)`` for each customer address to mail about *site* (#707):
-    those of the active status tokens of the site's tenants (case-folded, as the
-    status page matches them), one per address. The payload holds only what the
-    customer's status page shows: no devices, IPs, cases or board."""
+) -> list[tuple[str, str, int]]:
+    """``(address, payload, minutes)`` for each customer address to mail about *site*
+    (#707): those of the active status tokens of the site's tenants (case-folded, as
+    the status page matches them), one per address, with the shortest wait of its
+    tokens before an alarm (#729). The payload holds only what the customer's status
+    page shows: no devices, IPs, cases or board."""
     tenants = {tenant.strip().casefold(): tenant for tenant in status.site_tenants(site)}
     if not tenants:
         return []
     rows = (
         await conn.execute(
-            "SELECT tenant, notify_email FROM api_tokens WHERE role = 'status' "
+            "SELECT tenant, notify_email, notify_after_minutes FROM api_tokens "
+            "WHERE role = 'status' "
             "AND notify_email <> '' AND revoked_at IS NULL "
             "AND (expires_at IS NULL OR expires_at > %s)",
             (_now(),),
         )
     ).fetchall()
-    # Each address and the site's tenants it is a customer of.
+    # Each address, the site's tenants it is a customer of, and its wait.
     addresses: dict[str, tuple[str, list[str]]] = {}
+    waits: dict[str, int] = {}
     for row in rows:
         key = (row["tenant"] or "").strip().casefold()
         if key not in tenants:
             continue
+        wait = row["notify_after_minutes"]
+        if wait is None:
+            wait = settings.NOTIFY_CUSTOMER_DELAY_MINUTES
         for address in (part.strip() for part in row["notify_email"].split(",")):
             if not address:
                 continue
             spelled, its_tenants = addresses.setdefault(address.lower(), (address, []))
             if tenants[key] not in its_tenants:
                 its_tenants.append(tenants[key])
+            waits[address.lower()] = min(wait, waits.get(address.lower(), wait))
     if not addresses:
         return []
     links = await _status_links(
         conn, sorted({t.casefold() for _, ts in addresses.values() for t in ts})
     )
     found = []
-    for spelled, its_tenants in addresses.values():
+    for lowered, (spelled, its_tenants) in addresses.items():
         event = customer_event(kind, from_level, to_level, site, changed_at, its_tenants, links)
-        found.append((spelled, json.dumps(event, sort_keys=True)))
+        found.append((spelled, json.dumps(event, sort_keys=True), waits[lowered]))
     return found
 
 
@@ -667,7 +732,8 @@ async def send_pending() -> int:
         for channel in CHANNELS:
             sent += await _send_channel(conn, channel)
         await conn.execute(
-            "DELETE FROM notification_outbox WHERE status IN ('sent', 'failed') AND created_at < %s",
+            "DELETE FROM notification_outbox WHERE status IN ('sent', 'failed', 'cancelled') "
+            "AND created_at < %s",
             (_now() - timedelta(days=KEEP_DAYS),),
         )
     return sent

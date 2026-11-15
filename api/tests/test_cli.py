@@ -198,9 +198,13 @@ class TestStatusLinkFlags:
         """#707: --notify-email, shown in the list; refused without role status."""
         args = ["token", "create", "acme", "--role", "status", "--tenant", "Acme Corp"]
         assert cli.main([*args, "--notify-email", "it@acme.example,ops@acme.example"]) == 0
+        args[2] = "acme-later"
+        assert cli.main([*args, "--notify-email", "boss@acme.example", "--notify-after", "30"]) == 0
         capsys.readouterr()
         assert cli.main(["token", "list"]) == 0
-        assert "mails it@acme.example, ops@acme.example" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "mails it@acme.example, ops@acme.example" in out
+        assert "mails boss@acme.example after 30 min" in out
         assert (
             cli.main(["token", "create", "x", "--role", "viewer", "--notify-email", "a@b.dk"]) == 1
         )

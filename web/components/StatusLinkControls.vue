@@ -7,6 +7,8 @@
 import {
   EXPIRY_CHOICES,
   expiryBody,
+  MAIL_AFTER_CHOICES,
+  mailAfterBody,
   randomSuffix,
   shareUrl,
   statusTokenName,
@@ -24,6 +26,8 @@ const open = ref(false);
 const expiry = ref("365");
 // The customer's addresses for alarm mails (#707), optional; set once with the key.
 const notifyEmail = ref("");
+// How long a site is in alarm before that mail (#729).
+const mailAfter = ref("default");
 const busy = ref(false);
 const error = ref("");
 // The link just made, with its key: shown only now.
@@ -89,7 +93,9 @@ async function createLink() {
               name: statusTokenName(props.tenant, new Date(), extra),
               role: "status",
               tenant: props.tenant,
-              ...(notifyEmail.value.trim() ? { notify_email: notifyEmail.value.trim() } : {}),
+              ...(notifyEmail.value.trim()
+                ? { notify_email: notifyEmail.value.trim(), ...mailAfterBody(mailAfter.value) }
+                : {}),
               ...expiryBody(expiry.value),
             } as never,
           }),
@@ -105,6 +111,7 @@ async function createLink() {
       throw new Error("The token was made, but its link could not be read: try again");
     made.value = shareUrl(window.location.origin, token.status_link, token.token);
     notifyEmail.value = "";
+    mailAfter.value = "default";
     current.value = shareUrl(window.location.origin, token.status_link, "");
     deleted.value = "";
   } catch (err) {
@@ -222,6 +229,19 @@ onBeforeUnmount(() => clearTimeout(confirmTimer));
               >Mailed when one of {{ tenant }}'s sites goes into alarm or recovers; several
               separated by commas. To change it, revoke the key and make a new link.</p
             >
+            <div v-if="notifyEmail.trim()" class="flex items-center gap-2">
+              <USelect
+                v-model="mailAfter"
+                class="share-mail-after w-36"
+                size="sm"
+                :items="MAIL_AFTER_CHOICES"
+                aria-label="Mail once a site has been in alarm"
+                aria-describedby="share-mail-after-hint"
+              />
+              <p id="share-mail-after-hint" class="text-xs text-muted"
+                >Back up sooner: no mail. One mail per outage.</p
+              >
+            </div>
             <div class="flex items-center gap-2">
               <USelect
                 v-model="expiry"
