@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
 ### Added
 - **The bundled proxy with the app's own sign-in** (#723): `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` runs nginx with HTTPS but without oauth2-proxy, for sign-in with AD on `/auth`; the identity headers are always empty there. The proxy's image takes `--build-arg SIGN_IN=app` (default `oauth2-proxy`, as before). Upgrading to 0.6.0: Documentation → *Operations*, *Upgrading to 0.6.0*
 - **Identities and roles on the Admin page** (#721): admins add people (identities), give and take their roles and own scopes (checked as typed), make a key with exactly an identity's rights, and delete an identity (the page says how many keys stop working first). Roles: give and take scopes, change a role's label, description and start page, and make or delete roles of your own; the five built-in roles can't be deleted. A change that would leave nobody an admin is refused. Also `python -m app role list|create|update|delete|add-scope|remove-scope` and `/api/v1/roles` (admin). `/api/v1/identities` answers gain `keys` and `for_a_key`
