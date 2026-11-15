@@ -1,5 +1,5 @@
 """customer mail delay (#729): a status token's wait before a customer's alarm mail;
-null is NOTIFY_CUSTOMER_DELAY_MINUTES.  Cancelled mails (status 'cancelled') need no column.
+null is at once (#731).  Cancelled mails (status 'cancelled') need no column.
 
 Revision ID: ce07506958c2
 Revises: 1b2025a1d28f

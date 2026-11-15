@@ -429,9 +429,6 @@ class Settings(BaseSettings):
     notify_tenants: CsvSet = frozenset()
     notify_board_url: Url = ""
     notify_summary_threshold: Int = 5
-    # Minutes a site is in alarm before a customer's mail, for status tokens without
-    # their own (#729): 0, at once.
-    notify_customer_delay_minutes: Int = 0
     notify_webhook_url: Text = ""
     notify_webhook_secret: Text = ""
     notify_teams_webhook_url: Text = ""
@@ -631,15 +628,6 @@ class Settings(BaseSettings):
         if value not in ("low", "medium", "critical"):
             raise RuntimeError(
                 f"Invalid NOTIFY_MIN_LEVEL {value!r}: expected low, medium or critical"
-            )
-        return value
-
-    @field_validator("notify_customer_delay_minutes")
-    @classmethod
-    def _notify_customer_delay_minutes(cls, value: int) -> int:
-        if not 0 <= value <= 1440:
-            raise RuntimeError(
-                f"Invalid NOTIFY_CUSTOMER_DELAY_MINUTES {value!r}: expected 0 to 1440 minutes"
             )
         return value
 

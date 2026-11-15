@@ -208,7 +208,6 @@ See [notifications](notifications.md). Each channel is on when its setting is fi
 | `NOTIFY_TENANTS` | — | Only sites with one of these tenants (comma-separated) |
 | `NOTIFY_BOARD_URL` | — | The app's address, for the link in messages, e.g. `https://nautobot-maps.example.com` |
 | `NOTIFY_SUMMARY_THRESHOLD` | `5` | More messages due at once on a channel go out as one summary |
-| `NOTIFY_CUSTOMER_DELAY_MINUTES` | `0` | Minutes a site is in alarm before a customer's mail, for status tokens without their own wait (0 to 1440; 0: at once). Back up sooner: no mail ([customer mails](notifications.md#customers)) |
 | `NOTIFY_WEBHOOK_URL` | — | Webhook: JSON `POST` to this URL |
 | `NOTIFY_WEBHOOK_SECRET` | — | Signs the webhook body (`X-Nautobot-Maps-Signature: sha256=…`) |
 | `NOTIFY_TEAMS_WEBHOOK_URL` | — | Microsoft Teams Workflows webhook URL |

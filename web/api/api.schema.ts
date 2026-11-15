@@ -3234,7 +3234,7 @@ export interface components {
             name: string;
             /**
              * Notify After Minutes
-             * @description How long one of the tenant's sites is in alarm before those addresses get the mail (#729), in minutes; null: NOTIFY_CUSTOMER_DELAY_MINUTES.
+             * @description How long one of the tenant's sites is in alarm before those addresses get the mail (#729), in minutes; null: at once.
              */
             notify_after_minutes?: number | null;
             /**
@@ -4217,7 +4217,7 @@ export interface components {
             name: string;
             /**
              * Notify After Minutes
-             * @description How long one of the tenant's sites is in alarm before those addresses get the mail (#729), in minutes; null: NOTIFY_CUSTOMER_DELAY_MINUTES.
+             * @description How long one of the tenant's sites is in alarm before those addresses get the mail (#729), in minutes; null: at once.
              */
             notify_after_minutes?: number | null;
             /**
@@ -8876,7 +8876,7 @@ export interface operations {
                     name: string;
                     /**
                      * Notify After Minutes
-                     * @description With notify_email: how long a site is in alarm before the mail, 0 to 1440 minutes (#729); back up sooner, no mail. Unset: NOTIFY_CUSTOMER_DELAY_MINUTES.
+                     * @description With notify_email: how long a site is in alarm before the mail, 0 to 1440 minutes (#729); back up sooner, no mail. Unset: 0, at once.
                      */
                     notify_after_minutes?: number | null;
                     /**

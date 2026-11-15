@@ -641,8 +641,7 @@ class TestCustomerMailWait:
     def test_each_address_waits_its_own(self, mail):
         self.token("fast", "Acme", "noc@acme.example, both@acme.example", after=5)
         self.token("slow", "Acme", "boss@acme.example, Both@acme.example", after=30)
-        self.monkeypatch.setattr(settings, "NOTIFY_CUSTOMER_DELAY_MINUTES", 10)
-        self.token("default", "Acme", "desk@acme.example")
+        self.token("desk", "Acme", "desk@acme.example", after=10)
         self.level("critical", "2026-10-09T12:00:00Z")
         due = {row["recipient"].lower(): row["next_attempt_at"] for row in outbox()}
         assert due == {
@@ -657,6 +656,13 @@ class TestCustomerMailWait:
         self.token("acme", "Acme", "it@acme.example")
         self.level("critical", "2026-10-09T12:00:00Z")
         assert self.send_at("2026-10-09T12:00:00Z") == 1
+
+    def test_at_once_beside_a_wait(self, mail):
+        """Saved without a wait (null) on one token, 30 minutes on another: at once."""
+        self.token("old", "Acme", "it@acme.example")
+        self.token("slow", "Acme", "it@acme.example", after=30)
+        self.level("critical", "2026-10-09T12:00:00Z")
+        assert outbox()[-1]["next_attempt_at"] == "2026-10-09T12:00:00Z"
 
     def test_no_recovery_for_an_alarm_never_sent(self, mail):
         """Back up before the alarm went out at once (the next send hadn't run): neither."""

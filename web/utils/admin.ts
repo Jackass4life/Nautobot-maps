@@ -32,10 +32,9 @@ export function expiryBody(choice: string): { expires_in_days?: number } {
   const days = Number.parseInt(choice, 10);
   return Number.isFinite(days) && days > 0 ? { expires_in_days: days } : {};
 }
-// How long a site is in alarm before a customer's mail (#729): "default" leaves it to
-// NOTIFY_CUSTOMER_DELAY_MINUTES.
+// How long a site is in alarm before a customer's mail (#729), chosen with the address.
+export const MAIL_AFTER_DEFAULT = "0";
 export const MAIL_AFTER_CHOICES = [
-  { label: "Default wait", value: "default" },
   { label: "At once", value: "0" },
   { label: "After 5 min", value: "5" },
   { label: "After 10 min", value: "10" },
@@ -45,16 +44,15 @@ export const MAIL_AFTER_CHOICES = [
   { label: "After 2 hours", value: "120" },
 ];
 
-// A choice's notify_after_minutes for the API: none for "default".
+// A choice's notify_after_minutes for the API.
 export function mailAfterBody(choice: string): { notify_after_minutes?: number } {
   const minutes = Number.parseInt(choice, 10);
   return Number.isFinite(minutes) && minutes >= 0 ? { notify_after_minutes: minutes } : {};
 }
 
-// "after 15 min", "at once", "" for the default (a token's wait, #729).
+// "after 15 min", "at once" (a token's wait, #729; saved without one: at once).
 export function mailAfterText(minutes: number | null | undefined): string {
-  if (minutes === null || minutes === undefined) return "";
-  if (minutes === 0) return "at once";
+  if (!minutes) return "at once";
   return minutes % 60 === 0
     ? `after ${minutes / 60} hour${minutes === 60 ? "" : "s"}`
     : `after ${minutes} min`;

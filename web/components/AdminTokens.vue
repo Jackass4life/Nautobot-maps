@@ -8,6 +8,7 @@ import {
   expiryBody,
   inactiveText,
   MAIL_AFTER_CHOICES,
+  MAIL_AFTER_DEFAULT,
   mailAfterBody,
   mailAfterText,
   purgedText,
@@ -120,7 +121,7 @@ const form = reactive({
   role: "operator" as Role,
   tenant: "",
   notifyEmail: "",
-  mailAfter: "default",
+  mailAfter: MAIL_AFTER_DEFAULT,
   expiry: "365",
 });
 const formError = ref("");
@@ -191,7 +192,7 @@ async function create() {
       role: "operator",
       tenant: "",
       notifyEmail: "",
-      mailAfter: "default",
+      mailAfter: MAIL_AFTER_DEFAULT,
       expiry: "365",
     });
     await load();
@@ -418,12 +419,8 @@ const STATE_CLASS: Record<string, string> = {
                 >Identity {{ token.identity }}</span
               >
               <span v-if="token.notify_email" class="token-notify block text-xs text-muted"
-                >Mails {{ token.notify_email
-                }}{{
-                  mailAfterText(token.notify_after_minutes)
-                    ? ` ${mailAfterText(token.notify_after_minutes)}`
-                    : ""
-                }}</span
+                >Mails {{ token.notify_email }}
+                {{ mailAfterText(token.notify_after_minutes) }}</span
               >
               <UBadge
                 v-if="token.state !== 'active'"

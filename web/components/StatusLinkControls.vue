@@ -8,6 +8,7 @@ import {
   EXPIRY_CHOICES,
   expiryBody,
   MAIL_AFTER_CHOICES,
+  MAIL_AFTER_DEFAULT,
   mailAfterBody,
   randomSuffix,
   shareUrl,
@@ -27,7 +28,7 @@ const expiry = ref("365");
 // The customer's addresses for alarm mails (#707), optional; set once with the key.
 const notifyEmail = ref("");
 // How long a site is in alarm before that mail (#729).
-const mailAfter = ref("default");
+const mailAfter = ref(MAIL_AFTER_DEFAULT);
 const busy = ref(false);
 const error = ref("");
 // The link just made, with its key: shown only now.
@@ -111,7 +112,7 @@ async function createLink() {
       throw new Error("The token was made, but its link could not be read: try again");
     made.value = shareUrl(window.location.origin, token.status_link, token.token);
     notifyEmail.value = "";
-    mailAfter.value = "default";
+    mailAfter.value = MAIL_AFTER_DEFAULT;
     current.value = shareUrl(window.location.origin, token.status_link, "");
     deleted.value = "";
   } catch (err) {
