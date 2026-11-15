@@ -117,6 +117,20 @@ status, _, _ = get(api, {"Authorization": f"Bearer {key}"})
 results.append(check("a customer's key works", status == 200, status))
 status, _, _ = get(api, {"Authorization": f"Bearer {key}"} | SIGNED_IN)
 results.append(check("a customer's key works signed in too", status == 200, status))
+# A session oauth2-proxy renews (an hour old, #727): the new cookie reaches the
+# browser everywhere, the status API too, or the old one stops working.
+AGED = {"Cookie": "_nautobot_maps=aged"}
+for name, url in (("a page", f"{HTTPS}/alerts"), ("the API", f"{HTTPS}/api/v1/alert-history"), ("the status API", api)):
+    status, headers, _ = get(url, AGED)
+    cookie = {k.lower(): v for k, v in headers.items()}.get("set-cookie", "")
+    hsts = {k.lower(): v for k, v in headers.items()}.get("strict-transport-security", "")
+    results.append(
+        check(
+            f"a renewed session's cookie reaches the browser: {name}",
+            status == 200 and cookie.startswith("_nautobot_maps=olga;") and "max-age" in hsts,
+            (status, cookie, hsts),
+        )
+    )
 status, headers, _ = get(f"{HTTPS}/api{link}")
 results.append(
     check(

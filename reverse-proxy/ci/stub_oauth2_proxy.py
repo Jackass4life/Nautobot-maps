@@ -1,7 +1,8 @@
 """A stand-in for oauth2-proxy in CI (#423): no identity provider needed.
 
 The session cookie ``_nautobot_maps=olga`` is "signed in" as olga in the
-noc-operators group (``=many``: also in 150 other groups); anything else is not.  Only what nginx uses: /oauth2/auth
+noc-operators group (``=many``: also in 150 other groups; ``=aged``: an hour old,
+renewed, so the answer carries a new cookie, #727); anything else is not.  Only what nginx uses: /oauth2/auth
 (202 or 401, with the X-Auth-Request-* headers), /oauth2/start (to the login) and
 /oauth2/sign_out (deletes the cookie, then to "/", where nginx's X-Auth-Request-Redirect sends oauth2-proxy, #546).
 """
@@ -13,7 +14,7 @@ class Stub(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (http.server's name)
         if self.path.startswith("/oauth2/auth"):
             cookie = self.headers.get("Cookie") or ""
-            if "_nautobot_maps=olga" in cookie or "_nautobot_maps=many" in cookie:
+            if any(f"_nautobot_maps={name}" in cookie for name in ("olga", "many", "aged")):
                 # "many": in 150 groups, as Entra ID sends them (an ID each).
                 groups = ["noc-operators", "everyone"]
                 if "_nautobot_maps=many" in cookie:
@@ -22,6 +23,9 @@ class Stub(BaseHTTPRequestHandler):
                 self.send_header("X-Auth-Request-Preferred-Username", "olga")
                 self.send_header("X-Auth-Request-Email", "olga@example.com")
                 self.send_header("X-Auth-Request-Groups", ",".join(groups))
+                if "_nautobot_maps=aged" in cookie:
+                    # As oauth2-proxy after COOKIE_REFRESH: the renewed session.
+                    self.send_header("Set-Cookie", "_nautobot_maps=olga; Path=/; Secure; HttpOnly; SameSite=Lax")
             else:
                 self.send_response(401)
         elif self.path.startswith("/oauth2/sign_out"):
