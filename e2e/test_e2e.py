@@ -1328,6 +1328,8 @@ def test_share_a_tenants_status_page_from_availability(admin_page, browser):
     # A new customer link makes a new page link (other tests open the tenant's), this
     # one with the customer's addresses for alarm mails (#707).
     page.locator(".share-notify-email input").fill("it@customer.example, noc@customer.example")
+    # With an address, its wait (#729): At once unless chosen (#731).
+    assert page.locator(".share-mail-after").inner_text().strip() == "At once"
     page.locator(".share-create").click()
     page.locator(".share-link input").wait_for()
     assert page.locator(".share-current-link input").input_value() != url.split("#")[0]
@@ -1336,9 +1338,10 @@ def test_share_a_tenants_status_page_from_availability(admin_page, browser):
         tenant,
     )["tokens"]
     assert tokens[0]["notify_email"] == "it@customer.example, noc@customer.example"
+    assert tokens[0]["notify_after_minutes"] == 0
     page.goto(f"{BASE_URL}/admin")
     row = page.locator(f'.token-row[data-name="{tokens[0]["name"]}"]')
-    assert row.locator(".token-notify").inner_text() == "Mails it@customer.example, noc@customer.example"
+    assert row.locator(".token-notify").inner_text() == ("Mails it@customer.example, noc@customer.example at once")
 
 
 def test_no_administration_without_the_role(page):
