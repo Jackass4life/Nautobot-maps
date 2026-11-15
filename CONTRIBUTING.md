@@ -1,6 +1,6 @@
 # Contributing to Nautobot Maps
 
-Thank you for your interest in contributing to Nautobot Maps! This document provides guidelines to help you get started.
+Thank you for your interest in contributing to Nautobot Maps! This document provides guidelines to help you get started. For a guided tour of the code, see the [Code guide](docs/code-guide.md).
 
 ## How to Contribute
 
@@ -74,6 +74,8 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 `.devcontainer/`, run **Dev Containers: Rebuild Container**.
 
 ### Project layout
+
+New to the code? Start with the [Code guide](docs/code-guide.md): the parts, where to find what, how the main features work, and recipes for common changes. The list below is the short version.
 
 Two projects, each with its own dependencies, lint and CI job; they share only the API spec,
 `web/api/openapi.json`. [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) have

@@ -210,4 +210,4 @@ Then fill in Nautobot: [what to set in Nautobot and LibreNMS](nautobot-setup.md)
 - `web/`: the pages, on Nuxt 4 with bun. The `web` container serves them and passes the API's paths on to `api`. They call the API only through the typed client generated from the API's spec, `web/api/openapi.json`.
 - `reverse-proxy/`: the optional bundled nginx + oauth2-proxy for HTTPS and sign-in.
 - `api/tests/` (pytest, about 1,750 tests), `web/tests/` (Vitest for the pages' logic) and `e2e/` (Playwright in Chromium). CI runs lint, the tests on Python 3.13, a real Nautobot, a Docker smoke test, the bundled sign-in proxy with real nginx, a dependency audit and CodeQL.
-- Development setup: [CONTRIBUTING.md](../CONTRIBUTING.md).
+- A guided tour of the code, module by module: [Code guide](code-guide.md). Development setup: [CONTRIBUTING.md](../CONTRIBUTING.md).
