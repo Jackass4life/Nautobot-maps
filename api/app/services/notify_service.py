@@ -335,9 +335,8 @@ async def customer_events(
         key = (row["tenant"] or "").strip().casefold()
         if key not in tenants:
             continue
-        wait = row["notify_after_minutes"]
-        if wait is None:
-            wait = settings.NOTIFY_CUSTOMER_DELAY_MINUTES
+        # None: saved without a wait, at once.
+        wait = row["notify_after_minutes"] or 0
         for address in (part.strip() for part in row["notify_email"].split(",")):
             if not address:
                 continue

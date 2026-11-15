@@ -148,7 +148,7 @@ Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 chara
 docker compose exec api python -m app token create acme-status --role status --tenant "Acme Corp" --expires-days 365
 ```
 
-Add `--notify-email "it@acme.example, noc@acme.example"` for the customer's [alarm mails](notifications.md#customers), and `--notify-after 15` to mail only once a site has been in alarm 15 minutes.
+Add `--notify-email "it@acme.example, noc@acme.example"` for the customer's [alarm mails](notifications.md#customers), and `--notify-after 15` to mail only once a site has been in alarm 15 minutes (without it: at once). The wait needs an address and can't be changed later: revoke the token and make a new one.
 
 It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`. The tenant must be one Nautobot has (as of the last sync; capitals don't matter), and the token keeps Nautobot's spelling: a typo such as `"Acme"` for "Acme Corp" is refused with `no tenant 'Acme' in Nautobot (as of the last sync)`, instead of making a link that shows nothing.
 

@@ -79,7 +79,7 @@ class Token(common.Answer):
     notify_after_minutes: int | None = Field(
         None,
         description="How long one of the tenant's sites is in alarm before those addresses "
-        "get the mail (#729), in minutes; null: NOTIFY_CUSTOMER_DELAY_MINUTES.",
+        "get the mail (#729), in minutes; null: at once.",
     )
     created_by: str
     created_at: str
@@ -144,7 +144,7 @@ class TokenCreate(BaseModel):
     notify_after_minutes: int | None = Field(
         None,
         description="With notify_email: how long a site is in alarm before the mail, 0 to "
-        "1440 minutes (#729); back up sooner, no mail. Unset: NOTIFY_CUSTOMER_DELAY_MINUTES.",
+        "1440 minutes (#729); back up sooner, no mail. Unset: 0, at once.",
     )
     expires_in_days: int | None = None
 

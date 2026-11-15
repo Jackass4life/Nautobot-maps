@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="MINUTES",
         help="with --notify-email: mail only once a site has been in alarm this long, 0-1440 "
-        "(#729; default NOTIFY_CUSTOMER_DELAY_MINUTES)",
+        "(#729; default 0, at once)",
     )
     create.add_argument("--expires-days", type=int, default=None)
     listing = token_commands.add_parser("list", help="list the active tokens (never the secrets)")

@@ -5,6 +5,8 @@ import {
   day,
   expiryBody,
   inactiveText,
+  MAIL_AFTER_CHOICES,
+  MAIL_AFTER_DEFAULT,
   mailAfterBody,
   mailAfterText,
   purgedText,
@@ -76,8 +78,9 @@ describe("tokens", () => {
   it("how long a customer's alarm mail waits (#729)", () => {
     expect(mailAfterBody("15")).toEqual({ notify_after_minutes: 15 });
     expect(mailAfterBody("0")).toEqual({ notify_after_minutes: 0 });
-    expect(mailAfterBody("default")).toEqual({});
-    expect(mailAfterText(null)).toBe("");
+    expect(mailAfterBody(MAIL_AFTER_DEFAULT)).toEqual({ notify_after_minutes: 0 });
+    expect(MAIL_AFTER_CHOICES.map((choice) => choice.value)).not.toContain("default");
+    expect(mailAfterText(null)).toBe("at once");
     expect(mailAfterText(0)).toBe("at once");
     expect(mailAfterText(15)).toBe("after 15 min");
     expect(mailAfterText(60)).toBe("after 1 hour");

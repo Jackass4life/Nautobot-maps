@@ -51,7 +51,7 @@ class ApiToken(Base):
     # A status token's customer addresses for notifications (#707), comma-separated.
     notify_email: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
     # How long a site is in alarm before those addresses get the mail (#729), in
-    # minutes; None: NOTIFY_CUSTOMER_DELAY_MINUTES.
+    # minutes; None: at once.
     notify_after_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
