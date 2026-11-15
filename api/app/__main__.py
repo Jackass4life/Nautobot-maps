@@ -18,6 +18,12 @@ app ...``).
 ``identity add-role|remove-role|add-scope|remove-scope NAME X`` manage who may sign
 in (#715).
 
+``role list``, ``role create NAME --scope S [--label L] [--landing /page]``, ``role
+update NAME [--label L] [--description D] [--landing /page]``, ``role delete NAME``
+and ``role add-scope|remove-scope NAME SCOPE`` change what each role may do (#721).
+The built-in roles can't be deleted; a change that would leave nobody an admin is
+refused (an identity change too).
+
 ``status-link TENANT`` prints the tenant's status page link, ``/status/<id>``
 (#500), made the first time; ``--replace`` (or ``--new``) replaces it and
 ``--delete`` deletes it (#691): the old link stops working. ``status-link --list``
@@ -135,6 +141,24 @@ def build_parser() -> argparse.ArgumentParser:
         change.add_argument("name")
         if what:
             change.add_argument(what)
+    role = commands.add_parser("role", help="change what a role may do (#721)")
+    role_commands = role.add_subparsers(dest="role_command", required=True)
+    role_commands.add_parser("list", help="every role, its scopes and how many have it")
+    for verb, text in (("create", "a role of your own"), ("update", "change its texts")):
+        made = role_commands.add_parser(verb, help=text)
+        made.add_argument("name")
+        made.add_argument("--label", default=None, help="what the pages call it")
+        made.add_argument("--description", default=None)
+        made.add_argument("--landing", default=None, help="the page it opens on, e.g. /noc")
+        if verb == "create":
+            made.add_argument("--scope", action="append", default=[], help="repeat for more")
+    role_commands.add_parser("delete", help="a role of your own (not a built-in one)").add_argument(
+        "name"
+    )
+    for verb in ("add-scope", "remove-scope"):
+        change = role_commands.add_parser(verb)
+        change.add_argument("name")
+        change.add_argument("scope")
     return parser
 
 
@@ -371,6 +395,8 @@ def main(argv: list[str] | None = None) -> int:
         return roles_command(args)
     if args.command == "identity":
         return asyncio.run(identity_command(args))
+    if args.command == "role":
+        return asyncio.run(role_command(args))
     command = token_command if args.command == "token" else status_link_command
     return asyncio.run(_on_a_session(command, args))
 
@@ -414,11 +440,65 @@ async def identity_command(args) -> int:  # type: ignore[no-untyped-def]
                 "remove-scope": identities.remove_scope,
             }[args.identity_command]
             extra = [getattr(args, what) for what in ("role", "scope") if hasattr(args, what)]
-            await change(conn, args.name, *extra)
+            async with role_service.admin_kept(conn):
+                await change(conn, args.name, *extra)
             if args.identity_command != "delete":
                 print_identity(await identities.read(conn, args.name))  # type: ignore[arg-type]
             else:
                 print(f"Identity {identities.normal_name(args.name)!r} deleted.")
+            return 0
+    except identities.IdentityError as exc:
+        print(f"error: {exc.message}", file=sys.stderr)
+        return 1
+
+
+def print_role(role: dict) -> None:
+    built_in = ", built in" if role["built_in"] else ""
+    print(
+        f"{role['name']} ({role['label']}{built_in}), opens {role['landing']}; "
+        f"{role['identities']} identities"
+    )
+    for scope in role["scopes"]:
+        print(f"  {scope}")
+
+
+async def role_command(args) -> int:  # type: ignore[no-untyped-def]
+    """``role list|create|update|delete|add-scope|remove-scope`` (#721): what each role
+    may do. A change reaches the running app within 30 seconds."""
+    try:
+        async with aconnection.connect() as conn, conn.transaction():
+            if args.role_command == "list":
+                for role in await role_service.list_all(conn):
+                    print_role(role)
+                return 0
+            if args.role_command == "create":
+                print_role(
+                    await role_service.create(
+                        conn,
+                        args.name,
+                        args.label or "",
+                        args.description or "",
+                        args.landing or "/",
+                        args.scope,
+                    )
+                )
+                return 0
+            async with role_service.admin_kept(conn):
+                if args.role_command == "update":
+                    await role_service.update(
+                        conn, args.name, args.label, args.description, args.landing
+                    )
+                elif args.role_command == "delete":
+                    had = await role_service.delete(conn, args.name)
+                    print(f"Role {args.name.strip().lower()!r} deleted; {had} identities had it.")
+                    return 0
+                else:
+                    change = {
+                        "add-scope": role_service.add_scope,
+                        "remove-scope": role_service.remove_scope,
+                    }[args.role_command]
+                    await change(conn, args.name, args.scope)
+            print_role(await role_service.read_one(conn, args.name))
             return 0
     except identities.IdentityError as exc:
         print(f"error: {exc.message}", file=sys.stderr)

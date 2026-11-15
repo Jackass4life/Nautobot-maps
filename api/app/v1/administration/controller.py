@@ -21,7 +21,13 @@ from app.core.settings import get_settings
 from app.db import aconnection, session
 from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
-from app.services import auth_service, contract_service, status_link_service, token_service
+from app.services import (
+    auth_service,
+    contract_service,
+    role_service,
+    status_link_service,
+    token_service,
+)
 from app.services import identity_service as identities
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
@@ -38,6 +44,11 @@ from app.v1.administration.dtos import (
     IdentityDeleted,
     IdentityRole,
     IdentityScope,
+    RoleAnswer,
+    RoleChange,
+    RoleCreate,
+    RoleDeleted,
+    Roles,
     TokenCreate,
     TokenCreated,
     TokenPurge,
@@ -370,29 +381,39 @@ identities_router = APIRouter(prefix="/identities", tags=sections.tag("administr
 ADMIN_ONLY = Depends(require_permission(Permission.ADMIN))
 
 
-def _identity(found: identities.Identity) -> dict:
+def _identity(found: identities.Identity, keys: dict[str, int] | None = None) -> dict:
     return {
         "unique_name": found.unique_name,
         "common_name": found.common_name,
         "description": found.description,
         "roles": list(found.roles),
         "scopes": sorted(found.scopes),
+        "keys": (keys or {}).get(found.unique_name, 0),
+        "for_a_key": found.description.startswith(token_service.FOR_A_KEY),
     }
 
 
-async def _change(change, *args: str) -> identities.Identity | None:  # type: ignore[no-untyped-def]
-    """*change* in a transaction of its own; a refusal is a 400 (404 for a name the
-    database doesn't have). Every name is read again here at once (other workers'
-    within 30 s)."""
+def _refused(exc: identities.IdentityError, missing: str = "no identity") -> ApiError:
+    """A refusal: 404 for the path's name the database doesn't have (*missing*: what
+    its message starts with), else 400 (an unknown role in a body too)."""
+    status = 404 if exc.message.startswith(missing) else 400
+    return ApiError({"error": exc.message}, status)
+
+
+async def _change(change, *args: str) -> dict | None:  # type: ignore[no-untyped-def]
+    """*change* in a transaction of its own, refused when it would leave nobody an
+    admin (#721). The identity's answer after it (None once deleted). Every name and
+    role is read again here at once (other workers' within 30 s)."""
     try:
         async with aconnection.connect() as conn, conn.transaction():
-            await change(conn, *args)
+            async with role_service.admin_kept(conn):
+                await change(conn, *args)
             found = await identities.read(conn, args[0])
+            answer = _identity(found, await identities.key_counts(conn)) if found else None
     except identities.IdentityError as exc:
-        status = 404 if exc.message.startswith("no identity") else 400
-        raise ApiError({"error": exc.message}, status) from None
-    identities.forget()
-    return found
+        raise _refused(exc) from None
+    role_service.changed()
+    return answer
 
 
 @identities_router.get(
@@ -406,7 +427,8 @@ async def list_identities() -> Identities:
     """Who may sign in: each identity, its roles and own scopes."""
     async with aconnection.connect() as conn:
         found = await identities.list_all(conn)
-    return Identities.model_validate({"identities": [_identity(each) for each in found]})
+        keys = await identities.key_counts(conn)
+    return Identities.model_validate({"identities": [_identity(each, keys) for each in found]})
 
 
 @identities_router.post(
@@ -432,7 +454,7 @@ async def create_identity(body: Body) -> JSONResponse:
         await identities.create(conn, name, new.roles, new.scopes, new.common_name, new.description)
 
     found = await _change(make, new.name)
-    answer = IdentityAnswer.model_validate({"identity": _identity(found)})  # type: ignore[arg-type]
+    answer = IdentityAnswer.model_validate({"identity": found})
     return JSONResponse(answer.model_dump(mode="json"), status_code=201)
 
 
@@ -468,7 +490,7 @@ def _field(body: object, model, key: str) -> str:  # type: ignore[no-untyped-def
 async def add_identity_role(name: str, body: Body) -> IdentityAnswer:
     """Give the identity a role (``{"role": "noc"}``)."""
     found = await _change(identities.add_role, name, _field(body, IdentityRole, "role"))
-    return IdentityAnswer.model_validate({"identity": _identity(found)})  # type: ignore[arg-type]
+    return IdentityAnswer.model_validate({"identity": found})
 
 
 @identities_router.delete(
@@ -481,7 +503,7 @@ async def add_identity_role(name: str, body: Body) -> IdentityAnswer:
 async def remove_identity_role(name: str, role: str) -> IdentityAnswer:
     """Take a role from the identity."""
     found = await _change(identities.remove_role, name, role)
-    return IdentityAnswer.model_validate({"identity": _identity(found)})  # type: ignore[arg-type]
+    return IdentityAnswer.model_validate({"identity": found})
 
 
 @identities_router.post(
@@ -495,7 +517,7 @@ async def remove_identity_role(name: str, role: str) -> IdentityAnswer:
 async def add_identity_scope(name: str, body: Body) -> IdentityAnswer:
     """Give the identity a scope of its own (``{"scope": "maintenance:write"}``)."""
     found = await _change(identities.add_scope, name, _field(body, IdentityScope, "scope"))
-    return IdentityAnswer.model_validate({"identity": _identity(found)})  # type: ignore[arg-type]
+    return IdentityAnswer.model_validate({"identity": found})
 
 
 @identities_router.delete(
@@ -508,4 +530,134 @@ async def add_identity_scope(name: str, body: Body) -> IdentityAnswer:
 async def remove_identity_scope(name: str, scope: str) -> IdentityAnswer:
     """Take a scope of its own from the identity."""
     found = await _change(identities.remove_scope, name, scope)
-    return IdentityAnswer.model_validate({"identity": _identity(found)})  # type: ignore[arg-type]
+    return IdentityAnswer.model_validate({"identity": found})
+
+
+# --- Roles (#721): admin only, /api/v1/roles ------------------------------------------
+
+roles_router = APIRouter(prefix="/roles", tags=sections.tag("administration"))
+
+
+async def _role_change(name: str, change, *args) -> dict:  # type: ignore[no-untyped-def]
+    """*change* to role *name* in a transaction of its own, refused when it would leave
+    nobody an admin; the role's answer after it."""
+    try:
+        async with aconnection.connect() as conn, conn.transaction():
+            async with role_service.admin_kept(conn):
+                await change(conn, name, *args)
+            found = await role_service.read_one(conn, name)
+    except identities.IdentityError as exc:
+        raise _refused(exc, "no role") from None
+    role_service.changed()
+    return found
+
+
+@roles_router.get(
+    "",
+    operation_id="listRoles",
+    response_model=Roles,
+    responses=REFUSALS,
+    dependencies=[ADMIN_ONLY],
+)
+async def list_roles() -> Roles:
+    """Each role, its scopes, and how many identities have it."""
+    async with aconnection.connect() as conn:
+        found = await role_service.list_all(conn)
+    return Roles.model_validate({"roles": found})
+
+
+@roles_router.post(
+    "",
+    operation_id="createRole",
+    status_code=201,
+    response_model=RoleAnswer,
+    responses={**REFUSALS, **responses(400)},
+    openapi_extra=body_schema(RoleCreate),
+    dependencies=[ADMIN_ONLY],
+)
+async def create_role(body: Body) -> JSONResponse:
+    """A role of your own, with ``scopes``; give it to identities after. The groups
+    give only the built-in roles."""
+    try:
+        new = RoleCreate.model_validate(body)
+    except ValueError:
+        raise ApiError(
+            {"error": "Expected {name, label, description, landing, scopes}"}, 400
+        ) from None
+    try:
+        async with aconnection.connect() as conn, conn.transaction():
+            found = await role_service.create(
+                conn, new.name, new.label, new.description, new.landing, new.scopes
+            )
+    except identities.IdentityError as exc:
+        raise _refused(exc, "no role") from None
+    role_service.changed()
+    answer = RoleAnswer.model_validate({"role": found})
+    return JSONResponse(answer.model_dump(mode="json"), status_code=201)
+
+
+@roles_router.patch(
+    "/{name}",
+    operation_id="updateRole",
+    response_model=RoleAnswer,
+    responses={**REFUSALS, **responses(400, 404)},
+    openapi_extra=body_schema(RoleChange),
+    dependencies=[ADMIN_ONLY],
+)
+async def update_role(name: str, body: Body) -> RoleAnswer:
+    """Change its ``label``, ``description`` or ``landing``: the fields given."""
+    try:
+        change = RoleChange.model_validate(body)
+    except ValueError:
+        raise ApiError({"error": "Expected {label, description, landing}"}, 400) from None
+    found = await _role_change(
+        name, role_service.update, change.label, change.description, change.landing
+    )
+    return RoleAnswer.model_validate({"role": found})
+
+
+@roles_router.delete(
+    "/{name}",
+    operation_id="deleteRole",
+    response_model=RoleDeleted,
+    responses={**REFUSALS, **responses(400, 404)},
+    dependencies=[ADMIN_ONLY],
+)
+async def delete_role(name: str) -> RoleDeleted:
+    """A role of your own goes, and the identities that had it lose it. The built-in
+    ones can't be deleted (their scopes can be changed)."""
+    try:
+        async with aconnection.connect() as conn, conn.transaction():
+            async with role_service.admin_kept(conn):
+                had = await role_service.delete(conn, name)
+    except identities.IdentityError as exc:
+        raise _refused(exc, "no role") from None
+    role_service.changed()
+    return RoleDeleted(deleted=name.strip().lower(), identities=had)
+
+
+@roles_router.post(
+    "/{name}/scopes",
+    operation_id="addRoleScope",
+    response_model=RoleAnswer,
+    responses={**REFUSALS, **responses(400, 404)},
+    openapi_extra=body_schema(IdentityScope),
+    dependencies=[ADMIN_ONLY],
+)
+async def add_role_scope(name: str, body: Body) -> RoleAnswer:
+    """Let the role do more (``{"scope": "maintenance:write"}``)."""
+    found = await _role_change(name, role_service.add_scope, _field(body, IdentityScope, "scope"))
+    return RoleAnswer.model_validate({"role": found})
+
+
+@roles_router.delete(
+    "/{name}/scopes/{scope}",
+    operation_id="removeRoleScope",
+    response_model=RoleAnswer,
+    responses={**REFUSALS, **responses(400, 404)},
+    dependencies=[ADMIN_ONLY],
+)
+async def remove_role_scope(name: str, scope: str) -> RoleAnswer:
+    """Let the role do less; refused when nobody would be an admin after."""
+    found = await _role_change(name, role_service.remove_scope, scope)
+    return RoleAnswer.model_validate({"role": found})

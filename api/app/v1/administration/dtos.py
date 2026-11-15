@@ -148,6 +148,10 @@ class IdentityDto(common.Answer):
     description: str
     roles: list[str] = Field(description="Their roles, the highest first.")
     scopes: list[str] = Field(description="Scopes of their own, besides their roles'.")
+    keys: int = Field(description="Its API keys that work (not revoked, not expired), #721.")
+    for_a_key: bool = Field(
+        description="Made for one API key (``token create --role``), not for a person."
+    )
 
 
 class Identities(common.Answer):
@@ -178,6 +182,49 @@ class IdentityRole(BaseModel):
 
 class IdentityScope(BaseModel):
     scope: str = Field(description="e.g. alerts:ack, alerts:*")
+
+
+class RoleDto(common.Answer):
+    """A role: what it may do (its scopes) and who has it (#721)."""
+
+    name: str
+    label: str = Field(description="What the pages call it.")
+    landing: str = Field(description="The page someone with it opens on, e.g. /noc.")
+    description: str
+    built_in: bool = Field(description="One of the five the app starts with: never deleted.")
+    scopes: list[str] = Field(description="e.g. alerts:ack, alerts:*; * stands for any one part.")
+    identities: int = Field(description="How many identities have it.")
+
+
+class Roles(common.Answer):
+    roles: list[RoleDto] = Field(description="The built-in ones first.")
+
+
+class RoleAnswer(common.Answer):
+    role: RoleDto
+
+
+class RoleDeleted(common.Answer):
+    deleted: str
+    identities: int = Field(description="How many identities had it, and lost it.")
+
+
+class RoleCreate(BaseModel):
+    """A new role (#721)."""
+
+    name: str = Field(description="a-z first, then a-z, 0-9, _ or -.")
+    label: str = ""
+    description: str = ""
+    landing: str = Field("/", description="The page it opens on.")
+    scopes: list[str] = Field(default_factory=list)
+
+
+class RoleChange(BaseModel):
+    """What changes: the fields given."""
+
+    label: str | None = None
+    description: str | None = None
+    landing: str | None = None
 
 
 class TokenPurge(BaseModel):

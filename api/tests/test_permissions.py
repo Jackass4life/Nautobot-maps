@@ -131,6 +131,13 @@ CHANGED = {
     ("/api/v1/identities/{name}/roles/{role}", "DELETE"): "admin",
     ("/api/v1/identities/{name}/scopes", "POST"): "admin",
     ("/api/v1/identities/{name}/scopes/{scope}", "DELETE"): "admin",
+    # #721: roles, admin only.
+    ("/api/v1/roles", "GET"): "admin",
+    ("/api/v1/roles", "POST"): "admin",
+    ("/api/v1/roles/{name}", "PATCH"): "admin",
+    ("/api/v1/roles/{name}", "DELETE"): "admin",
+    ("/api/v1/roles/{name}/scopes", "POST"): "admin",
+    ("/api/v1/roles/{name}/scopes/{scope}", "DELETE"): "admin",
     # #703: the NOC role's pages were DOV's; the old addresses redirect.
     ("/dov", "GET"): None,
     ("/dov/{rest:path}", "GET"): None,

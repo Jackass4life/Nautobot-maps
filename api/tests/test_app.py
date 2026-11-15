@@ -3744,10 +3744,8 @@ class TestAuthConfiguration:
 
     @pytest.mark.parametrize(
         "method, url",
+        # /api/v1/roles was one too: since #721 the app's own roles (never Nautobot's).
         [
-            ("get", "/api/v1/roles"),
-            ("post", "/api/v1/roles"),
-            ("delete", "/api/v1/roles/role-1"),
             ("get", "/api/v1/location-types"),
             ("post", "/api/v1/location-types"),
             ("delete", "/api/v1/location-types/lt-1"),

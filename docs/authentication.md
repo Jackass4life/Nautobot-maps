@@ -68,9 +68,9 @@ AUTH_CUSTOMER_GROUPS=account-managers
 | `customer` | Availability (and its CSV) and each tenant's status in the app (`GET /api/v1/tenants/<tenant>/status`), read only; never a status link |
 | `noc` | The wall view, the board with its history, availability and maintenance (read only); acknowledge, remove an acknowledgement, add cases |
 | `operator` (NWO) | Everything but administration: also maintenance windows, criticality overrides, alert history, and customers' status page links (`/api/v1/status-links/…`) with their status tokens |
-| `admin` | Everything an operator can, send test notifications (`POST /api/v1/notifications/test`), manage every API token and check the wireless controllers (`POST /api/v1/wireless/check`) |
+| `admin` | Everything an operator can, send test notifications (`POST /api/v1/notifications/test`), manage every API token, identities and roles (#721), and check the wireless controllers (`POST /api/v1/wireless/check`) |
 
-A user has one role: the first of **admin, operator, noc, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them. A permission is a **scope** such as `alerts:ack` or `status:links:view`; a role can hold `*` for any one part (`alerts:*` is every alerts permission, and the admin role holds `*`, `*:*` and `*:*:*`, so it gets new permissions at once). The roles and their scopes are kept in the app's database (#713): it starts with these five, and every worker reads them again within 30 seconds of a change (editing them in the app comes later). If the database's roles can't be read, the app keeps the last ones it read, or the five above. `python -m app roles` lists each role's permissions as the database has them.
+A user has one role: the first of **admin, operator, noc, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them. A permission is a **scope** such as `alerts:ack` or `status:links:view`; a role can hold `*` for any one part (`alerts:*` is every alerts permission, and the admin role holds `*`, `*:*` and `*:*:*`, so it gets new permissions at once). The roles and their scopes are kept in the app's database (#713): it starts with these five, and every worker reads them again within 30 seconds of a change. Admins change them on the Admin page or with `role ...` ([Changing roles](#changing-roles)). If the database's roles can't be read, the app keeps the last ones it read, or the five above. `python -m app roles` lists each role's permissions as the database has them.
 
 The pages follow the role: the menu lists only the pages it can open, and each page shows only the buttons the role may use (#695). `GET /api/v1/me` and the pages' configuration say, in `access`, the role, its label, the page it opens on, its pages and its permissions (#693).
 
@@ -87,6 +87,10 @@ docker compose exec api python -m app roles --groups noc,kam      # the role a u
 
 An **identity** is a person the app knows by the user name the proxy sends (`X-Forwarded-User`; capitals don't matter), with one or more roles and, if needed, scopes of their own (#715). Someone with an identity gets every one of their roles' permissions and their own scopes. Their highest role (admin, operator, noc, customer, viewer) gives the label in the top bar and the page they open on. Their groups no longer matter.
 
+**On the Admin page** (admins only, #721), **Identities** lists everyone with their roles, own scopes and keys; search by name, role or scope. **New identity** adds one (user name, display name, a first role). **Change** opens a row: give or take a role or a scope (a scope is checked as you type), or make a key with exactly that identity's rights, shown once. **Delete** asks first and says how many keys stop working. Identities made for one key (`token create --role`) are folded under "+N made for one API key".
+
+Or from the command line:
+
 ```bash
 docker compose exec api python -m app identity create jdoe --role admin --common-name "Jane Doe"
 docker compose exec api python -m app identity add-role jdoe noc
@@ -97,6 +101,8 @@ docker compose exec api python -m app identity delete jdoe
 
 A change reaches the running app within 30 seconds. The same through the API (admin only): `GET`/`POST /api/v1/identities`, `DELETE /api/v1/identities/<name>`, `POST /api/v1/identities/<name>/roles` (`{"role": "noc"}`) and `/scopes` (`{"scope": "maintenance:write"}`), and `DELETE …/roles/<role>`, `…/scopes/<scope>`.
 
+A change that would leave nobody an admin is refused: deleting the last identity with admin rights, or taking admin from them, says "make someone else an admin first". (Before anyone has an identity, the groups give admin, so this starts with the first identity that is an admin.)
+
 **Without an identity**, `AUTH_GROUP_ROLES` decides:
 - `true` (the default): the role their groups give, as above. The log says once per name `Signed in without an identity: 'jdoe' (role from groups: viewer)`, so you can see who still needs one.
 - `false`: no access. Pages and the API answer "No access: ask an admin to add you".
@@ -106,6 +112,25 @@ A change reaches the running app within 30 seconds. The same through the API (ad
 2. Find the user names people sign in with: the log lines above, or `username` in `/api/v1/me` (open it in the browser while signed in). With GitLab it is the GitLab user name or the email address, depending on oauth2-proxy's settings.
 3. Create an identity for each person (at least one admin first).
 4. Set `AUTH_GROUP_ROLES=false` and restart (`docker compose up -d`). From then on only people with an identity get in.
+
+### Changing roles
+
+What each role may do is its list of scopes (#721). On the Admin page, **Roles** lists each role, its scopes and how many identities have it. **Change** opens one: take a scope (its ✕), give scopes (several at once, by commas or spaces), or change its label, description and the page it opens on. **New role** makes one of your own; it always gets `session:basic` (the top bar and the help pages, which every signed-in role reads). Give it to people as an identity's role: the groups (`AUTH_*_GROUPS`) give only the five built-in roles.
+
+- The five built-in roles can be changed but not deleted. A role of your own can be deleted: the identities that had it lose it (the page says how many first).
+- A change that would leave no role with the `admin` permission is refused: taking `*` from `admin`, say (`admin` is a one-part scope, so `*` is the one that covers it; `*:*` and `*:*:*` can go).
+- Every worker uses the change within 30 seconds; the one that made it at once.
+
+```bash
+docker compose exec api python -m app role list
+docker compose exec api python -m app role create auditor --label Auditor --landing /noc --scope page:wall --scope alerts:history
+docker compose exec api python -m app role add-scope auditor page:board
+docker compose exec api python -m app role remove-scope noc alerts:case       # a built-in role too
+docker compose exec api python -m app role update auditor --description "Reads the wall"
+docker compose exec api python -m app role delete auditor
+```
+
+The same through the API (admin only): `GET`/`POST /api/v1/roles`, `PATCH`/`DELETE /api/v1/roles/<name>`, `POST /api/v1/roles/<name>/scopes` (`{"scope": "page:board"}`) and `DELETE …/scopes/<scope>`.
 
 ### Trusting only the proxy
 

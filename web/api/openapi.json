@@ -2390,6 +2390,16 @@
             "title": "Description",
             "type": "string"
           },
+          "for_a_key": {
+            "description": "Made for one API key (``token create --role``), not for a person.",
+            "title": "For A Key",
+            "type": "boolean"
+          },
+          "keys": {
+            "description": "Its API keys that work (not revoked, not expired), #721.",
+            "title": "Keys",
+            "type": "integer"
+          },
           "roles": {
             "description": "Their roles, the highest first.",
             "items": {
@@ -2417,7 +2427,9 @@
           "common_name",
           "description",
           "roles",
-          "scopes"
+          "scopes",
+          "keys",
+          "for_a_key"
         ],
         "title": "IdentityDto",
         "type": "object"
@@ -4305,6 +4317,110 @@
           "tenant_descriptions"
         ],
         "title": "Report",
+        "type": "object"
+      },
+      "RoleAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/RoleDto"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "RoleAnswer",
+        "type": "object"
+      },
+      "RoleDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "string"
+          },
+          "identities": {
+            "description": "How many identities had it, and lost it.",
+            "title": "Identities",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted",
+          "identities"
+        ],
+        "title": "RoleDeleted",
+        "type": "object"
+      },
+      "RoleDto": {
+        "additionalProperties": false,
+        "description": "A role: what it may do (its scopes) and who has it (#721).",
+        "properties": {
+          "built_in": {
+            "description": "One of the five the app starts with: never deleted.",
+            "title": "Built In",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "identities": {
+            "description": "How many identities have it.",
+            "title": "Identities",
+            "type": "integer"
+          },
+          "label": {
+            "description": "What the pages call it.",
+            "title": "Label",
+            "type": "string"
+          },
+          "landing": {
+            "description": "The page someone with it opens on, e.g. /noc.",
+            "title": "Landing",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "e.g. alerts:ack, alerts:*; * stands for any one part.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "landing",
+          "description",
+          "built_in",
+          "scopes",
+          "identities"
+        ],
+        "title": "RoleDto",
+        "type": "object"
+      },
+      "Roles": {
+        "additionalProperties": false,
+        "properties": {
+          "roles": {
+            "description": "The built-in ones first.",
+            "items": {
+              "$ref": "#/components/schemas/RoleDto"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "roles"
+        ],
+        "title": "Roles",
         "type": "object"
       },
       "Search": {
@@ -10482,6 +10598,573 @@
         "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.",
         "tags": [
           "Shared"
+        ]
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "description": "Each role, its scopes, and how many identities have it.",
+        "operationId": "listRoles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Roles"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "List Roles",
+        "tags": [
+          "Administration"
+        ]
+      },
+      "post": {
+        "description": "A role of your own, with ``scopes``; give it to identities after. The groups\ngive only the built-in roles.",
+        "operationId": "createRole",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A new role (#721).",
+                "properties": {
+                  "description": {
+                    "default": "",
+                    "title": "Description",
+                    "type": "string"
+                  },
+                  "label": {
+                    "default": "",
+                    "title": "Label",
+                    "type": "string"
+                  },
+                  "landing": {
+                    "default": "/",
+                    "description": "The page it opens on.",
+                    "title": "Landing",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "a-z first, then a-z, 0-9, _ or -.",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "scopes": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Scopes",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "RoleCreate",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "Create Role",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/roles/{name}": {
+      "delete": {
+        "description": "A role of your own goes, and the identities that had it lose it. The built-in\nones can't be deleted (their scopes can be changed).",
+        "operationId": "deleteRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete Role",
+        "tags": [
+          "Administration"
+        ]
+      },
+      "patch": {
+        "description": "Change its ``label``, ``description`` or ``landing``: the fields given.",
+        "operationId": "updateRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "What changes: the fields given.",
+                "properties": {
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Description"
+                  },
+                  "label": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Label"
+                  },
+                  "landing": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Landing"
+                  }
+                },
+                "title": "RoleChange",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update Role",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/roles/{name}/scopes": {
+      "post": {
+        "description": "Let the role do more (``{\"scope\": \"maintenance:write\"}``).",
+        "operationId": "addRoleScope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "scope": {
+                    "description": "e.g. alerts:ack, alerts:*",
+                    "title": "Scope",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scope"
+                ],
+                "title": "IdentityScope",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Add Role Scope",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/v1/roles/{name}/scopes/{scope}": {
+      "delete": {
+        "description": "Let the role do less; refused when nobody would be an admin after.",
+        "operationId": "removeRoleScope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scope",
+            "required": true,
+            "schema": {
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not a valid request"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in, or a rejected API token"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Role too low, or a cross-site change"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Remove Role Scope",
+        "tags": [
+          "Administration"
         ]
       }
     },

@@ -9,6 +9,7 @@ import io
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -1188,6 +1189,61 @@ def test_api_tokens_from_the_admin_page(admin_page, request):
     purge.click()
     page.locator("#token-message", has_text="Deleted").wait_for()
     page.locator(f'.token-row[data-name="{name}"]').wait_for(state="detached")
+
+
+def _me_with(key: str) -> int | dict:
+    """/api/v1/me with *key*: its answer, or the refusal's status."""
+    request = urllib.request.Request(f"{BASE_URL}/api/v1/me", headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
+def test_identities_and_roles_from_the_admin_page(admin_page, request):
+    """A role of our own, an identity with it, a key with exactly its rights; then
+    the identity goes and its key stops working (#721)."""
+    page = admin_page
+    run = f"{request.node.callspec.id}-{int(time.time())}"  # new on every run
+    role, person = f"e2e-role-{run}", f"e2e-person-{run}"
+    page.goto(f"{BASE_URL}/admin")
+    page.locator("#role-new").click()
+    page.locator("#role-form .role-name input").fill(role)
+    page.locator("#role-form .role-landing input").fill("/noc")
+    page.locator("#role-form .role-scopes input").fill("page:wall, alerts:history")
+    page.locator("#role-create").click()
+    role_row = page.locator(f'.role-row[data-name="{role}"]')
+    role_row.wait_for()
+    assert "session:basic" in role_row.inner_text()
+
+    page.locator("#identity-new").click()
+    page.locator("#identity-form .identity-name input").fill(person)
+    page.locator("#identity-create").click()
+    row = page.locator(f'.identity-row[data-name="{person}"]')
+    row.wait_for()
+    row.locator(".identity-edit").click()
+    row.locator(".identity-role-add").click()
+    page.get_by_role("option", name=role, exact=True).click()
+    row.get_by_role("button", name="Give").first.click()
+    page.locator("#identity-message", has_text=f"{person} has {role} now.").wait_for()
+    row.locator(".identity-key-create").click()
+    key = row.locator(".identity-key-secret input").input_value()
+    assert key.startswith("nmt_")
+    access = _me_with(key)["access"]
+    assert access["roles"] == [role] and access["landing"] == "/noc"
+    assert "alerts:history" in access["permissions"] and "alerts:ack" not in access["permissions"]
+    row.locator(".identity-key-created").get_by_role("button", name="Done").click()
+
+    delete = row.locator(".identity-delete")
+    delete.click()
+    assert row.locator(".identity-delete-note").inner_text() == f"{person} and 1 key stop working."
+    delete.click()
+    page.locator(f'.identity-row[data-name="{person}"]').wait_for(state="detached")
+    assert _me_with(key) == 401
+    role_row.locator(".role-delete").click()
+    role_row.locator(".role-delete").click()
+    page.locator(f'.role-row[data-name="{role}"]').wait_for(state="detached")
 
 
 def test_admin_sections_say_what_to_set_when_nothing_is(admin_page):

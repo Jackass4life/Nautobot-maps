@@ -106,7 +106,12 @@ app python -m app …`); same options, output and exit status:
 | `python -m app identity list` | Every identity, its roles and own scopes. |
 | `python -m app identity add-role NAME ROLE` / `python -m app identity remove-role NAME ROLE` | Give or take a role; the running app sees it within 30 seconds. |
 | `python -m app identity add-scope NAME SCOPE` / `python -m app identity remove-scope NAME SCOPE` | A scope of their own, e.g. `maintenance:write` or `alerts:*`. |
-| `python -m app identity delete NAME` | They can no longer sign in (with `AUTH_GROUP_ROLES=false`; otherwise their groups decide again). |
+| `python -m app identity delete NAME` | They can no longer sign in (with `AUTH_GROUP_ROLES=false`; otherwise their groups decide again). Deleting the last admin is refused. |
+| `python -m app role list` | Every role, its scopes and how many identities have it (#721). |
+| `python -m app role create NAME --scope S [--scope …] [--label L] [--description D] [--landing /page]` | A role of your own; give it to identities after (the groups give only the built-in five). |
+| `python -m app role update NAME [--label L] [--description D] [--landing /page]` | Change its texts or the page it opens on. |
+| `python -m app role add-scope NAME SCOPE` / `python -m app role remove-scope NAME SCOPE` | Let a role do more or less, built-in ones too; the running app sees it within 30 seconds. |
+| `python -m app role delete NAME` | A role of your own goes and its identities lose it; the built-in five can't be deleted. A change that would leave nobody an admin is refused. |
 | `python -m app wireless-check` | Read each wireless controller now; exit status 1 if one fails. |
 
 ## Ported code (#600)
