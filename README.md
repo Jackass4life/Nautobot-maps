@@ -62,7 +62,7 @@ Built for a NOC with 1,200+ sites and 10,000+ devices, where 20–30 sites are d
 | **Wall view** for the NOC screen | **Availability** per site and tenant |
 | ![Maintenance: two active windows and two planned, one across 40 sites](docs/images/maintenance.png) | ![A tenant's status page: 3 of 75 sites affected, 11 devices down, the 72 operational sites folded](docs/images/status-page.png) |
 | **Maintenance**: now and planned, one line per change | **Status page**, as the customer sees it |
-| ![The Admin page: five API tokens with their roles, and the wireless controllers' Check now](docs/images/admin.png) | ![Customers as NWO: Tidal Ports with Share… open, its link to copy, Create customer link, Replace link and Delete link](docs/images/customers.png) |
+| ![The Admin page: four identities with their roles and own scopes, and the roles with their scopes](docs/images/admin.png) | ![Customers as NWO: Tidal Ports with Share… open, its link to copy, Create customer link, Replace link and Delete link](docs/images/customers.png) |
 | **Admin**: API tokens, a test notification, the wireless check | **Customers** for NWO: each customer's status and link |
 | ![The board as NOC: + Case on every row and a row's menu with Acknowledge, Copy, History and Maint. history](docs/images/noc-board.png) | ![Availability as an account manager (the customer role): no Share…, no status links](docs/images/customer-workspace.png) |
 | **NOC** at `/noc/board`: cases and acknowledging, no maintenance | **Account managers** at `/customer`: availability, read only |

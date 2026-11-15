@@ -73,6 +73,17 @@ Then:
 - **Your own sign-in proxy** (`AUTH_MODE=header`, not the bundled one): send the API's paths to `api:5000` and the rest to `web:3000`, and trust only the proxy's address ([sign-in](authentication.md#trusting-only-the-proxy)). Through `web`, the API sees `web`'s address, not the proxy's, and ignores the sign-in headers.
 - **Prometheus** scraping `<host>:5000/metrics` keeps working through `web`.
 
+### Upgrading to 0.6.0: identities, roles kept in the database, sign-in with AD
+
+Take a [backup](#backup-and-restore) first. The first start migrates the database; nothing else to do beforehand:
+- **Roles** are moved into the database, the same five with the same rights (#713). Admins can change them on the Admin page ([changing roles](authentication.md#changing-roles)).
+- **Every API token** gets an identity of its own, named after it (lowercase, spaces as dashes, `-key` added if a person has the name), with the token's role (#719). The keys don't change: nothing needs to be sent out again. Customers' status tokens are untouched.
+- **People keep the role their groups give** (`AUTH_GROUP_ROLES=true`, the default) until you give them [identities](authentication.md#identities); the log names each one signed in without an identity, once.
+- **Breaking, for scripts that read permission names:** they are scopes now, `alerts:ack` (was `alerts.ack`), `status:links:view` (was `status.links.view`), in `access.permissions` of `GET /api/v1/me` and a refusal's `required_permission` (#711). Who may do what is unchanged.
+- **With the bundled proxy**, `docker compose up -d --build` rebuilds its image: its configuration is split into parts (#723), with the same rules.
+
+Afterwards, when you are ready (each optional): create an identity for each person (at least one admin first), then `AUTH_GROUP_ROLES=false` so only they get in ([moving to identities](authentication.md#identities)); or turn on [sign-in with AD](authentication.md#sign-in-with-ad), with the bundled proxy too ([with the bundled proxy](authentication.md#with-the-bundled-proxy)). To roll back to 0.5.x, restore the backup: 0.5.x doesn't start on a database 0.6.0 has migrated.
+
 ## Building the API, the pages and the proxy separately (#672)
 
 Each part has its own Dockerfile, built from its own folder. `docker-compose.yml` builds `api` and `web` this way, and `reverse-proxy/compose.yml` the proxy; for a deployment that runs them some other way:
@@ -89,9 +100,9 @@ cd reverse-proxy && docker build -t nautobot-maps-reverse-proxy --build-arg DOMA
 
 **Pages** (`web/Dockerfile`): Nuxt's server on bun, port 3000 (`PORT`). Set `MAP_TILE_URL` to the API's value, if you changed it: the pages' Content-Security-Policy allows the map's tiles from that server only. With `API_URL` (e.g. `http://api:5000`) it forwards the API's paths there, so it can run on its own without the proxy; behind the proxy, leave it unset.
 
-**Reverse proxy** (`reverse-proxy/Dockerfile`): nginx with HTTPS and company sign-in through oauth2-proxy, as the bundled proxy ([sign-in](authentication.md#the-bundled-proxy-https-and-company-sign-in)).
-- Build args: `DOMAIN` (required), `API_HOST`/`API_PORT` (`api`, 5000), `WEB_HOST`/`WEB_PORT` (`web`, 3000), `OAUTH2_PROXY` (`oauth2-proxy:4180`), `RESOLVER` (127.0.0.11, Docker's DNS). The names are looked up as requests come in, so the proxy starts before the others.
-- At run time: `AUTH_PROXY_SECRET` and `OIDC_ISSUER_URL` (it stops and says so without them), `OIDC_LOGOUT_URL` (may be empty).
+**Reverse proxy** (`reverse-proxy/Dockerfile`): nginx with HTTPS and company sign-in through oauth2-proxy, as the bundled proxy ([sign-in](authentication.md#the-bundled-proxy-https-and-company-sign-in)), or with the app's own sign-in (`SIGN_IN=app`, [AD with the bundled proxy](authentication.md#with-the-bundled-proxy)).
+- Build args: `DOMAIN` (required), `SIGN_IN` (`oauth2-proxy`, or `app`: no oauth2-proxy, the identity headers always empty), `API_HOST`/`API_PORT` (`api`, 5000), `WEB_HOST`/`WEB_PORT` (`web`, 3000), `OAUTH2_PROXY` (`oauth2-proxy:4180`), `RESOLVER` (127.0.0.11, Docker's DNS). The names are looked up as requests come in, so the proxy starts before the others.
+- At run time: `AUTH_PROXY_SECRET` and, with oauth2-proxy, `OIDC_ISSUER_URL` (it stops and says so without them), `OIDC_LOGOUT_URL` (may be empty).
 - The certificate: `reverse-proxy/certs/fullchain.pem` and `privkey.pem` are copied into the image when they are there at build time, or mount them on `/etc/nginx/certs`. An image with the key in it belongs in a private registry only; mounting keeps it out of the image.
 - oauth2-proxy runs as its own container, with the settings in `reverse-proxy/compose.yml`.
 - The API must trust the proxy for sign-in: `AUTH_MODE=header`, `AUTH_REQUIRE_VIEWER=true`, `AUTH_TRUSTED_PROXIES=<the proxy's address>/32`, the same `AUTH_PROXY_SECRET`, and `AUTH_SIGN_OUT_URL=/oauth2/sign_out`.

@@ -1,0 +1,6 @@
+# The status API (#527): staff signed in get their identity, anyone else goes on
+# as anonymous; never the login.
+auth_request /oauth2/auth-optional;
+auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
+auth_request_set $auth_email $upstream_http_x_auth_request_email;
+auth_request_set $auth_groups $upstream_http_x_auth_request_groups;

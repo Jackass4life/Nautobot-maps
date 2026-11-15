@@ -1,0 +1,85 @@
+# reverse-proxy/compose.app-sign-in.yml - HTTPS in front of the app, which signs people
+# in itself: sign-in with AD on its own page, /auth (#717, #723).  Instead of
+# reverse-proxy/compose.yml (company sign-in through oauth2-proxy), never with it.
+#
+# nginx ends TLS and passes every request on; the identity headers are always empty,
+# so nobody can claim a user by sending them.  The app checks the AD password, lets in
+# people with an identity, and keeps their sign-in in an HttpOnly cookie; API tokens
+# and the tenant status page work as with compose.yml.
+#
+# Use it on top of docker-compose.yml, e.g. in .env:
+#   COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml
+# then `docker compose up -d`.  Settings: .env.example, "HTTPS and sign-in" and
+# "Sign-in with AD"; docs/authentication.md, "Sign-in with AD".
+# Paths here are relative to the project directory (where docker-compose.yml is).
+# tests/test_proxy_compose.py keeps what this shares with compose.yml the same.
+
+services:
+  # Only nginx talks to the pages and the API.
+  web:
+    ports: !reset []
+    networks:
+      - default
+      - edge
+
+  api:
+    environment:
+      - AUTH_MODE=header
+      # Pages without sign-in go to /auth; paths without it still need a token.
+      - AUTH_REQUIRE_VIEWER=true
+      - AUTH_TRUSTED_PROXIES=${PROXY_IP:-172.30.0.10}/32
+      - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET (see .env.example)}
+      - LDAP_URL=${LDAP_URL:?set LDAP_URL (ldaps://, see .env.example)}
+      - LDAP_BASE_DN=${LDAP_BASE_DN:?set LDAP_BASE_DN}
+      - JWT_SIGNING_SECRET=${JWT_SIGNING_SECRET:?set JWT_SIGNING_SECRET (openssl rand -base64 48)}
+      # The CA that signed the domain controller's certificate: LDAP_CA_FILE is the
+      # file on this host here, mounted below (unset: the public CAs).
+      - LDAP_CA_FILE=${LDAP_CA_FILE:+/etc/nautobot-maps/ldap-ca.pem}
+    volumes:
+      # Nothing (/dev/null) without LDAP_CA_FILE; a missing file is an error, not an
+      # empty directory made in its place.
+      - type: bind
+        source: ${LDAP_CA_FILE:-/dev/null}
+        target: /etc/nautobot-maps/ldap-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - default
+      - edge
+
+  nginx:
+    build:
+      context: ./reverse-proxy
+      args:
+        DOMAIN: ${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
+        # No oauth2-proxy: the app's own sign-in.
+        SIGN_IN: app
+        # The certificate is mounted (below), never built into the image.
+        INCLUDE_CERTS: "false"
+        # The defaults: api:5000, web:3000, Docker's DNS.
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+    environment:
+      - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET}
+    volumes:
+      # The certificate, mounted: a new one needs only a restart, not a build.
+      - ./reverse-proxy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+      - web
+    networks:
+      edge:
+        # The one address the API trusts identity headers from.
+        ipv4_address: ${PROXY_IP:-172.30.0.10}
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${PROXY_SUBNET:-172.30.0.0/24}

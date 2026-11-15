@@ -1,0 +1,81 @@
+# Sign-in through oauth2-proxy (#423): its locations, included in the HTTPS server.
+
+    set $oauth2_upstream "${OAUTH2_PROXY_UPSTREAM}";
+
+    # oauth2-proxy: the login pages and the callback.
+    location /oauth2/ {
+        proxy_pass $oauth2_upstream;
+        proxy_buffer_size 32k;
+        proxy_buffers 4 32k;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Auth-Request-Redirect $request_uri;
+    }
+
+    # Sign out (#546): oauth2-proxy deletes its session cookie and sends the
+    # browser to "/" (not back here, as $request_uri would); nginx turns that
+    # into the identity provider's logout when there is one.
+    location = /oauth2/sign_out {
+        proxy_pass $oauth2_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Auth-Request-Redirect /;
+        proxy_redirect ~^/$ $sign_out_next;
+    }
+
+    # Asked before every request below: 202 signed in, 401 not.
+    location = /oauth2/auth {
+        internal;
+        if ($api_token) {
+            return 202;
+        }
+        proxy_pass $oauth2_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header Content-Length "";
+        proxy_pass_request_body off;
+        proxy_buffer_size 32k;
+        proxy_buffers 4 32k;
+    }
+
+    location @login {
+        return 302 /oauth2/start?rd=https://${PUBLIC_HOSTNAME}$request_uri;
+    }
+
+    # Asked on the status API (#527): staff signed in get their identity, so a
+    # tenant's name on Availability opens its page without a key; anyone else
+    # goes on as anonymous (202 without identity, never the login), and the
+    # app asks for a status token.
+    location = /oauth2/auth-optional {
+        internal;
+        if ($api_token) {
+            return 202;
+        }
+        proxy_pass $oauth2_upstream/oauth2/auth;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header Content-Length "";
+        proxy_pass_request_body off;
+        proxy_buffer_size 32k;
+        proxy_buffers 4 32k;
+        proxy_intercept_errors on;
+        error_page 401 403 = @anonymous;
+    }
+    location @anonymous {
+        return 202;
+    }
+
+    # After Sign out without OIDC_LOGOUT_URL (#546): no login here, or the
+    # identity provider would sign the user straight back in.  Fixed text,
+    # no data; its own CSP for its own styles.
+    location = /signed-out {
+        default_type text/html;
+        add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+        add_header Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        return 200 '<!DOCTYPE html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Signed out</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1f2937;background:#fff}a{color:#2563eb}.button{display:inline-block;padding:.5rem 1rem;border-radius:.375rem;background:#2563eb;color:#fff;text-decoration:none}p.note{color:#6b7280;font-size:14px}@media (prefers-color-scheme:dark){body{color:#e5e7eb;background:#0f172a}a{color:#60a5fa}.button{background:#3b82f6;color:#fff}p.note{color:#9ca3af}}</style><h1>You are signed out</h1><p><a class="button" href="/">Sign in again</a></p><p class="note">You are still signed in at your company sign-in, so signing in again won’t ask for a password. To end that too, sign out at <a href="${OIDC_ISSUER_URL}">${OIDC_ISSUER_URL}</a>.</p></html>';
+    }

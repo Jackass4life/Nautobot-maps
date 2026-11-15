@@ -8,7 +8,9 @@ Run the mock at a NOC's scale and the app against an empty database, then this:
     uv run --project api --group e2e --with Pillow python scripts/screenshots.py --token nmt_... --seed
 
 Run the app with WIRELESS_CONTROLLERS_FILE=demo/wireless.yml for the access
-points.  An operator token works too, without the Admin page's picture and the
+points, and with AD sign-in on (LDAP_URL, AUTH_MODE=header; development/samba_ad.sh
+starts a domain controller) for the sign-in page's picture; without it that one is
+skipped.  --only admin,sign-in writes only those pictures.  An operator token works too, without the Admin page's picture and the
 workspaces' (each role's pages, #697: the admin token makes a key per role).
 
 Needs Playwright (api/'s e2e group) and Pillow (``--with Pillow``). --seed adds
@@ -29,6 +31,8 @@ from PIL import Image
 from playwright.sync_api import sync_playwright
 
 WIDTH, HEIGHT = 1440, 900
+# --only: the pictures to write (the others are still opened, not written).
+ONLY: set[str] = set()
 
 
 def api(base, token, path, body=None):
@@ -129,6 +133,19 @@ def seed(base, token, board):
         ):
             body = {"name": name, "role": role, "expires_in_days": 365}
             api(base, token, "/api/v1/tokens", {**body, "tenant": tenant} if tenant else body)
+        # Identities and roles (#721): a NOC's people.
+        for name, common_name, roles, scopes in (
+            ("akim", "Anna Kim", ["admin"], []),
+            ("jdoe", "Jane Doe", ["noc"], ["maintenance:write"]),
+            ("mlarsen", "Mikkel Larsen", ["operator"], []),
+            ("sberg", "Sofie Berg", ["customer"], []),
+        ):
+            api(
+                base,
+                token,
+                "/api/v1/identities",
+                {"name": name, "common_name": common_name, "roles": roles, "scopes": scopes},
+            )
 
 
 def with_token(page, base, token):
@@ -144,6 +161,8 @@ def shoot(page, out, name):
     """A PNG of 256 colours: a third of the size, the same to the eye.  Octree,
     not median cut: that dropped small, rare colours such as the top bar's
     green status dot."""
+    if ONLY and name not in ONLY:
+        return
     path = out / f"{name}.png"
     shot = Image.open(io.BytesIO(page.screenshot()))
     shot.convert("RGB").quantize(colors=256, method=Image.Quantize.FASTOCTREE).save(path, optimize=True)
@@ -195,14 +214,34 @@ def screenshots(browser, base, token, out, burst):
         page = pages["light"]
         page.goto(base + "/admin")
         page.wait_for_selector("#admin-tokens .token-row", timeout=60000)
+        page.wait_for_selector("#admin-identities .identity-row", timeout=60000)
         page.wait_for_timeout(1000)
         shoot(page, out, "admin")
     else:
         print("not an admin token: Admin page skipped")
+    sign_in_page(browser, base, out)
     status_page(browser, base, token, out)
     workspaces(browser, base, token, out)
     for page in pages.values():
         page.context.close()
+
+
+def sign_in_page(browser, base, out):
+    """Sign-in with AD (#717): the app's own page, as someone not signed in sees it."""
+    try:
+        urllib.request.urlopen(base + "/auth", timeout=10).close()
+    except urllib.error.HTTPError:
+        print("AD sign-in off (no LDAP_URL): the sign-in page skipped")
+        return
+    # A small window: the form is all there is.
+    ctx = browser.new_context(viewport={"width": 720, "height": 560})
+    page = ctx.new_page()
+    page.goto(base + "/auth")
+    page.wait_for_selector("#auth-form")
+    page.locator("#auth-username input, input#auth-username").first.fill("jdoe")
+    page.wait_for_timeout(500)
+    shoot(page, out, "sign-in")
+    ctx.close()
 
 
 def status_page(browser, base, token, out):
@@ -330,7 +369,9 @@ def main():
     parser.add_argument("--out", default="docs/images")
     parser.add_argument("--seed", action="store_true", help="add cases, acks and maintenance first")
     parser.add_argument("--no-clip", action="store_true")
+    parser.add_argument("--only", default="", help="CSV: write only these pictures, e.g. admin,sign-in")
     args = parser.parse_args()
+    ONLY.update(name for name in args.only.split(",") if name)
     base, out = args.base_url.rstrip("/"), pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     board = wait_for_board(base, args.token)

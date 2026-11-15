@@ -1,5 +1,5 @@
-# The reverse proxy on its own (#672): nginx with HTTPS and company sign-in in front of
-# the API and the web image.  Built from this folder:
+# The reverse proxy on its own (#672): nginx with HTTPS and sign-in in front of the API
+# and the web image.  Built from this folder:
 #
 #   docker build -t nautobot-maps-reverse-proxy --build-arg DOMAIN=maps.example.com \
 #       --build-arg API_PORT=4200 .
@@ -8,10 +8,13 @@
 #   DOMAIN (required)          the public host name
 #   API_HOST/API_PORT          the API's container (api:5000)
 #   WEB_HOST/WEB_PORT          the web image's container (web:3000)
+#   SIGN_IN                    oauth2-proxy (the default: company sign-in through it) or
+#                              app (#723: the app's own, sign-in with AD on /auth; no
+#                              oauth2-proxy, the identity headers always empty)
 #   OAUTH2_PROXY               oauth2-proxy's host:port (oauth2-proxy:4180), which must run
 #   RESOLVER                   the DNS server for those names (Docker's, 127.0.0.11)
 # At run time (environment, filled in at start; never in the image):
-#   AUTH_PROXY_SECRET, OIDC_ISSUER_URL, OIDC_LOGOUT_URL (may be empty)
+#   AUTH_PROXY_SECRET, OIDC_ISSUER_URL (oauth2-proxy only), OIDC_LOGOUT_URL (may be empty)
 # The certificate: certs/fullchain.pem and certs/privkey.pem, copied in when they are
 # there at build time (INCLUDE_CERTS=false: never); a volume on /etc/nginx/certs
 # replaces them.  An image with the key in it belongs in a private registry only.
@@ -23,11 +26,15 @@ ARG WEB_HOST=web
 ARG WEB_PORT=3000
 ARG OAUTH2_PROXY=oauth2-proxy:4180
 ARG RESOLVER=127.0.0.11
+ARG SIGN_IN=oauth2-proxy
 RUN test -n "$DOMAIN" || { echo "Set --build-arg DOMAIN=<the public host name>" >&2; exit 1; }
+RUN case "$SIGN_IN" in oauth2-proxy|app) ;; \
+      *) echo "SIGN_IN: oauth2-proxy or app, not '$SIGN_IN'" >&2; exit 1;; esac
 COPY templates/ /src/
-# The build args now; the secrets stay ${...} for nginx's entrypoint at start.
+# The build args now; the secrets stay ${...} for nginx's entrypoint at start.  The
+# sign-in parts (sign-in-*.inc) from sign-in/$SIGN_IN/.
 RUN mkdir -p /templates \
-    && for template in /src/*.template; do \
+    && for template in /src/*.template /src/sign-in/"$SIGN_IN"/*.template; do \
          PUBLIC_HOSTNAME="$DOMAIN" \
          API_UPSTREAM="http://$API_HOST:$API_PORT" \
          WEB_UPSTREAM="http://$WEB_HOST:$WEB_PORT" \
@@ -72,11 +79,13 @@ RUN mkdir -p /out \
        fi
 
 FROM nginx:1.28.3-alpine
+ARG SIGN_IN=oauth2-proxy
 COPY --from=config /templates/ /etc/nginx/templates/
 COPY --from=check /check/ok /etc/nginx/.config-checked
 # Only the secrets are filled in at start; nginx's own $variables stay.
 ENV NGINX_ENVSUBST_FILTER="^(AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL)$" \
-    OIDC_LOGOUT_URL=""
+    OIDC_LOGOUT_URL="" \
+    SIGN_IN="$SIGN_IN"
 # Stops with what is missing (the certificate, a setting); IPv6 only where the host has it.
 COPY --chmod=755 entrypoint/05-certificates-present.sh entrypoint/06-settings-present.sh \
     entrypoint/30-listen-ipv6-only-if-available.sh /docker-entrypoint.d/

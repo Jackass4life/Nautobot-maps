@@ -305,6 +305,8 @@ With your own proxy, also set its session cookie to `SameSite=Lax`.
 
 ## Sign-in with AD
 
+![The sign-in page: Nautobot Maps, Sign in with your company (AD) user name and password](images/sign-in.png)
+
 The app can also sign people in itself, with their **Active Directory** user name and password on its own page, `/auth` (#717). It is off until `LDAP_URL` is set, and works beside the sign-in proxy: a request with the proxy's headers is still the proxy's user. Use it where there is no company sign-in in front of the app, or for people the proxy doesn't cover.
 
 How it works:
@@ -337,6 +339,24 @@ JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 - The app refuses to start with AD sign-in set up unsafely: `JWT_SIGNING_SECRET` shorter than 32 characters, `ldap://` instead of `ldaps://` (only `LDAP_ALLOW_PLAINTEXT=true`, for tests), or no `LDAP_BASE_DN`.
 
 Check it: the startup log says `AD sign-in on: ldaps://… (base …)`; then open `/auth` and sign in. A wrong service-account password or an unreachable domain controller answers "The directory can't be reached" and is logged.
+
+### With the bundled proxy
+
+The bundled proxy can run without oauth2-proxy, with the app's own sign-in in its place (#723): HTTPS as before, but nginx asks no identity provider; it passes every request on with the identity headers empty, so nobody can claim a user by sending them, and the app asks for its sign-in (a page without it goes to `/auth`). API tokens and the tenant status page work as before. In `.env`, instead of the `OIDC_*` settings:
+
+```dotenv
+COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml
+PUBLIC_HOSTNAME=maps.example.com
+AUTH_PROXY_SECRET=...                  # openssl rand -hex 32
+LDAP_URL=ldaps://dc1.example.local
+LDAP_BASE_DN=DC=example,DC=local
+LDAP_BIND_DN=svc-maps@example.local
+LDAP_BIND_PASSWORD=...
+LDAP_CA_FILE=./config/company-ca.pem   # the file on this host: mounted into api
+JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
+```
+
+then `docker compose up -d --build` (the proxy's image is built with `SIGN_IN=app`). It sets `AUTH_MODE=header` and `AUTH_REQUIRE_VIEWER=true` for you, and refuses to start without `LDAP_URL`, `LDAP_BASE_DN` or `JWT_SIGNING_SECRET`. Sign out is the app's own. To build the proxy's image yourself: `docker build --build-arg DOMAIN=… --build-arg SIGN_IN=app reverse-proxy` (the default, `SIGN_IN=oauth2-proxy`, is the company sign-in above). Going back is setting `COMPOSE_FILE` to `reverse-proxy/compose.yml` again.
 
 ## API tokens
 

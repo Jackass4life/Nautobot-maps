@@ -238,7 +238,7 @@ The suite:
   guides lands on a heading.
 - `web/tests/`: Vitest for the pages' logic in `utils/`; `e2e/`: Playwright in Chromium.
 - `api/tests/test_mcp.py`: the MCP server.
-- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_URL` is set. `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem uv run pytest tests/test_ad_live.py`. CI's `ad-live` job does the same.
+- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_URL` is set. `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem uv run pytest tests/test_ad_live.py`. CI's `ad-live` job does the same, then signs in on the page in Chromium (`e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `LDAP_URL` set, jdoe an identity with the noc role).
 - `api/tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
 
@@ -246,7 +246,7 @@ The suite:
 
 The README's pictures (`docs/images/`) come from `scripts/screenshots.py` (`uv run --project api --group e2e --with Pillow python scripts/screenshots.py`), run against the
 scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)), `WIRELESS_CONTROLLERS_FILE=demo/wireless.yml`
-and an empty database, with an admin token (for the Admin page); its docstring has the steps. Run it again when a page they show changes.
+and an empty database, with an admin token (for the Admin page) and AD sign-in on (for the sign-in page: `development/samba_ad.sh`); its docstring has the steps. Run it again when a page they show changes; `--only admin,sign-in` writes just those.
 
 ### How the inventory sync works
 
