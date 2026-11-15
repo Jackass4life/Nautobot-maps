@@ -2111,6 +2111,14 @@
       "Guide": {
         "additionalProperties": false,
         "properties": {
+          "group": {
+            "description": "Its heading in the list (#733): Start, Set up, Use, Connect more, Reference.",
+            "examples": [
+              "Set up"
+            ],
+            "title": "Group",
+            "type": "string"
+          },
           "href": {
             "examples": [
               "/help/authentication"
@@ -2136,7 +2144,8 @@
         "required": [
           "slug",
           "title",
-          "href"
+          "href",
+          "group"
         ],
         "title": "Guide",
         "type": "object"

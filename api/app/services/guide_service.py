@@ -22,23 +22,27 @@ from markdown_it import MarkdownIt
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 IMAGES = ROOT / "docs" / "images"
 
-# (slug, file): the order of the list of guides; the first is /help itself.
-PAGES = (
-    ("overview", "README.md"),
-    ("how-it-works", "docs/how-it-works.md"),
-    ("nautobot-setup", "docs/nautobot-setup.md"),
-    ("alert-board", "docs/alert-board.md"),
-    ("authentication", "docs/authentication.md"),
-    ("configuration", "docs/configuration.md"),
-    ("operations", "docs/operations.md"),
-    ("notifications", "docs/notifications.md"),
-    ("availability", "docs/availability.md"),
-    ("status-page", "docs/status-page.md"),
-    ("mcp", "docs/mcp.md"),
-    ("sources", "docs/sources.md"),
-    ("data-contract", "docs/data-contract.md"),
-    ("contributing", "CONTRIBUTING.md"),
+# (group, slug, file): the list of guides in the order the app is set up (#733),
+# in groups; the first is /help itself.
+GUIDES = (
+    ("Start", "overview", "README.md"),
+    ("Start", "how-it-works", "docs/how-it-works.md"),
+    ("Set up", "operations", "docs/operations.md"),
+    ("Set up", "configuration", "docs/configuration.md"),
+    ("Set up", "nautobot-setup", "docs/nautobot-setup.md"),
+    ("Set up", "authentication", "docs/authentication.md"),
+    ("Use", "alert-board", "docs/alert-board.md"),
+    ("Use", "availability", "docs/availability.md"),
+    ("Use", "status-page", "docs/status-page.md"),
+    ("Use", "notifications", "docs/notifications.md"),
+    ("Connect more", "sources", "docs/sources.md"),
+    ("Connect more", "mcp", "docs/mcp.md"),
+    ("Reference", "data-contract", "docs/data-contract.md"),
+    ("Reference", "contributing", "CONTRIBUTING.md"),
 )
+# (slug, file), in that order.
+PAGES = tuple((slug, file) for _group, slug, file in GUIDES)
+GROUP_BY_SLUG = {slug: group for group, slug, _file in GUIDES}
 SLUG_BY_FILE = {file: slug for slug, file in PAGES}
 FILE_BY_SLUG = dict(PAGES)
 
@@ -156,7 +160,7 @@ def page(slug: str) -> dict | None:
 
 
 def contents() -> list[dict]:
-    """The list of guides: ``{slug, title, href}``, those present on disk."""
+    """The list of guides: ``{slug, title, href, group}``, those present on disk."""
     items = []
     for slug, _file in PAGES:
         found = page(slug)
@@ -166,6 +170,7 @@ def contents() -> list[dict]:
                     "slug": slug,
                     "title": found["title"],
                     "href": "/help" if slug == "overview" else f"/help/{slug}",
+                    "group": GROUP_BY_SLUG[slug],
                 }
             )
     return items

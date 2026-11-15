@@ -2488,6 +2488,12 @@ export interface components {
         /** Guide */
         Guide: {
             /**
+             * Group
+             * @description Its heading in the list (#733): Start, Set up, Use, Connect more, Reference.
+             * @example Set up
+             */
+            group: string;
+            /**
              * Href
              * @example /help/authentication
              */

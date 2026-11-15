@@ -13,14 +13,14 @@ Every setting the app has, with its default. This page is for the person install
 
 | You want… | Setting | Section |
 |---|---|---|
-| LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN` | [LibreNMS](#librenms-optional) |
 | HTTPS and company sign-in | `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` and the proxy settings | [The bundled proxy](#the-bundled-https-and-sign-in-proxy) |
-| Messages to Teams or email | `NOTIFY_TEAMS_WEBHOOK_URL`, `NOTIFY_EMAIL_TO`, `SMTP_*` | [Notifications](#notifications) |
+| LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN` | [LibreNMS](#librenms-optional) |
+| Access points from controllers | `WIRELESS_CONTROLLERS_FILE` | [Wireless controllers](#wireless-controllers-optional) |
 | One board row per Site | `ALERT_BOARD_SITE_LOCATION_TYPE=Site` | [Alert board](#alert-board) |
 | Important sites and devices | `SITE_TIER_FIELD`, `TIER_DEVICE_LEVEL`, `DEVICE_CRITICALITY_FIELD` | [Alert board](#alert-board) |
 | Case numbers that open your ticket | `CASE_URL_TEMPLATE` | [Alert board](#alert-board) |
 | Your SLA target | `AVAILABILITY_TARGET_PCT` | [Alert board](#alert-board) |
-| Access points from controllers | `WIRELESS_CONTROLLERS_FILE` | [Wireless controllers](#wireless-controllers-optional) |
+| Messages to Teams or email | `NOTIFY_TEAMS_WEBHOOK_URL`, `NOTIFY_EMAIL_TO`, `SMTP_*` | [Notifications](#notifications) |
 
 ### Files the app reads: the config folder
 
@@ -51,6 +51,72 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 | `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Give up connecting after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (migrations at startup are exempt) |
 | `ALERT_HISTORY_RETENTION_DAYS` | `730` (two years) | Once a day, delete resolved alerts (with their events and cases) and site level changes older than this many days. `0` keeps everything. Open alerts are never deleted |
+
+## Sign-in and roles
+
+See [authentication](authentication.md).
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUTH_MODE` | `disabled` | `disabled`, or `header` behind a sign-in proxy |
+| `AUTH_HEADER_USER` | `X-Forwarded-User` | Header with the user name, set by the proxy |
+| `AUTH_HEADER_GROUPS` | `X-Forwarded-Groups` | Header with the user's groups, set by the proxy |
+| `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` | — | Comma-separated group names for each role |
+| `AUTH_NOC_GROUPS` / `AUTH_CUSTOMER_GROUPS` | — | Comma-separated group names for the NOC and customer roles ([roles](authentication.md#roles)) |
+| `AUTH_DOV_GROUPS` | — | Deprecated: the old name of `AUTH_NOC_GROUPS` (the NOC role was DOV until 0.5.1), read only when `AUTH_NOC_GROUPS` is empty |
+| `AUTH_DEFAULT_ROLE` | — | Role (`viewer`, `operator`, `admin`) for signed-in users with no matching group |
+| `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
+| `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |
+| `AUTH_SIGN_OUT_URL` | — | Header mode: where the top bar's **Sign out** goes, your proxy's sign-out address (a path such as `/oauth2/sign_out`, or an `http(s)://` address); empty: no Sign out. The bundled proxy sets it ([signing out](authentication.md#signing-out)) |
+| `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
+| `AUTH_GROUP_ROLES` | `true` | Someone signed in without an [identity](authentication.md#identities) gets the role their groups give; `false`: no access. Set it to `false` once everyone has an identity |
+| `LDAP_URL` | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): `ldaps://dc1.example.local`. Needs `AUTH_MODE=header`, `LDAP_BASE_DN` and `JWT_SIGNING_SECRET` |
+| `LDAP_BASE_DN` | — | Where users are looked up, e.g. `DC=example,DC=local` |
+| `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | — | The read-only service account that finds a user before their own sign-in, e.g. `svc-maps@example.local` |
+| `LDAP_USER_ATTRIBUTE` | `sAMAccountName` | The attribute people sign in with (its value is their identity's name) |
+| `LDAP_CA_FILE` | — | The CA that signed the domain controller's certificate (PEM): its path in the `api` container; else the system's CAs. With `reverse-proxy/compose.app-sign-in.yml`, the file on the host (mounted for you) |
+| `LDAP_ALLOW_PLAINTEXT` | `false` | Allow `ldap://` (passwords unencrypted): tests only |
+| `LDAP_TIMEOUT_SECONDS` | `10` | Connecting to and asking the directory |
+| `JWT_SIGNING_SECRET` | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
+| `JWT_LIFETIME_SECONDS` | `28800` | How long a sign-in lasts (8 hours) |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `nautobot-maps` | Written in and checked on every token |
+| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows, sending test notifications, API tokens, status page links and the wireless check, and the Admin page (logged as a warning) |
+
+### The bundled HTTPS and sign-in proxy
+
+Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
+
+Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`LDAP_URL`, `LDAP_BASE_DN`, `JWT_SIGNING_SECRET`, …); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
+
+| Variable | Default | Description |
+|---|---|---|
+| `PUBLIC_HOSTNAME` | required | The host name people open, e.g. `maps.example.com`; the certificate must match it |
+| `OIDC_ISSUER_URL` | required | Your identity provider, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | required | The app's registration with the identity provider |
+| `AUTH_PROXY_SECRET` | required | A long random value nginx sends to the app (`openssl rand -hex 32`) |
+| `OAUTH2_COOKIE_SECRET` | required | 32 random bytes, base64 URL-safe, for the session cookie |
+| `OIDC_GROUPS_CLAIM` | `groups` | The ID token claim with the user's groups |
+| `OIDC_EMAIL_CLAIM` | `email` | Entra ID: `preferred_username` |
+| `OIDC_SCOPE` | `openid email profile` | The scopes asked for |
+| `OIDC_CA_FILE` | — | A PEM file with the CA(s) of an identity provider whose certificate comes from a company CA, e.g. `./config/company-ca.pem`; trusted together with the public CAs ([company CA](authentication.md#company-ca)) |
+| `OIDC_LOGOUT_URL` | — | Your identity provider's logout address: **Sign out** ends the app's session, then goes here so the provider's session ends too ([signing out](authentication.md#signing-out)). Empty (GitLab has none): a "You are signed out" page, linking the provider to sign out there |
+| `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
+| `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
+
+The certificate goes in `reverse-proxy/certs/` as `fullchain.pem` and `privkey.pem` ([your own certificate](authentication.md#your-own-certificate)).
+
+## Server and logging
+
+| Variable | Default | Description |
+|---|---|---|
+| `GUNICORN_WORKERS` | `4` | Worker processes (Docker image): gunicorn runs uvicorn workers, each serving several requests at once |
+| `GUNICORN_TIMEOUT` | `120` | Worker timeout in seconds; lower values are raised to 120 |
+| `GUNICORN_BIND` | `0.0.0.0:5000` | Listen address |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
+| `LOG_FORMAT` | `text` | `text`, or `json` (one object per line, for Loki, ELK, Splunk). Either way each line names its part (`sync`, `api`, …): see [finding things in the logs](operations.md#finding-things-in-the-logs) |
+| `METRICS_ENABLED` | `true` | Prometheus metrics at `/metrics`; `false`: 404 |
+| `FLASK_DEBUG` | `false` | Reload on code changes (development server, `python run.py`, only; the name is from the Flask days) |
+| `FLASK_RUN_PORT` | `5000` | Port of the development server (e.g. when macOS AirPlay Receiver has 5000) |
 
 ## Syncing and caching
 
@@ -144,59 +210,6 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down. A device a [wireless controller](sources.md#wireless-controllers-access-points) lists is an access point too; one of these roles is also matched by name when its serial isn't in the controller |
 | `SITE_TENANT_RELATIONSHIPS` | — | Nautobot Relationships (keys or labels) that link a location to more tenants, shown next to its own tenant. Empty: every Location ↔ Tenant relationship |
 
-## Sign-in and roles
-
-See [authentication](authentication.md).
-
-| Variable | Default | Description |
-|---|---|---|
-| `AUTH_MODE` | `disabled` | `disabled`, or `header` behind a sign-in proxy |
-| `AUTH_HEADER_USER` | `X-Forwarded-User` | Header with the user name, set by the proxy |
-| `AUTH_HEADER_GROUPS` | `X-Forwarded-Groups` | Header with the user's groups, set by the proxy |
-| `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` | — | Comma-separated group names for each role |
-| `AUTH_NOC_GROUPS` / `AUTH_CUSTOMER_GROUPS` | — | Comma-separated group names for the NOC and customer roles ([roles](authentication.md#roles)) |
-| `AUTH_DOV_GROUPS` | — | Deprecated: the old name of `AUTH_NOC_GROUPS` (the NOC role was DOV until 0.5.1), read only when `AUTH_NOC_GROUPS` is empty |
-| `AUTH_DEFAULT_ROLE` | — | Role (`viewer`, `operator`, `admin`) for signed-in users with no matching group |
-| `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
-| `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |
-| `AUTH_SIGN_OUT_URL` | — | Header mode: where the top bar's **Sign out** goes, your proxy's sign-out address (a path such as `/oauth2/sign_out`, or an `http(s)://` address); empty: no Sign out. The bundled proxy sets it ([signing out](authentication.md#signing-out)) |
-| `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
-| `AUTH_GROUP_ROLES` | `true` | Someone signed in without an [identity](authentication.md#identities) gets the role their groups give; `false`: no access. Set it to `false` once everyone has an identity |
-| `LDAP_URL` | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): `ldaps://dc1.example.local`. Needs `AUTH_MODE=header`, `LDAP_BASE_DN` and `JWT_SIGNING_SECRET` |
-| `LDAP_BASE_DN` | — | Where users are looked up, e.g. `DC=example,DC=local` |
-| `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | — | The read-only service account that finds a user before their own sign-in, e.g. `svc-maps@example.local` |
-| `LDAP_USER_ATTRIBUTE` | `sAMAccountName` | The attribute people sign in with (its value is their identity's name) |
-| `LDAP_CA_FILE` | — | The CA that signed the domain controller's certificate (PEM): its path in the `api` container; else the system's CAs. With `reverse-proxy/compose.app-sign-in.yml`, the file on the host (mounted for you) |
-| `LDAP_ALLOW_PLAINTEXT` | `false` | Allow `ldap://` (passwords unencrypted): tests only |
-| `LDAP_TIMEOUT_SECONDS` | `10` | Connecting to and asking the directory |
-| `JWT_SIGNING_SECRET` | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
-| `JWT_LIFETIME_SECONDS` | `28800` | How long a sign-in lasts (8 hours) |
-| `JWT_ISSUER` / `JWT_AUDIENCE` | `nautobot-maps` | Written in and checked on every token |
-| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows, sending test notifications, API tokens, status page links and the wireless check, and the Admin page (logged as a warning) |
-
-### The bundled HTTPS and sign-in proxy
-
-Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
-
-Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`LDAP_URL`, `LDAP_BASE_DN`, `JWT_SIGNING_SECRET`, …); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
-
-| Variable | Default | Description |
-|---|---|---|
-| `PUBLIC_HOSTNAME` | required | The host name people open, e.g. `maps.example.com`; the certificate must match it |
-| `OIDC_ISSUER_URL` | required | Your identity provider, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | required | The app's registration with the identity provider |
-| `AUTH_PROXY_SECRET` | required | A long random value nginx sends to the app (`openssl rand -hex 32`) |
-| `OAUTH2_COOKIE_SECRET` | required | 32 random bytes, base64 URL-safe, for the session cookie |
-| `OIDC_GROUPS_CLAIM` | `groups` | The ID token claim with the user's groups |
-| `OIDC_EMAIL_CLAIM` | `email` | Entra ID: `preferred_username` |
-| `OIDC_SCOPE` | `openid email profile` | The scopes asked for |
-| `OIDC_CA_FILE` | — | A PEM file with the CA(s) of an identity provider whose certificate comes from a company CA, e.g. `./config/company-ca.pem`; trusted together with the public CAs ([company CA](authentication.md#company-ca)) |
-| `OIDC_LOGOUT_URL` | — | Your identity provider's logout address: **Sign out** ends the app's session, then goes here so the provider's session ends too ([signing out](authentication.md#signing-out)). Empty (GitLab has none): a "You are signed out" page, linking the provider to sign out there |
-| `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
-| `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
-
-The certificate goes in `reverse-proxy/certs/` as `fullchain.pem` and `privkey.pem` ([your own certificate](authentication.md#your-own-certificate)).
-
 ## Notifications
 
 See [notifications](notifications.md). Each channel is on when its setting is filled in.
@@ -217,15 +230,6 @@ See [notifications](notifications.md). Each channel is on when its setting is fi
 | `SMTP_FROM` | `SMTP_USERNAME`, else `nautobot-maps@localhost` | Sender address |
 | `SMTP_STARTTLS` | `true` | Encrypt the connection with STARTTLS |
 
-## MCP server
-
-See [MCP server](mcp.md).
-
-| Variable | Default | Description |
-|---|---|---|
-| `MCP_ENABLED` | `false` | Serve the MCP server at `/mcp`; off: 404 |
-| `MCP_ALLOWED_ORIGINS` | — | Browser origins (`https://host[:port]`) allowed to call `/mcp`. MCP clients send no `Origin`; any request that does is refused unless listed |
-
 ## Map and address search
 
 | Variable | Default | Description |
@@ -239,15 +243,11 @@ See [MCP server](mcp.md).
 
 By default viewers' browsers load tiles from `tile.openstreetmap.org`, and the app sends address searches to the public [Nominatim](https://nominatim.org/). On closed networks, or to keep that data inside, point both settings at internal services or turn address search off. Geocoding results are cached for a day, and the geocoder is asked at most once a second (a busy search gets "try again in a second"), as the public service's usage policy requires.
 
-## Server and logging
+## MCP server
+
+See [MCP server](mcp.md).
 
 | Variable | Default | Description |
 |---|---|---|
-| `GUNICORN_WORKERS` | `4` | Worker processes (Docker image): gunicorn runs uvicorn workers, each serving several requests at once |
-| `GUNICORN_TIMEOUT` | `120` | Worker timeout in seconds; lower values are raised to 120 |
-| `GUNICORN_BIND` | `0.0.0.0:5000` | Listen address |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
-| `LOG_FORMAT` | `text` | `text`, or `json` (one object per line, for Loki, ELK, Splunk). Either way each line names its part (`sync`, `api`, …): see [finding things in the logs](operations.md#finding-things-in-the-logs) |
-| `METRICS_ENABLED` | `true` | Prometheus metrics at `/metrics`; `false`: 404 |
-| `FLASK_DEBUG` | `false` | Reload on code changes (development server, `python run.py`, only; the name is from the Flask days) |
-| `FLASK_RUN_PORT` | `5000` | Port of the development server (e.g. when macOS AirPlay Receiver has 5000) |
+| `MCP_ENABLED` | `false` | Serve the MCP server at `/mcp`; off: 404 |
+| `MCP_ALLOWED_ORIGINS` | — | Browser origins (`https://host[:port]`) allowed to call `/mcp`. MCP clients send no `Origin`; any request that does is refused unless listed |

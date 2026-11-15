@@ -124,25 +124,30 @@ Moved to [How serious an outage is](docs/nautobot-setup.md#how-serious-an-outage
 
 ## Documentation
 
-Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`).
+Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`), in the same order: the order you set the app up in.
 
 | | |
 |---|---|
+| **Start** | |
 | [How it works](docs/how-it-works.md) | The big picture: the building blocks, the data flow, setup, and what the app can and can't do |
+| **Set up** | |
+| [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
+| [Configuration](docs/configuration.md) | Every setting |
 | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) | Every field the app reads, required and optional, where to set it |
+| [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy, or your own; what each role can do; API tokens |
+| **Use** | |
 | [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, wall view |
 | [Availability](docs/availability.md) | Uptime per site and customer, by month, without maintenance |
 | [Tenant status page](docs/status-page.md) | "Are we affected?" for one customer, on a private link |
-| [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
-| [Configuration](docs/configuration.md) | Every setting |
-| [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
-| [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy, or your own; what each role can do; API tokens |
+| [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes; customers' own mails |
+| **Connect more** | |
 | [Other monitoring sources](docs/sources.md) | Wireless controllers, Prometheus Alertmanager, Zabbix and a generic webhook |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
+| **Reference** | |
 | [Data contract](docs/data-contract.md) | Exactly what is read from Nautobot, LibreNMS and the controllers, and what it becomes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
 | API | **API** in the ☰ menu opens `/api/docs`: every endpoint in Swagger UI with **Try it out**, and the OpenAPI spec at `/api/openapi.json` (the old `/docs` and `/openapi.json` redirect there) |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
 
 ## Nautobot versions
 
