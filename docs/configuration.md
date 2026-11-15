@@ -166,7 +166,7 @@ See [authentication](authentication.md).
 | `LDAP_BASE_DN` | — | Where users are looked up, e.g. `DC=example,DC=local` |
 | `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | — | The read-only service account that finds a user before their own sign-in, e.g. `svc-maps@example.local` |
 | `LDAP_USER_ATTRIBUTE` | `sAMAccountName` | The attribute people sign in with (its value is their identity's name) |
-| `LDAP_CA_FILE` | — | The CA that signed the domain controller's certificate (PEM); else the system's CAs |
+| `LDAP_CA_FILE` | — | The CA that signed the domain controller's certificate (PEM): its path in the `api` container; else the system's CAs. With `reverse-proxy/compose.app-sign-in.yml`, the file on the host (mounted for you) |
 | `LDAP_ALLOW_PLAINTEXT` | `false` | Allow `ldap://` (passwords unencrypted): tests only |
 | `LDAP_TIMEOUT_SECONDS` | `10` | Connecting to and asking the directory |
 | `JWT_SIGNING_SECRET` | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
@@ -177,6 +177,8 @@ See [authentication](authentication.md).
 ### The bundled HTTPS and sign-in proxy
 
 Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
+
+Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`LDAP_URL`, `LDAP_BASE_DN`, `JWT_SIGNING_SECRET`, …); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
 
 | Variable | Default | Description |
 |---|---|---|

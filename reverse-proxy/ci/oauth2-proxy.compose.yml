@@ -1,0 +1,11 @@
+# CI only (#423): a stub in place of oauth2-proxy, so no identity provider is needed
+# (reverse-proxy/ci/stub_oauth2_proxy.py).  With reverse-proxy/compose.yml; see
+# ci/compose.yml.
+services:
+  oauth2-proxy:
+    image: python:3.12-alpine
+    command: ["python", "/stub_oauth2_proxy.py"]
+    environment: !reset []
+    volumes:
+      - ./reverse-proxy/ci/stub_oauth2_proxy.py:/stub_oauth2_proxy.py:ro
+
