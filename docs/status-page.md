@@ -21,7 +21,7 @@ A **status page** answers one question for one customer: "are we affected?". It 
   - optionally, **the customer's own devices by name**: "aar-ap01 · Down since 05:21" ([how](#the-tenants-own-devices));
   - folded, **the customer's circuits**: "▸ 3 circuits", opening to "DK-TELIA-123456 · Internet Transit · 1 Gbps".
 - **Many sites:** a customer with more than 10 sites sees the ones that need a look first. The working ones fold into one line, "▸ 72 sites operational".
-- It **updates itself** every minute, and follows the viewer's light or dark setting.
+- It **updates itself** every minute, also after an error (the next answer clears it), and follows the viewer's light or dark setting.
 
 | State | Means |
 |---|---|
@@ -185,7 +185,7 @@ Older versions loaded the page's files from `/static/` (`css/alerts.css`, `js/st
 
 Let these past the proxy's sign-in (oauth2-proxy: `--skip-auth-route`). The app then checks access on `/api/v1/status/` itself.
 
-So that staff can open a tenant's page from Availability without a key, `/api/v1/status/` should still carry who is signed in, when someone is: ask the proxy *optionally* there, passing on the user and groups when the session is valid and going on as anonymous (never to the login) when not. The [bundled proxy](authentication.md#the-bundled-proxy-https-and-company-sign-in) does this: an internal location asks oauth2-proxy's `/oauth2/auth` and turns its 401 into a 202 with no identity. A customer's key link works either way.
+So that staff can open a tenant's page from Availability without a key, `/api/v1/status/` should still carry who is signed in, when someone is: ask the proxy *optionally* there, passing on the user and groups when the session is valid and going on as anonymous (never to the login) when not. The [bundled proxy](authentication.md#the-bundled-proxy-https-and-company-sign-in) does this: an internal location asks oauth2-proxy's `/oauth2/auth` and turns its 401 into a 202 with no identity. Pass on a renewed session cookie there too (oauth2-proxy renews the session every `COOKIE_REFRESH`, and the old cookie then stops working), as the bundled proxy does since #727. A customer's key link works either way.
 
 As on every unauthenticated route, the proxy must **remove** `X-Forwarded-User` and `X-Forwarded-Groups` from the client (see [authentication](authentication.md#api-tokens)).
 

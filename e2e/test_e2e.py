@@ -484,6 +484,31 @@ def test_a_new_key_pasted_into_the_open_status_page_is_used(page):
         page.evaluate("window.location.hash = '#key=nmt_pasted-later'")
 
 
+def test_the_status_page_comes_back_after_a_refusal(page):
+    """#727: one refused answer (staff's sign-in being renewed) doesn't end the
+    minute's refresh; the next answer shows the sites again."""
+    refused = {"left": 0}
+
+    def once_refused(route):
+        if refused["left"]:
+            refused["left"] -= 1
+            route.fulfill(status=401, json={"error": "Sign in, or use the status link's key"})
+        else:
+            route.continue_()
+
+    page.clock.install()
+    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/v1/status/"), once_refused)
+    page.goto(status_link("Acme Corp"))
+    page.locator(".status-site").first.wait_for()
+    refused["left"] = 1
+    page.clock.run_for(61_000)
+    page.locator("#status-headline", has_text="doesn't work").wait_for()
+    assert page.locator(".status-site").count() == 0
+    page.clock.run_for(61_000)
+    page.locator(".status-site").first.wait_for()
+    assert "doesn't work" not in page.locator("#status-headline").inner_text()
+
+
 def test_the_status_page_shows_where_each_site_is(page):
     """Under each site's name, its address, else its coordinates, opening
     OpenStreetMap in a new tab; nothing for a site with neither (#493)."""
