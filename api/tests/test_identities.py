@@ -109,6 +109,9 @@ def test_an_unreadable_database_keeps_the_last_lookup(signed_in, monkeypatch):
 
 def test_the_cli(signed_in, capsys):
     assert run("list") == 0 and capsys.readouterr().out.strip() == "No identities."
+    # Another admin: deleting the last one is refused (#721).
+    assert run("create", "root", "--role", "admin") == 0
+    capsys.readouterr()
     assert (
         run("create", "jane", "--role", "noc", "--scope", "Alerts:*", "--common-name", "Jane D")
         == 0
@@ -120,7 +123,8 @@ def test_the_cli(signed_in, capsys):
     assert run("remove-role", "jane", "noc") == 0
     assert run("remove-scope", "jane", "alerts:*") == 0
     capsys.readouterr()
-    assert run("list") == 0 and capsys.readouterr().out.strip() == "jane (Jane D): admin"
+    assert run("list") == 0
+    assert capsys.readouterr().out.strip() == "jane (Jane D): admin\nroot: admin"
     assert run("delete", "jane") == 0 and "deleted" in capsys.readouterr().out
     assert (
         adb.sql("SELECT count(*) AS n FROM permissions WHERE identity_id IS NOT NULL")[0]["n"] == 0
@@ -175,6 +179,8 @@ def test_the_api(signed_in, via_proxy):
         "description": "",
         "roles": ["noc"],
         "scopes": [],
+        "keys": 0,
+        "for_a_key": False,
     }
     added = via_proxy.post(
         "/api/v1/identities/jane/roles", json={"role": "customer"}, headers=admin

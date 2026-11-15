@@ -1,0 +1,25 @@
+{
+  "scopes": {
+    "alerts:ack": "alerts:ack",
+    " Alerts:* ": "alerts:*",
+    "*": "*",
+    "*:*:*": "*:*:*",
+    "status:links:view": "status:links:view",
+    "a_b-c:9": "a_b-c:9",
+    "alerts ack": null,
+    "alerts::ack": null,
+    ":alerts": null,
+    "alerts:": null,
+    "alerts.ack": null,
+    "": null
+  },
+  "role_names": {
+    "auditor": true,
+    "Night-shift_2": true,
+    "9lives": false,
+    "a b": false,
+    "status": false,
+    "-x": false,
+    "": false
+  }
+}

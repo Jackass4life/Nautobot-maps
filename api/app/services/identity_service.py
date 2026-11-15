@@ -116,7 +116,7 @@ def forget() -> None:
     _unknown_logged.clear()
 
 
-# --- Changes (the CLI's; the admin pages come later) ----------------------------------
+# --- Changes (the CLI's and the admin pages', #721) ----------------------------------
 
 
 def check_scope(scope: str) -> str:
@@ -191,6 +191,18 @@ async def list_all(conn: aconnection.Connection) -> list[Identity]:
         await conn.execute("SELECT unique_name FROM identities ORDER BY unique_name")
     ).fetchall()
     return [found for row in rows if (found := await read(conn, row["unique_name"]))]
+
+
+async def key_counts(conn: aconnection.Connection) -> dict[str, int]:
+    """Each identity's working keys (not revoked, not expired), by name (#721)."""
+    rows = (
+        await conn.execute(
+            "SELECT i.unique_name, count(*) AS n FROM api_tokens t "
+            "JOIN identities i ON i.id = t.identity_id WHERE t.revoked_at IS NULL "
+            "AND (t.expires_at IS NULL OR t.expires_at > now()) GROUP BY i.unique_name"
+        )
+    ).fetchall()
+    return {row["unique_name"]: int(row["n"]) for row in rows}
 
 
 async def delete(conn: aconnection.Connection, unique_name: str) -> None:

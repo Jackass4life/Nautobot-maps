@@ -1,5 +1,5 @@
 <!-- Administration (#530): what the API can do, the web pages can do too.
-     API tokens, the test notification and the wireless controllers' check,
+     Identities and roles (#721), API tokens, the test notification and the wireless controllers' check,
      one section each, quiet by default; a section with nothing to show is
      left out.  Only for those who may administer (page-config's admin). -->
 <script setup lang="ts">
@@ -63,10 +63,12 @@ async function checkWireless() {
       <h1 class="text-2xl font-bold text-highlighted">Admin</h1>
       <p v-if="configStatus === 'pending'" class="text-sm text-muted">Loading…</p>
       <p v-else-if="!admin" id="admin-refused" class="max-w-3xl text-sm text-muted">
-        Only admins can use this page: API tokens, test notifications and the wireless controllers'
-        check.
+        Only admins can use this page: identities and roles, API tokens, test notifications and the
+        wireless controllers' check.
       </p>
       <template v-else>
+        <AdminIdentities />
+        <AdminRoles />
         <AdminTokens />
 
         <!-- Always shown (#627): without a channel it says what to set, and Send test

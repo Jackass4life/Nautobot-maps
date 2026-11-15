@@ -46,7 +46,7 @@ Built for a NOC with 1,200+ sites and 10,000+ devices, where 20–30 sites are d
 - **Importance from Nautobot**: mark important sites (gold, silver, bronze) and devices with custom fields, and their outages alarm louder. Editing them never pages anyone.
 - **Circuit mapping**: the worklist of circuits not yet linked to a site in Nautobot ([circuit mapping](docs/how-it-works.md#circuit-mapping)).
 - **HTTPS and company sign-in** ready to use (nginx + oauth2-proxy for Entra ID, Keycloak, Okta, Google, GitLab), or your own sign-in proxy. Five roles, each with its own pages and buttons: customer (account managers), NOC, NWO (operator), viewer and admin ([roles](docs/authentication.md#in-short)).
-- **Admin page**: API tokens, a test notification, a check of the wireless controllers, and status page links for customers.
+- **Admin page**: identities and roles (who may do what), API tokens, a test notification, a check of the wireless controllers, and status page links for customers.
 - **Open to other tools**: an API (☰ → **API**), an MCP server for AI assistants, Prometheus `/metrics`, a `/healthz` probe, JSON logs and released Docker images.
 - **One top bar on every page**: find any site, see whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, and dark or light.
 

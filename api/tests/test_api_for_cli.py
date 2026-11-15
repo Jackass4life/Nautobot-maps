@@ -34,6 +34,13 @@ API_FOR_COMMAND = {
     "identity remove-role": ["remove_identity_role"],
     "identity add-scope": ["add_identity_scope"],
     "identity remove-scope": ["remove_identity_scope"],
+    # Roles (#721).
+    "role list": ["list_roles"],
+    "role create": ["create_role"],
+    "role update": ["update_role"],
+    "role delete": ["delete_role"],
+    "role add-scope": ["add_role_scope"],
+    "role remove-scope": ["remove_role_scope"],
 }
 # Installing and developing, not everyday work: no API.
 CLI_ONLY = {"migrate", "schema-version", "contract-docs", "roles"}

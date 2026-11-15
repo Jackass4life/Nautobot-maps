@@ -24,6 +24,7 @@ import { errorMessage } from "~/utils/format";
 import { CHOICE_SEARCH_FIELDS, choiceItems } from "~/utils/tenants";
 
 const tokens = shallowRef<Token[]>([]);
+const tokensChanged = useState("admin-tokens-changes", () => 0);
 const inactive = ref(0);
 const showAll = ref(false);
 const loaded = ref(false);
@@ -53,6 +54,8 @@ async function load() {
 }
 onMounted(load);
 watch(showAll, load);
+// A key made or an identity deleted on the Identities section (#721).
+watch(tokensChanged, load);
 
 // A two-step confirm, as Maintenance's End: the button asks "Sure?" and
 // forgets after a few seconds.  Which one is asking: a token's id, or "purge".
@@ -178,6 +181,7 @@ async function create() {
     )) as { token: NewToken };
     created.value = answer.token;
     creating.value = false;
+    tokensChanged.value++;
     Object.assign(form, {
       name: "",
       role: "operator",
