@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **A code guide for developers new to the project** (#735): *Documentation* → *Code guide* (`docs/code-guide.md`): the three parts, where to find what, each API module, how the board, notifications, sign-in and the status page work from start to finish, the pages, the proxy, the tests, recipes for common changes and the words used in the code. A test checks that every file it names still exists
 - **Customers' alarm mails wait as long as you choose** (#729): each customer link (status token) can say how long a site must be in alarm before its addresses get the mail: **Share…** → **Mail** (at once, 5 minutes to 2 hours), Admin → New token, or `token create … --notify-after 15` (0–1440 minutes). Back up sooner, and they get nothing. The wait is chosen together with the address (**At once** preselected, as before) and can't be changed later: revoke the token and make a new one (#731)
 
 ### Changed

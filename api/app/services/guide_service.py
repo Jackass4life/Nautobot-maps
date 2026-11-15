@@ -38,6 +38,7 @@ GUIDES = (
     ("Connect more", "sources", "docs/sources.md"),
     ("Connect more", "mcp", "docs/mcp.md"),
     ("Reference", "data-contract", "docs/data-contract.md"),
+    ("Reference", "code-guide", "docs/code-guide.md"),
     ("Reference", "contributing", "CONTRIBUTING.md"),
 )
 # (slug, file), in that order.

@@ -145,6 +145,7 @@ Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
 | **Reference** | |
 | [Data contract](docs/data-contract.md) | Exactly what is read from Nautobot, LibreNMS and the controllers, and what it becomes |
+| [Code guide](docs/code-guide.md) | For developers new to the code: the parts, where to find what, how the main features work, recipes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
 | API | **API** in the ☰ menu opens `/api/docs`: every endpoint in Swagger UI with **Try it out**, and the OpenAPI spec at `/api/openapi.json` (the old `/docs` and `/openapi.json` redirect there) |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |

@@ -32,6 +32,47 @@ def test_the_guides_in_the_order_the_app_is_set_up():
     assert listed == in_order
 
 
+def test_the_code_guide_names_only_files_that_exist():
+    """docs/code-guide.md (#735) names files and folders in backticks, from the
+    repository root or from api/, api/app/, web/, web/pages/ or reverse-proxy/ (a bare
+    file name: anywhere in the code): each must still be there, so the guide can't
+    quietly go out of date."""
+    text = (guide.ROOT / "docs" / "code-guide.md").read_text(encoding="utf-8")
+    bases = [
+        guide.ROOT / base
+        for base in (
+            "",
+            "api",
+            "api/app",
+            "web",
+            "web/pages",
+            "reverse-proxy",
+            "reverse-proxy/templates",
+        )
+    ]
+    named = {
+        name
+        for name in re.findall(
+            r"`([\w.\-\[\]]+(?:/[\w.\-\[\]]*)+|[\w\-]+\.(?:py|vue|ts|sh|yml|template))`", text
+        )
+        if not name.startswith("/")
+    }
+    assert len(named) > 60
+    # A bare file name (``SitePanel.vue``) is in the folder named next to it.
+    files = {
+        path.name
+        for folder in ("api/app", "api/tests", "web", "reverse-proxy", "demo")
+        for path in (guide.ROOT / folder).rglob("*")
+        if "node_modules" not in path.parts and ".output" not in path.parts
+    }
+    missing = sorted(
+        name
+        for name in named
+        if not any((base / name).exists() for base in bases) and ("/" in name or name not in files)
+    )
+    assert not missing, missing
+
+
 def test_links_between_the_docs_open_their_page():
     html = guide.page("overview")["html"]
     assert 'href="/help/how-it-works#circuit-mapping"' in html
