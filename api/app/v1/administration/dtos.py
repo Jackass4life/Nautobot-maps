@@ -63,7 +63,14 @@ class Token(common.Answer):
     id: int
     name: str
     prefix: str = Field(description="Its first characters, to recognise it.")
-    role: Literal["viewer", "operator", "admin", "noc", "customer", "status"]
+    role: Literal["viewer", "operator", "admin", "noc", "customer", "status", ""] = Field(
+        description='The role it was made with; "" for a key made for an identity. A key\'s '
+        "rights are its identity's (#719), whatever this says; status: a customer's token."
+    )
+    identity: str | None = Field(
+        description="The identity it belongs to and whose rights it has (#719); null for a "
+        "status token."
+    )
     tenant: str | None = Field(description="The tenant a status token opens.")
     notify_email: str = Field(
         description="A status token's customer addresses for alarm and recovery mails "
@@ -114,8 +121,13 @@ class TokenCreate(BaseModel):
     """A new API token (#297)."""
 
     name: str
-    role: str = Field(
-        description="viewer, operator (NWO), admin, noc, customer, or status with a tenant"
+    role: str | None = Field(
+        None,
+        description="viewer, operator (NWO), admin, noc, customer (an identity of the key's own "
+        "with that role, #719), or status with a tenant; or none, with identity",
+    )
+    identity: str | None = Field(
+        None, description="A key for this existing identity, with exactly its rights (#719)."
     )
     tenant: str | None = None
     notify_email: str | None = Field(

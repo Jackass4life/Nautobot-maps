@@ -12,7 +12,9 @@ from app.utils import timeutil
 
 COLUMNS = (
     "id, name, prefix, role, tenant, created_by, created_at, expires_at, last_used_at, "
-    "revoked_at, revoked_by, notify_email"
+    "revoked_at, revoked_by, notify_email, "
+    # The identity a key belongs to (#719), by name.
+    "(SELECT unique_name FROM identities WHERE id = api_tokens.identity_id) AS identity"
 )
 # When it stopped working: revoked or expired, whichever came first.
 INACTIVE = (
@@ -35,8 +37,9 @@ async def insert(db: AsyncSession, values: dict) -> dict | None:
         await _rows(
             db,
             "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, created_by, "
-            "created_at, expires_at, notify_email) VALUES (:name, :token_hash, :prefix, :role, "
-            ":tenant, :created_by, :created_at, :expires_at, :notify_email) "
+            "created_at, expires_at, notify_email, identity_id) VALUES (:name, :token_hash, "
+            ":prefix, :role, :tenant, :created_by, :created_at, :expires_at, :notify_email, "
+            ":identity_id) "
             "ON CONFLICT (name) DO NOTHING "
             f"RETURNING {COLUMNS}",
             values,
@@ -90,7 +93,8 @@ async def find_active(
             await _rows(
                 db,
                 "SELECT id, name, role, tenant, "
-                "(last_used_at IS NULL OR last_used_at < :stale) AS stale "
+                "(SELECT unique_name FROM identities WHERE id = api_tokens.identity_id) "
+                "AS identity, (last_used_at IS NULL OR last_used_at < :stale) AS stale "
                 "FROM api_tokens WHERE token_hash = :hash AND revoked_at IS NULL "
                 "AND (expires_at IS NULL OR expires_at > :now)",
                 {"stale": stale_before, "hash": token_hash, "now": now},
@@ -107,4 +111,43 @@ async def touch(db: AsyncSession, token_id: int, now: datetime, stale_before: da
         "UPDATE api_tokens SET last_used_at = :now "
         "WHERE id = :id AND (last_used_at IS NULL OR last_used_at < :stale)",
         {"now": now, "id": token_id, "stale": stale_before},
+    )
+
+
+async def identity_id(db: AsyncSession, unique_name: str) -> int | None:
+    rows = await _rows(db, "SELECT id FROM identities WHERE unique_name = :n", {"n": unique_name})
+    return rows[0]["id"] if rows else None
+
+
+async def new_identity(db: AsyncSession, unique_name: str, role: str, description: str) -> int:
+    """An identity for a key made the old way (``--role``, #719), with that role."""
+    rows = await _rows(
+        db,
+        "INSERT INTO identities (unique_name, description) VALUES (:n, :d) RETURNING id",
+        {"n": unique_name, "d": description},
+    )
+    await _rows(
+        db,
+        "INSERT INTO identities_to_roles (identity_id, role_id) "
+        "SELECT :i, id FROM roles WHERE name = :r",
+        {"i": rows[0]["id"], "r": role},
+    )
+    return rows[0]["id"]
+
+
+async def delete_identity(db: AsyncSession, identity_id: int) -> None:
+    await _rows(db, "DELETE FROM identities WHERE id = :i", {"i": identity_id})
+
+
+async def name_taken(db: AsyncSession, name: str) -> bool:
+    return bool(await _rows(db, "SELECT 1 FROM api_tokens WHERE name = :n", {"n": name}))
+
+
+async def delete_keyless_identities(db: AsyncSession, description_start: str) -> None:
+    """Identities made for keys (their description starts so) with no key left."""
+    await _rows(
+        db,
+        "DELETE FROM identities i WHERE i.description LIKE :start "
+        "AND NOT EXISTS (SELECT 1 FROM api_tokens t WHERE t.identity_id = i.id)",
+        {"start": description_start + "%"},
     )

@@ -390,8 +390,12 @@ const STATE_CLASS: Record<string, string> = {
               >
             </td>
             <td class="px-4 py-2">
-              {{ token.role
+              {{ token.role || "key"
               }}<span v-if="token.tenant" class="text-muted"> · {{ token.tenant }}</span>
+              <!-- Its rights are its identity's (#719). -->
+              <span v-if="token.identity" class="token-identity block text-xs text-muted"
+                >Identity {{ token.identity }}</span
+              >
               <span v-if="token.notify_email" class="token-notify block text-xs text-muted"
                 >Mails {{ token.notify_email }}</span
               >

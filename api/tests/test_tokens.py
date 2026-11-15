@@ -161,7 +161,12 @@ class TestTokens:
 
     def test_verify_expiry_revocation_and_last_used(self, clock):
         secret = make(expires_in_days=1)["token"]
-        assert verify(secret) == {"name": "script", "role": "operator", "tenant": ""}
+        assert verify(secret) == {
+            "name": "script",
+            "role": "operator",
+            "tenant": "",
+            "identity": "script",
+        }
         first_use = raw_rows()[0]["last_used_at"]
         assert first_use == NOW
         clock["now"] = "2026-10-09T12:04:00Z"

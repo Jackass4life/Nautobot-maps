@@ -63,8 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
     create = token_commands.add_parser("create", help="create a token and print it (shown once)")
     create.add_argument("name")
     # nwo: the operator role, as the pages name it (#691); dov: noc's name until 0.5.1 (#703).
-    create.add_argument(
-        "--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE, *ROLE_ALIASES)
+    whose = create.add_mutually_exclusive_group(required=True)
+    whose.add_argument(
+        "--role",
+        choices=(*tokens.ROLES, tokens.STATUS_ROLE, *ROLE_ALIASES),
+        help="a key with an identity of its own, of this role (status: a customer's token)",
+    )
+    whose.add_argument(
+        "--identity", help="a key for this existing identity, with exactly its rights (#719)"
     )
     create.add_argument(
         "--tenant", default=None, help="with --role status: the tenant whose status page it opens"
@@ -230,6 +236,8 @@ def roles_command(args) -> int:
 
 def print_token(token: dict) -> None:
     tenant = f"  (tenant {token['tenant']})" if token.get("tenant") else ""
+    if token.get("identity"):
+        tenant += f"  identity {token['identity']}"
     if token.get("notify_email"):
         tenant += f"  mails {token['notify_email']}"
     ended = f"  revoked {token['revoked_at']}" if token.get("revoked_at") else ""
@@ -242,8 +250,11 @@ def print_token(token: dict) -> None:
 
 async def token_command(db, args) -> int:
     if args.token_command == "create":
-        role = ROLE_ALIASES.get(args.role, args.role)
-        body = {"name": args.name, "role": role, "expires_in_days": args.expires_days}
+        body = {"name": args.name, "expires_in_days": args.expires_days}
+        if args.identity is not None:
+            body["identity"] = args.identity
+        else:
+            body["role"] = ROLE_ALIASES.get(args.role, args.role)
         if args.tenant is not None:
             body["tenant"] = args.tenant
         if args.notify_email is not None:
@@ -257,7 +268,8 @@ async def token_command(db, args) -> int:
         await db.commit()
         print(token["token"])
         print(
-            f"Token {token['name']!r} (id {token['id']}, role {token['role']}, "
+            f"Token {token['name']!r} (id {token['id']}, "
+            f"{'identity ' + token['identity'] if token.get('identity') else 'role ' + token['role']}, "
             f"expires {token['expires_at'] or 'never'}). Shown only now: store it.",
             file=sys.stderr,
         )

@@ -1139,7 +1139,12 @@ class TestStatusTokens:
             == 0
         )
         secret = capsys.readouterr().out.strip()
-        assert verify(secret) == {"name": "acme", "role": "status", "tenant": "Acme Corp"}
+        assert verify(secret) == {
+            "name": "acme",
+            "role": "status",
+            "tenant": "Acme Corp",
+            "identity": None,
+        }
         assert cli.main(["token", "list"]) == 0
         assert "(tenant Acme Corp)" in capsys.readouterr().out
 

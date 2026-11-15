@@ -3715,6 +3715,18 @@
             "title": "Id",
             "type": "integer"
           },
+          "identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The identity it belongs to and whose rights it has (#719); null for a status token.",
+            "title": "Identity"
+          },
           "last_used_at": {
             "anyOf": [
               {
@@ -3756,13 +3768,15 @@
             "type": "string"
           },
           "role": {
+            "description": "The role it was made with; \"\" for a key made for an identity. A key's rights are its identity's (#719), whatever this says; status: a customer's token.",
             "enum": [
               "viewer",
               "operator",
               "admin",
               "noc",
               "customer",
-              "status"
+              "status",
+              ""
             ],
             "title": "Role",
             "type": "string"
@@ -3811,6 +3825,7 @@
           "name",
           "prefix",
           "role",
+          "identity",
           "tenant",
           "notify_email",
           "created_by",
@@ -5682,6 +5697,18 @@
             "title": "Id",
             "type": "integer"
           },
+          "identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The identity it belongs to and whose rights it has (#719); null for a status token.",
+            "title": "Identity"
+          },
           "last_used_at": {
             "anyOf": [
               {
@@ -5723,13 +5750,15 @@
             "type": "string"
           },
           "role": {
+            "description": "The role it was made with; \"\" for a key made for an identity. A key's rights are its identity's (#719), whatever this says; status: a customer's token.",
             "enum": [
               "viewer",
               "operator",
               "admin",
               "noc",
               "customer",
-              "status"
+              "status",
+              ""
             ],
             "title": "Role",
             "type": "string"
@@ -5761,6 +5790,7 @@
           "name",
           "prefix",
           "role",
+          "identity",
           "tenant",
           "notify_email",
           "created_by",
@@ -11332,6 +11362,18 @@
                     ],
                     "title": "Expires In Days"
                   },
+                  "identity": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A key for this existing identity, with exactly its rights (#719).",
+                    "title": "Identity"
+                  },
                   "name": {
                     "title": "Name",
                     "type": "string"
@@ -11349,9 +11391,16 @@
                     "title": "Notify Email"
                   },
                   "role": {
-                    "description": "viewer, operator (NWO), admin, noc, customer, or status with a tenant",
-                    "title": "Role",
-                    "type": "string"
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "viewer, operator (NWO), admin, noc, customer (an identity of the key's own with that role, #719), or status with a tenant; or none, with identity",
+                    "title": "Role"
                   },
                   "tenant": {
                     "anyOf": [
@@ -11366,8 +11415,7 @@
                   }
                 },
                 "required": [
-                  "name",
-                  "role"
+                  "name"
                 ],
                 "title": "TokenCreate",
                 "type": "object"

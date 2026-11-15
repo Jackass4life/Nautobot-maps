@@ -62,6 +62,20 @@ def looks_like_email(address: str) -> bool:
     )
 
 
+TAKEN = (
+    "A token with this name already exists (revoked and expired ones keep their name "
+    "until purged; see token list --all)"
+)
+# How an identity made for a key starts its description (#719): a purge removes it
+# with its last key.
+FOR_A_KEY = "API token"
+
+
+def normal_name(name: str) -> str:
+    """A key's name as an identity's (#719): lowercase, spaces as dashes."""
+    return "-".join(name.strip().lower().split())
+
+
 def notify_emails(value: object) -> str:
     """A status token's notification addresses (#707), checked: "a@x.dk, b@y.dk", or
     "" for none. Comma-separated (semicolons too), duplicates dropped."""
@@ -120,7 +134,19 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
             "underscores, starting with a letter or digit"
         )
     role = body.get("role")
-    if role not in (*ROLES, STATUS_ROLE):
+    for_identity = body.get("identity")
+    identity_id = None
+    if for_identity is not None:
+        # A key of an existing identity (#719): exactly its rights.
+        if role not in (None, ""):
+            raise TokenError("give a role or an identity, not both")
+        if not isinstance(for_identity, str) or not for_identity.strip():
+            raise TokenError("identity: the name of an identity")
+        identity_id = await token_repository.identity_id(session, normal_name(for_identity))
+        if identity_id is None:
+            raise TokenError(f"no identity {normal_name(for_identity)!r}")
+        role = ""
+    elif role not in (*ROLES, STATUS_ROLE):
         raise TokenError(f"role must be one of: {', '.join((*ROLES, STATUS_ROLE))}")
     tenant = body.get("tenant")
     if role == STATUS_ROLE:
@@ -157,6 +183,17 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
             raise TokenError(f"expires_in_days must be a whole number from 1 to {MAX_EXPIRY_DAYS}")
         expires_at = current + timedelta(days=days)
 
+    if await token_repository.name_taken(session, name):
+        raise TokenError(TAKEN)
+    if role in ROLES:
+        # The old way (#719): an identity of the key's own, with that role.
+        own = normal_name(name)
+        if await token_repository.identity_id(session, own) is not None:
+            raise TokenError(
+                f"identity {own!r} exists already: make its key with identity {own!r}, "
+                "or choose another name"
+            )
+        identity_id = await token_repository.new_identity(session, own, role, f"API token {name!r}")
     token = PREFIX + secrets.token_urlsafe(32)
     row = await token_repository.insert(
         session,
@@ -170,13 +207,14 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
             "created_at": current,
             "expires_at": expires_at,
             "notify_email": notify_email,
+            "identity_id": identity_id,
         },
     )
     if row is None:
-        raise TokenError(
-            "A token with this name already exists (revoked and expired ones keep their name "
-            "until purged; see token list --all)"
-        )
+        if role in ROLES and identity_id is not None:
+            # The name was taken: the identity made for it goes too.
+            await token_repository.delete_identity(session, identity_id)
+        raise TokenError(TAKEN)
     logger.info("API token {!r} created (role {}) by {}", name, role, created_by or "unknown")
     return {**_with_state(row, current), "token": token}
 
@@ -210,6 +248,9 @@ async def purge(
         reverse=True,
     )
     if not dry_run:
+        # Their identities made for them, with no key left, go too (#719): the name is
+        # free again. People's identities are never touched.
+        await token_repository.delete_keyless_identities(session, FOR_A_KEY)
         for token in purged:
             logger.info("API token {!r} purged by {}", token["name"], purged_by or "unknown")
     return purged
@@ -235,7 +276,7 @@ async def revoke(session: AsyncSession, token_id: int, revoked_by: str) -> dict 
 
 
 async def verify(session: AsyncSession, token: str) -> dict | None:
-    """``{"name", "role", "tenant"}`` of an active token, else None (unknown,
+    """``{"name", "role", "tenant", "identity"}`` of an active token, else None (unknown,
     revoked or expired). Writes ``last_used_at`` (at most every 5 minutes) and
     commits *session*: use one of its own, not the request's."""
     if not is_token(token):
@@ -249,4 +290,10 @@ async def verify(session: AsyncSession, token: str) -> dict | None:
         # The same condition again: of requests that all saw it stale, one writes.
         await token_repository.touch(session, found["id"], current, stale_before)
         await session.commit()
-    return {"name": found["name"], "role": found["role"], "tenant": found.get("tenant") or ""}
+    return {
+        "name": found["name"],
+        "role": found["role"],
+        "tenant": found.get("tenant") or "",
+        # The identity whose rights the key has (#719); None for a status token.
+        "identity": found.get("identity"),
+    }
