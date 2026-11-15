@@ -114,6 +114,15 @@ class TestTokens:
                 },
                 "notify_email: at most 10",
             ),
+            # #729: the wait before a customer's alarm mail, whole minutes up to a day.
+            *(
+                ({"name": "ok", "role": "viewer", "notify_after_minutes": value}, "notify_after")
+                for value in (-1, 1441, True, "15", 1.5)
+            ),
+            (
+                {"name": "ok", "role": "viewer", "notify_after_minutes": 15},
+                "notify_after_minutes needs notify_email",
+            ),
         ],
     )
     def test_validation(self, clock, body, message):
@@ -358,14 +367,22 @@ class TestApi:
             "role": "status",
             "tenant": "Acme",
             "notify_email": " it@acme.example; ops@acme.example,IT@acme.example ,",
+            "notify_after_minutes": 15,
         }
         created = client.post("/api/v1/tokens", json=body, headers=bearer(admin)).json()["token"]
         assert created["notify_email"] == "it@acme.example, ops@acme.example"
+        assert created["notify_after_minutes"] == 15
         listing = client.get("/api/v1/tokens", headers=bearer(admin)).json()["tokens"]
-        assert {t["name"]: t["notify_email"] for t in listing} == {
-            "acme": "it@acme.example, ops@acme.example",
-            "bootstrap": "",
+        assert {t["name"]: (t["notify_email"], t["notify_after_minutes"]) for t in listing} == {
+            "acme": ("it@acme.example, ops@acme.example", 15),
+            "bootstrap": ("", None),
         }
+        refused = client.post(
+            "/api/v1/tokens",
+            json={**body, "name": "acme-2", "notify_after_minutes": 1441},
+            headers=bearer(admin),
+        )
+        assert refused.status_code == 400 and "notify_after_minutes" in refused.text
 
 
 class TestStatusLinkFailure:

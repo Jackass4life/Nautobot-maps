@@ -12,7 +12,7 @@ from app.utils import timeutil
 
 COLUMNS = (
     "id, name, prefix, role, tenant, created_by, created_at, expires_at, last_used_at, "
-    "revoked_at, revoked_by, notify_email, "
+    "revoked_at, revoked_by, notify_email, notify_after_minutes, "
     # The identity a key belongs to (#719), by name.
     "(SELECT unique_name FROM identities WHERE id = api_tokens.identity_id) AS identity"
 )
@@ -37,9 +37,9 @@ async def insert(db: AsyncSession, values: dict) -> dict | None:
         await _rows(
             db,
             "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, created_by, "
-            "created_at, expires_at, notify_email, identity_id) VALUES (:name, :token_hash, "
-            ":prefix, :role, :tenant, :created_by, :created_at, :expires_at, :notify_email, "
-            ":identity_id) "
+            "created_at, expires_at, notify_email, notify_after_minutes, identity_id) "
+            "VALUES (:name, :token_hash, :prefix, :role, :tenant, :created_by, :created_at, "
+            ":expires_at, :notify_email, :notify_after_minutes, :identity_id) "
             "ON CONFLICT (name) DO NOTHING "
             f"RETURNING {COLUMNS}",
             values,

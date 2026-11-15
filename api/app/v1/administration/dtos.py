@@ -76,6 +76,11 @@ class Token(common.Answer):
         description="A status token's customer addresses for alarm and recovery mails "
         '(#707), comma-separated; "" for none.'
     )
+    notify_after_minutes: int | None = Field(
+        None,
+        description="How long one of the tenant's sites is in alarm before those addresses "
+        "get the mail (#729), in minutes; null: NOTIFY_CUSTOMER_DELAY_MINUTES.",
+    )
     created_by: str
     created_at: str
     expires_at: str | None
@@ -135,6 +140,11 @@ class TokenCreate(BaseModel):
         description="Role status only: up to 10 customer addresses, comma-separated, that "
         "get a mail when one of the tenant's sites goes into alarm or recovers (#707). "
         "Set once: to change them, revoke the token and make a new one.",
+    )
+    notify_after_minutes: int | None = Field(
+        None,
+        description="With notify_email: how long a site is in alarm before the mail, 0 to "
+        "1440 minutes (#729); back up sooner, no mail. Unset: NOTIFY_CUSTOMER_DELAY_MINUTES.",
     )
     expires_in_days: int | None = None
 

@@ -35,6 +35,8 @@ NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
 # has the last word. One @, a dot inside the domain, none of these characters.
 EMAIL_FORBIDDEN = frozenset(' \t\r\n,;<>"()[]\\')
 MAX_NOTIFY_EMAILS = 10
+# The longest wait before a customer's alarm mail (#729): a day.
+MAX_NOTIFY_AFTER_MINUTES = 1440
 MAX_EMAIL_LENGTH = 254
 
 
@@ -170,6 +172,19 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
     notify_email = notify_emails(body.get("notify_email"))
     if notify_email and role != STATUS_ROLE:
         raise TokenError("notify_email is only for role status")
+    # How long a site is in alarm before the mail (#729); None: the setting's.
+    notify_after = body.get("notify_after_minutes")
+    if notify_after is not None:
+        if (
+            isinstance(notify_after, bool)
+            or not isinstance(notify_after, int)
+            or not 0 <= notify_after <= MAX_NOTIFY_AFTER_MINUTES
+        ):
+            raise TokenError(
+                f"notify_after_minutes must be a whole number from 0 to {MAX_NOTIFY_AFTER_MINUTES}"
+            )
+        if not notify_email:
+            raise TokenError("notify_after_minutes needs notify_email")
     days = body.get("expires_in_days")
     current = timeutil.now()
     expires_at = None
@@ -207,6 +222,7 @@ async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
             "created_at": current,
             "expires_at": expires_at,
             "notify_email": notify_email,
+            "notify_after_minutes": notify_after,
             "identity_id": identity_id,
         },
     )

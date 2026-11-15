@@ -5,6 +5,8 @@ import {
   day,
   expiryBody,
   inactiveText,
+  mailAfterBody,
+  mailAfterText,
   purgedText,
   randomSuffix,
   shareUrl,
@@ -69,6 +71,17 @@ describe("tokens", () => {
   it("how long a new token works", () => {
     expect(expiryBody("365")).toEqual({ expires_in_days: 365 });
     expect(expiryBody("never")).toEqual({});
+  });
+
+  it("how long a customer's alarm mail waits (#729)", () => {
+    expect(mailAfterBody("15")).toEqual({ notify_after_minutes: 15 });
+    expect(mailAfterBody("0")).toEqual({ notify_after_minutes: 0 });
+    expect(mailAfterBody("default")).toEqual({});
+    expect(mailAfterText(null)).toBe("");
+    expect(mailAfterText(0)).toBe("at once");
+    expect(mailAfterText(15)).toBe("after 15 min");
+    expect(mailAfterText(60)).toBe("after 1 hour");
+    expect(mailAfterText(120)).toBe("after 2 hours");
   });
 
   it("what the page says", () => {

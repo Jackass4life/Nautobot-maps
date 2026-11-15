@@ -7,6 +7,9 @@ import {
   EXPIRY_CHOICES,
   expiryBody,
   inactiveText,
+  MAIL_AFTER_CHOICES,
+  mailAfterBody,
+  mailAfterText,
   purgedText,
   ROLE_HINTS,
   ROLES,
@@ -117,6 +120,7 @@ const form = reactive({
   role: "operator" as Role,
   tenant: "",
   notifyEmail: "",
+  mailAfter: "default",
   expiry: "365",
 });
 const formError = ref("");
@@ -173,7 +177,7 @@ async function create() {
           role: form.role,
           ...(form.role === "status" ? { tenant: form.tenant } : {}),
           ...(form.role === "status" && form.notifyEmail.trim()
-            ? { notify_email: form.notifyEmail.trim() }
+            ? { notify_email: form.notifyEmail.trim(), ...mailAfterBody(form.mailAfter) }
             : {}),
           ...expiryBody(form.expiry),
         } as never,
@@ -187,6 +191,7 @@ async function create() {
       role: "operator",
       tenant: "",
       notifyEmail: "",
+      mailAfter: "default",
       expiry: "365",
     });
     await load();
@@ -339,6 +344,18 @@ const STATE_CLASS: Record<string, string> = {
           placeholder="it@customer.example, noc@customer.example"
         />
       </UFormField>
+      <!-- How long a site is in alarm before that mail (#729). -->
+      <UFormField
+        v-if="form.role === 'status' && form.notifyEmail.trim()"
+        label="Mail"
+        hint="Once a site has been in alarm this long; back up sooner, no mail"
+      >
+        <USelect
+          v-model="form.mailAfter"
+          class="token-mail-after w-full"
+          :items="MAIL_AFTER_CHOICES"
+        />
+      </UFormField>
       <UFormField label="Works for">
         <USelect v-model="form.expiry" class="token-expiry w-full" :items="EXPIRY_CHOICES" />
       </UFormField>
@@ -401,7 +418,12 @@ const STATE_CLASS: Record<string, string> = {
                 >Identity {{ token.identity }}</span
               >
               <span v-if="token.notify_email" class="token-notify block text-xs text-muted"
-                >Mails {{ token.notify_email }}</span
+                >Mails {{ token.notify_email
+                }}{{
+                  mailAfterText(token.notify_after_minutes)
+                    ? ` ${mailAfterText(token.notify_after_minutes)}`
+                    : ""
+                }}</span
               >
               <UBadge
                 v-if="token.state !== 'active'"

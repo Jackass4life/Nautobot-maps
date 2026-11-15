@@ -503,11 +503,12 @@ class TestCustomerMail:
         return channels
 
     @staticmethod
-    def token(name, tenant, emails, revoked=False, expires="2027-01-01T00:00:00Z"):
+    def token(name, tenant, emails, revoked=False, expires="2027-01-01T00:00:00Z", after=None):
         adb.sql(
             "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, notify_email, "
-            "expires_at, revoked_at) VALUES (%s, %s, 'nmt_x', 'status', %s, %s, %s, %s)",
-            (name, f"hash-{name}", tenant, emails, expires, NOW if revoked else None),
+            "expires_at, revoked_at, notify_after_minutes) "
+            "VALUES (%s, %s, 'nmt_x', 'status', %s, %s, %s, %s, %s)",
+            (name, f"hash-{name}", tenant, emails, expires, NOW if revoked else None, after),
         )
 
     def test_only_the_active_tokens_of_the_sites_tenants(self, smtp_only):
@@ -563,3 +564,115 @@ class TestCustomerMail:
         assert by_to["it@acme.example"]["Subject"] == "Your sites: 3 sites in alarm"
         assert by_to["it@globex.example"]["Subject"] == "🔴 Globex HQ is Critical"
         assert "Site 0" not in by_to["it@globex.example"].get_body(("plain",)).get_content()
+
+
+class TestCustomerMailWait:
+    """A customer's alarm mail waits the token's minutes (#729); one per outage, and a
+    recovery only after an alarm that went out."""
+
+    token = staticmethod(TestCustomerMail.token)
+
+    @pytest.fixture
+    def mail(self, channels, monkeypatch):
+        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")
+        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
+        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        self.monkeypatch = monkeypatch
+        self.level("ok", "2026-10-09T11:00:00Z")
+        return channels
+
+    @staticmethod
+    def level(level, at):
+        asyncio.run(alerts.record_site_level_changes({"loc-1": ("", level)}, at, {"loc-1": site()}))
+
+    def send_at(self, at):
+        self.monkeypatch.setattr(timeutil, "iso_utc_now", lambda: at)
+        return asyncio.run(notify.send_pending())
+
+    @staticmethod
+    def mails():
+        return [(row["recipient"], row["kind"], row["status"]) for row in outbox()]
+
+    def test_back_up_within_the_wait_no_mail(self, mail):
+        self.token("acme", "Acme", "it@acme.example", after=15)
+        self.level("critical", "2026-10-09T12:00:00Z")
+        assert self.send_at("2026-10-09T12:14:00Z") == 0
+        self.level("ok", "2026-10-09T12:10:00Z")
+        assert self.send_at("2026-10-09T13:00:00Z") == 0
+        assert mail["mails"] == []
+        assert self.mails() == [("it@acme.example", "alarm", "cancelled")]
+
+    def test_into_maintenance_within_the_wait_no_mail(self, mail):
+        self.token("acme", "Acme", "it@acme.example", after=15)
+        self.level("critical", "2026-10-09T12:00:00Z")
+        self.level("maintenance", "2026-10-09T12:05:00Z")
+        assert self.send_at("2026-10-09T13:00:00Z") == 0
+        assert self.mails() == [("it@acme.example", "alarm", "cancelled")]
+
+    def test_down_longer_one_alarm_then_the_recovery(self, mail):
+        self.monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
+        self.token("acme", "Acme", "it@acme.example", after=15)
+        self.level("medium", "2026-10-09T12:00:00Z")
+        assert self.send_at("2026-10-09T12:14:59Z") == 0
+        assert self.send_at("2026-10-09T12:15:00Z") == 1
+        assert mail["mails"][0]["Subject"].endswith("Aarhus HQ is Medium")
+        # Worse while down: no second alarm.
+        self.level("critical", "2026-10-09T12:20:00Z")
+        self.level("ok", "2026-10-09T13:00:00Z")
+        assert self.send_at("2026-10-09T13:00:00Z") == 1
+        assert self.mails() == [
+            ("it@acme.example", "alarm", "sent"),
+            ("it@acme.example", "recovery", "sent"),
+        ]
+        # Down again after the recovery: a new alarm, waiting again.
+        self.level("critical", "2026-10-09T14:00:00Z")
+        assert self.mails()[-1] == ("it@acme.example", "alarm", "pending")
+        assert outbox()[-1]["next_attempt_at"] == "2026-10-09T14:15:00Z"
+
+    def test_still_waiting_when_it_gets_worse(self, mail):
+        """A worse level while the alarm waits: still the one alarm, at its time."""
+        self.monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
+        self.token("acme", "Acme", "it@acme.example", after=30)
+        self.level("medium", "2026-10-09T12:00:00Z")
+        self.level("critical", "2026-10-09T12:10:00Z")
+        assert self.mails() == [("it@acme.example", "alarm", "pending")]
+        assert self.send_at("2026-10-09T12:30:00Z") == 1
+
+    def test_each_address_waits_its_own(self, mail):
+        self.token("fast", "Acme", "noc@acme.example, both@acme.example", after=5)
+        self.token("slow", "Acme", "boss@acme.example, Both@acme.example", after=30)
+        self.monkeypatch.setattr(settings, "NOTIFY_CUSTOMER_DELAY_MINUTES", 10)
+        self.token("default", "Acme", "desk@acme.example")
+        self.level("critical", "2026-10-09T12:00:00Z")
+        due = {row["recipient"].lower(): row["next_attempt_at"] for row in outbox()}
+        assert due == {
+            "noc@acme.example": "2026-10-09T12:05:00Z",
+            # On both tokens: the shorter wait.
+            "both@acme.example": "2026-10-09T12:05:00Z",
+            "boss@acme.example": "2026-10-09T12:30:00Z",
+            "desk@acme.example": "2026-10-09T12:10:00Z",
+        }
+
+    def test_at_once_by_default(self, mail):
+        self.token("acme", "Acme", "it@acme.example")
+        self.level("critical", "2026-10-09T12:00:00Z")
+        assert self.send_at("2026-10-09T12:00:00Z") == 1
+
+    def test_no_recovery_for_an_alarm_never_sent(self, mail):
+        """Back up before the alarm went out at once (the next send hadn't run): neither."""
+        self.token("acme", "Acme", "it@acme.example")
+        self.level("critical", "2026-10-09T12:00:00Z")
+        self.level("ok", "2026-10-09T12:00:30Z")
+        assert self.send_at("2026-10-09T12:01:00Z") == 0
+        assert self.mails() == [("it@acme.example", "alarm", "cancelled")]
+
+    def test_staff_channels_dont_wait(self, mail):
+        self.monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", HOOK)
+        self.token("acme", "Acme", "it@acme.example", after=15)
+        self.level("critical", "2026-10-09T12:00:00Z")
+        self.level("ok", "2026-10-09T12:05:00Z")
+        assert self.send_at("2026-10-09T12:06:00Z") == 2
+        assert [r for r in self.mails() if r[0] == ""] == [
+            ("", "alarm", "sent"),
+            ("", "recovery", "sent"),
+        ]
