@@ -19,7 +19,6 @@ async function load(): Promise<TenantStatus> {
 
 <template>
   <div>
-    <AppBar active="availability" />
     <!-- Another tenant's name in the address: a new view. -->
     <TenantStatusView :key="name" :load="load" :fallback-title="name" />
   </div>

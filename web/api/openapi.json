@@ -3428,44 +3428,6 @@
         "title": "MeDto",
         "type": "object"
       },
-      "MenuPage": {
-        "additionalProperties": false,
-        "properties": {
-          "href": {
-            "examples": [
-              "/circuits"
-            ],
-            "title": "Href",
-            "type": "string"
-          },
-          "key": {
-            "examples": [
-              "circuits"
-            ],
-            "title": "Key",
-            "type": "string"
-          },
-          "label": {
-            "examples": [
-              "Circuits"
-            ],
-            "title": "Label",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "key",
-          "href",
-          "label",
-          "title"
-        ],
-        "title": "MenuPage",
-        "type": "object"
-      },
       "MismatchDto": {
         "additionalProperties": false,
         "properties": {
@@ -4063,14 +4025,6 @@
             "title": "Nautobot Url",
             "type": "string"
           },
-          "pages": {
-            "description": "The top bar's menu, in order: the pages the caller may open (#693).",
-            "items": {
-              "$ref": "#/components/schemas/MenuPage"
-            },
-            "title": "Pages",
-            "type": "array"
-          },
           "user": {
             "anyOf": [
               {
@@ -4087,7 +4041,6 @@
           "user",
           "access",
           "nautobot_url",
-          "pages",
           "maintenance",
           "availability",
           "map",
@@ -10614,7 +10567,7 @@
     },
     "/api/v1/page-config": {
       "get": {
-        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\nmenu, the same as the server-rendered pages show, the Maintenance page's\nand Availability's limits, the map's tiles and first view, and the\nboard's case links and level definitions.",
+        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\ncaller's access (the menu's pages are the web's own since #737), the Maintenance page's\nand Availability's limits, the map's tiles and first view, and the\nboard's case links and level definitions.",
         "operationId": "getPageConfig",
         "responses": {
           "200": {
@@ -10628,7 +10581,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.",
+        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the caller's access (the menu's pages are the web's own since #737), the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.",
         "tags": [
           "Shared"
         ]

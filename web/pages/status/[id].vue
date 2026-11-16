@@ -9,6 +9,8 @@ const route = useRoute();
 // The tenant's random link id (#500), not its name.
 const linkId = computed(() => String(route.params.id || "").trim());
 
+// A customer's page: no staff top bar (#737).
+definePageMeta({ layout: false });
 useHead({ meta: [{ name: "referrer", content: "no-referrer" }] });
 
 async function load(): Promise<TenantStatus> {

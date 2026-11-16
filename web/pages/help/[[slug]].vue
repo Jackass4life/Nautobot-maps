@@ -90,7 +90,6 @@ function onClick(event: MouseEvent) {
 
 <template>
   <div>
-    <AppBar active="help" />
     <div
       class="help-shell mx-auto grid max-w-6xl grid-cols-1 items-start gap-6 px-4 py-6 md:grid-cols-[220px_minmax(0,1fr)]"
     >

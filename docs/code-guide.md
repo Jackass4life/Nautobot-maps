@@ -44,6 +44,7 @@ Two kinds of work happen in the API:
 | `api/docker-entrypoint.sh` | What the API container runs: migrate the database, then start gunicorn |
 | `api/scripts/generate_openapi.py` | Writes the API's description to `web/api/openapi.json` |
 | `web/pages/` | One file per page; the file name is the address (`alerts.vue` is `/alerts`) |
+| `web/layouts/` | `default.vue`: the top bar, mounted once, with the page under it |
 | `web/components/` | Pieces of pages (`AlertBoard.vue`, `SitePanel.vue`, …) |
 | `web/utils/` | Plain TypeScript functions with the pages' logic, tested in `web/tests/` |
 | `web/composables/` | Shared state: `usePageConfig` (who is signed in, settings), `useCan` (permissions), `useTheme` |
@@ -218,6 +219,7 @@ The pages hide buttons a person can't use (`useCan` in `web/`), but that is only
 `web/` is a Nuxt 4 app written in Vue and TypeScript, built with bun. It runs in the browser only (`ssr: false`): the server sends the same empty page shell for every address, and the JavaScript draws the page.
 
 - **Pages** are in `web/pages/`. The file name is the address: `alerts.vue` is `/alerts`, `tenants/[name].vue` is `/tenants/<name>`.
+- **The top bar** (`components/AppBar.vue`) is in `layouts/default.vue`, so it is drawn once and stays while you move between pages. Its ☰ menu lists the pages from `utils/navigation.ts`, which is in the web code, so the menu is there at once; when page-config says what the user may open, the other pages are hidden. The links open pages inside the app, without reloading it. The wall, the sign-in page and a customer's status page have no bar.
 - **Components** in `web/components/` are the reusable pieces. The UI kit is [Nuxt UI](https://ui.nuxt.com) (`<UButton>`, `<UTable>`, …), with a few [shadcn-vue](https://www.shadcn-vue.com) components in `components/ui/` (named `<S…>`).
 - **Logic** lives in `web/utils/` as plain functions (for example `utils/board.ts`, `utils/availability.ts`), so Vitest can test it without a browser.
 - **The API client:** `web/plugins/api.ts` creates `$api`, a typed client. A call looks like `await unwrap($api.GET("/api/v1/alerts"))`. Because the types come from the API's own description, a wrong path or field is a type error.
@@ -276,7 +278,7 @@ A few rules the code follows, which the tests rely on:
 3. Run `uv run python -m app migrate`, then `uv run alembic check`.
 
 **…add or change a page.**
-1. Put the page in `web/pages/` and its pieces in `web/components/`.
+1. Put the page in `web/pages/` and its pieces in `web/components/`. For a menu entry, add it to `web/utils/navigation.ts` and to `PAGES` in `api/app/services/navigation_service.py` (a test checks they match), with its permission in `api/app/auth/permissions.py`.
 2. Put the logic in `web/utils/` with a test in `web/tests/`.
 3. Look at it in Chromium in light and dark mode and at phone width.
 4. Add an e2e test for the main path.

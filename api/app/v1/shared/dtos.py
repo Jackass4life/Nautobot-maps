@@ -16,13 +16,6 @@ class BarUser(common.Answer):
     )
 
 
-class MenuPage(common.Answer):
-    key: str = Field(examples=["circuits"])
-    href: str = Field(examples=["/circuits"])
-    label: str = Field(examples=["Circuits"])
-    title: str
-
-
 class MaintenanceLimits(common.Answer):
     recent_days: int = Field(description="How far back the Maintenance page's Ended group reaches.")
     history_days: int = Field(description="The history's period by default, in days up to today.")
@@ -82,9 +75,6 @@ class PageConfig(common.Answer):
     access: common.Access
     nautobot_url: str = Field(
         description="Nautobot's address, for links to its pages; empty when not set."
-    )
-    pages: list[MenuPage] = Field(
-        description="The top bar's menu, in order: the pages the caller may open (#693)."
     )
     maintenance: MaintenanceLimits
     availability: AvailabilityLimits

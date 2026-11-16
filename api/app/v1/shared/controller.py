@@ -16,7 +16,6 @@ from app.services import availability_service as availability
 from app.services import legacy_auth as auth
 from app.services import maintenance_service as maintenance
 from app.services import metrics_service as metrics
-from app.services import navigation_service as navigation
 from app.services import notify_service as notify
 from app.services import templating_service as templating
 from app.services import wireless_service as wireless
@@ -39,7 +38,7 @@ router = APIRouter(
 def api_page_config():
     """What the pages built with Nuxt read to draw themselves (#463): who is
     signed in (the top bar), Nautobot's address (links to its pages), the
-    menu, the same as the server-rendered pages show, the Maintenance page's
+    caller's access (the menu's pages are the web's own since #737), the Maintenance page's
     and Availability's limits, the map's tiles and first view, and the
     board's case links and level definitions."""
     at = availability.now()
@@ -50,8 +49,6 @@ def api_page_config():
             "user": templating.bar_user(),
             "access": access,
             "nautobot_url": settings.NAUTOBOT_URL or "",
-            # The pages this caller may open (#693).
-            "pages": navigation.pages(allowed=access["pages"], role=access["role"]),
             "maintenance": {
                 "recent_days": maintenance.PAGE_RECENT_DAYS,
                 "history_days": maintenance.HISTORY_DEFAULT_DAYS,

@@ -143,13 +143,6 @@ def test_images_and_unknown_pages(flask_client, frontend_build):
     assert flask_client.get("/help/nope").status_code == 404
 
 
-def test_the_menu_links_to_it(flask_client):
-    pages = flask_client.get("/api/v1/page-config").get_json()["pages"]
-    assert {"key": "help", "href": "/help", "label": "Documentation"}.items() <= next(
-        p for p in pages if p["key"] == "help"
-    ).items()
-
-
 def test_the_docs_go_into_the_image():
     """Every file the help pages read reaches the API image (#674): api/Dockerfile takes
     README.md, CONTRIBUTING.md and docs/ from the docs context (the repository root),

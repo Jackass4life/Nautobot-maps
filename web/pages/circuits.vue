@@ -93,7 +93,6 @@ onMounted(async () => {
 
 <template>
   <div>
-    <AppBar active="circuits" />
     <main class="mx-auto max-w-6xl space-y-4 px-4 py-6">
       <h1 class="text-2xl font-bold text-highlighted">Circuit mapping</h1>
       <p class="max-w-3xl text-sm text-muted">

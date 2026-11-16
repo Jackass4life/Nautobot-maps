@@ -385,7 +385,6 @@ function until(ready: () => unknown): Promise<void> {
 
 <template>
   <div>
-    <AppBar active="maintenance" />
     <main class="mx-auto max-w-6xl space-y-4 px-4 py-6">
       <h1 class="text-2xl font-bold text-highlighted">Maintenance</h1>
 
