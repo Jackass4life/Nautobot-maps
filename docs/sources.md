@@ -45,11 +45,11 @@ WIRELESS_CONTROLLERS='{"catalyst_center": [{"name": "dk", "url": "https://dnac-d
 WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60)
 ```
 
-Had a `config/wireless.yml` before #739? This prints it as one line of JSON, with the app's own Python (the file stays where it is):
+Had a `config/wireless.yml` before #739? This prints it as one line of JSON, with the app's own Python run directly (`--entrypoint`: the image's entrypoint would first load the settings, which stop on the old `WIRELESS_CONTROLLERS_FILE`); the file stays where it is:
 
 ```bash
-docker compose run --rm --no-deps -v ./config:/old:ro api \
-  python -c 'import json, yaml; print(json.dumps(yaml.safe_load(open("/old/wireless.yml"))))'
+docker compose run --rm --no-deps --entrypoint python -v ./config:/old:ro api \
+  -c 'import json, yaml; print(json.dumps(yaml.safe_load(open("/old/wireless.yml"))))'
 ```
 
 **Every key** (anything else stops startup, naming it):
