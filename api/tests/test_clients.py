@@ -364,7 +364,9 @@ class TestUpstreamRetries:
         pem = open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read()
         first = pem[: pem.index("-----END CERTIFICATE-----") + 25]
         context = upstream_http._ssl(True, first)
-        assert context.cert_store_stats()["x509_ca"] > 1  # the system's, and this one
+        # This one is loaded; the system's may be read only when needed (a directory).
+        loaded = [cert["subject"] for cert in context.get_ca_certs()]
+        assert loaded and context.verify_mode == upstream_http.ssl.CERT_REQUIRED
         assert upstream_http._ssl(True, "") is True
         assert upstream_http._ssl(False, first) is False
         plain = upstream_http.client(True)
