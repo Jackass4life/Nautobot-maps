@@ -7,7 +7,7 @@ Run the mock at a NOC's scale and the app against an empty database, then this:
     (cd api && uv run python -m app token create shots --role admin --expires-days 1)
     uv run --project api --group e2e --with Pillow python scripts/screenshots.py --token nmt_... --seed
 
-Run the app with WIRELESS_CONTROLLERS_FILE=demo/wireless.yml for the access
+Run the app with demo/wireless.env's WIRELESS_CONTROLLERS for the access
 points, and with AD sign-in on (LDAP_URL, AUTH_MODE=header; development/samba_ad.sh
 starts a domain controller) for the sign-in page's picture; without it that one is
 skipped.  --only admin,sign-in writes only those pictures.  An operator token works too, without the Admin page's picture and the

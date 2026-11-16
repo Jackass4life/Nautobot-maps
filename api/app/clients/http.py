@@ -1,7 +1,8 @@
 """HTTP for the Nautobot, LibreNMS and wireless controller APIs, with retries (#192,
 #596), on httpx (#645).
 
-One ``httpx.Client`` per certificate setting (httpx fixes ``verify`` per client), shared
+One ``httpx.Client`` per certificate setting (httpx fixes ``verify`` per client; with
+EXTRA_CA_PEM, #739), shared
 by every thread: httpx's client is thread-safe, so connections are reused between
 pages of a sync. Transient failures are retried, as before with requests: a single
 502 while Nautobot restarts doesn't abort a whole inventory sync.
@@ -13,6 +14,8 @@ import threading
 import time
 
 import httpx
+
+from app.core import settings as config
 
 RETRY_STATUSES = (429, 502, 503, 504)
 MAX_RETRY_AFTER_SECONDS = 30
@@ -29,25 +32,28 @@ RETRIED_METHODS = frozenset({"GET"})
 _NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 _READ_FAILED = (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError)
 
-_clients: dict[bool | str, httpx.Client] = {}
+_clients: dict[tuple[bool, str], httpx.Client] = {}
 _clients_lock = threading.Lock()
 
 
-def _ssl(verify: bool | str) -> bool | ssl.SSLContext:
-    """httpx's ``verify``: a CA bundle's path (as requests took it) as an SSL context."""
-    if isinstance(verify, str):
-        return ssl.create_default_context(cafile=verify)
-    return verify
+def _ssl(verify: bool, extra_ca: str = "") -> bool | ssl.SSLContext:
+    """httpx's ``verify``: the system's CAs, and EXTRA_CA_PEM's too when set (#739)."""
+    if not verify or not extra_ca:
+        return verify
+    context = ssl.create_default_context()
+    context.load_verify_locations(cadata=extra_ca)
+    return context
 
 
-def client(verify: bool | str = True) -> httpx.Client:
+def client(verify: bool = True) -> httpx.Client:
     """The shared client for this certificate setting, created on first use."""
+    key = (verify, config.get_settings().extra_ca_pem)
     with _clients_lock:
-        current = _clients.get(verify)
+        current = _clients.get(key)
         if current is None:
             # Redirects followed, as requests did.
-            current = httpx.Client(verify=_ssl(verify), follow_redirects=True)
-            _clients[verify] = current
+            current = httpx.Client(verify=_ssl(*key), follow_redirects=True)
+            _clients[key] = current
         return current
 
 
@@ -97,7 +103,7 @@ def request(
     method: str,
     url: str,
     *,
-    verify: bool | str = True,
+    verify: bool = True,
     timeout: float | tuple[float, float] = (10, 30),
     params: dict | None = None,
     **kwargs,

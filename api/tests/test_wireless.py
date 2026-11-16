@@ -3,11 +3,12 @@ and New Central, any number of instances; on the board without a primary IP,
 at WIRELESS_AP_LEVEL under the Wireless chip, never notified (#521)."""
 
 import asyncio
-import os
+import json
 from datetime import UTC, datetime
 
 import httpx
 import pytest
+import yaml
 
 from app import __main__ as cli
 from app.clients import arubacentral, caching, catalyst
@@ -51,9 +52,8 @@ def ups(keys: dict) -> dict:
 
 class TestSettings:
     def write(self, tmp_path, text: str) -> str:
-        path = tmp_path / "wireless.yml"
-        path.write_text(text, encoding="utf-8")
-        return str(path)
+        """WIRELESS_CONTROLLERS's JSON (#739), from YAML (easier to read here)."""
+        return json.dumps(yaml.safe_load(text))
 
     def test_any_number_of_instances(self, tmp_path):
         path = self.write(
@@ -111,7 +111,7 @@ catalyst_center:
                 " {name: dk, url: 'https://y', username: u, password: p}]",
                 "listed twice",
             ),
-            ("catalyst_center: [", "can't be read: ParserError"),
+            ("[]", "expected an object"),
         ],
     )
     def test_a_mistake_stops_startup_and_names_it(self, tmp_path, text, message):
@@ -190,21 +190,6 @@ catalyst_center:
             "catalyst_center: [{name: demo, url: 'http://127.0.0.1:8080', username: u, password: p}]",
         )
         assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
-
-    @pytest.mark.skipif(os.getuid() == 0, reason="root reads any file")
-    def test_an_unreadable_file_says_what_to_do(self, tmp_path, monkeypatch):
-        # In the container the app is uid/gid 10001, not the file's owner on the host (#517).
-        path = self.write(tmp_path, "catalyst_center: []")
-        os.chmod(path, 0)
-        with pytest.raises(RuntimeError, match="can't be read by this process"):
-            settings._wireless_controllers(path)
-        monkeypatch.setattr(os, "getgid", lambda: settings.CONTAINER_GID)
-        with pytest.raises(RuntimeError, match="sudo chgrp 10001 config/<file> && chmod 640"):
-            settings._wireless_controllers(path)
-
-    def test_a_missing_file_says_so(self, tmp_path):
-        with pytest.raises(RuntimeError, match="can't be read: FileNotFoundError"):
-            settings._wireless_controllers(str(tmp_path / "none.yml"))
 
 
 class FakeSession:

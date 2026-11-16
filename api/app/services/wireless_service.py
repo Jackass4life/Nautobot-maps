@@ -588,7 +588,7 @@ def check_failure(exc: Exception) -> dict:
         return {
             "reachable": False,
             "signed_in": False,
-            "error": "its certificate isn't trusted (a company CA: verify_ssl with the CA file)",
+            "error": "its certificate isn't trusted (a company CA: put it in EXTRA_CA_PEM)",
         }
     if isinstance(exc, httpx.TimeoutException):
         return {

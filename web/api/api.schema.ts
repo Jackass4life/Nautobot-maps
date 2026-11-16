@@ -805,7 +805,7 @@ export interface paths {
          * @description Optional query parameter:
          *       location_type – the location type name (e.g. "Data Center", "Office").
          *         When provided, the criticality keyword set is resolved from the
-         *         location-type-scoped rules configured via ``CRITICALITY_RULES_FILE``.
+         *         location-type-scoped rules configured via ``CRITICALITY_RULES``.
          */
         get: operations["getLocationDetail"];
         put?: never;
@@ -1663,7 +1663,7 @@ export interface components {
             notification_channels: string[];
             /**
              * Wireless Controllers
-             * @description How many wireless controllers WIRELESS_CONTROLLERS_FILE lists.
+             * @description How many wireless controllers WIRELESS_CONTROLLERS lists.
              */
             wireless_controllers: number;
         };
@@ -4377,7 +4377,7 @@ export interface components {
         WirelessCheck: {
             /**
              * Controllers
-             * @description One per instance in WIRELESS_CONTROLLERS_FILE.
+             * @description One per instance in WIRELESS_CONTROLLERS.
              */
             controllers: components["schemas"]["WirelessControllerCheck"][];
             /** Duplicate Count */

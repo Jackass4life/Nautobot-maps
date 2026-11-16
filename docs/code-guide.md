@@ -55,7 +55,6 @@ Two kinds of work happen in the API:
 | `demo/` | A fake Nautobot (`mock_nautobot.py`) to run the app without a real one |
 | `development/` | A real Nautobot 3.x (and a test Active Directory) in Docker, for integration tests |
 | `docs/` | These guides; the app shows them under **Documentation** |
-| `config/` | Files the app reads at run time (wireless controllers, certificates); mounted at `/config` |
 
 ## The API, module by module
 

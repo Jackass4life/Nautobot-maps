@@ -94,8 +94,11 @@ On Availability, click *Tidal Ports* for its status page: 3 of its 75 sites
 affected, with how many network devices and access points are down at each,
 and the other 72 folded into one line.
 
+Set `MOCK_SCALE=1200` in `demo/demo.env` (every demo container reads that file,
+#739), then:
+
 ```bash
-MOCK_SCALE=1200 docker compose -f demo/docker-compose.yml up --build
+docker compose -f demo/docker-compose.yml up --build
 ```
 
 This is how the README's screenshots are made (`scripts/screenshots.py`).
@@ -103,9 +106,9 @@ This is how the README's screenshots are made (`scripts/screenshots.py`).
 ### Scenario 8 – Access points from Catalyst Center and Aruba New Central
 The mock also answers as a Cisco Catalyst Center (#508): it lists the access
 points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
-*lab-ap99*, that isn't in Nautobot. Run the app outside Docker with
-`WIRELESS_CONTROLLERS_FILE=demo/wireless.yml` (the file points at the mock on
-`127.0.0.1:8080`), then:
+*lab-ap99*, that isn't in Nautobot. Run the app outside Docker with the
+controllers in `demo/wireless.env` (`WIRELESS_CONTROLLERS`, JSON, pointing at the
+mock on `127.0.0.1:8080`; in `api/`: `set -a; . ../demo/wireless.env; set +a`), then:
 
 - `python -m app wireless-check` lists 4 access points, 1 down, 3
   matching a Nautobot device, and *lab-ap99* as not in Nautobot.
@@ -118,7 +121,7 @@ points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
 - Start the mock with `MOCK_AP_DHCP=1` to drop the access points' primary IPs,
   as on a network where they get their address by DHCP: they stay monitored
   through the controller, and the map's site panel shows *sto-ap02*'s address
-  "from Catalyst Center demo". Without the wireless file they are "Not
+  "from Catalyst Center demo". Without the controllers they are "Not
   monitored: no primary IP".
 - Each access point is on its site's first switch (#524): Catalyst Center's
   topology says "GigabitEthernet1/0/n", Nautobot's cables "Gi1/0/n". A down
@@ -129,7 +132,7 @@ points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
   site panel for *Stockholm PoP* says "Onboarding (PnP: Unclaimed)" and "PnP
   error" ("Image download failed: timeout"); the board shows nothing for them.
 
-With `MOCK_SCALE=1200` it is an Aruba New Central too (`demo/wireless.yml`
+With `MOCK_SCALE=1200` it is an Aruba New Central too (`demo/wireless.env`
 lists both): Catalyst Center has the even scale sites' access points, New
 Central the odd ones', each with one in 200 offline, so `wireless-check`
 shows two instances of about 4,800 access points each. One site's access

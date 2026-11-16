@@ -4,10 +4,10 @@ Every setting the app has, with its default. This page is for the person install
 
 ## In short
 
-- **Where settings go:** in the `.env` file next to `docker-compose.yml` (copy `.env.example` to start). After a change: `docker compose up -d`.
-- **Required:** only `NAUTOBOT_URL` and `NAUTOBOT_TOKEN`, plus your own `POSTGRES_PASSWORD` before the first start.
-- **Leaving a setting empty** means its default. With Docker, `docker-compose.yml` passes each one to the container.
-- **Files** (wireless controllers, criticality rules, CA certificates) go in the `config/` folder: [below](#files-the-app-reads-the-config-folder).
+- **Where settings go:** every setting is in the `.env` file next to `docker-compose.yml`, and only there: `cp .env.example .env && chmod 600 .env`. After a change: `docker compose up -d`.
+- **Required:** only `NAUTOBOT_URL` and `NAUTOBOT_TOKEN`, plus your own `POSTGRES_PASSWORD` (in it and in `NAUTOBOT_MAPS_DATABASE_URL`) before the first start.
+- **Leaving a setting empty** (or out) means its default.
+- **No files:** the wireless controllers and the criticality rules are JSON in their setting, a company CA is the certificate's text. [How .env works](#how-env-works).
 
 **The settings most people change:**
 
@@ -15,21 +15,24 @@ Every setting the app has, with its default. This page is for the person install
 |---|---|---|
 | HTTPS and company sign-in | `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` and the proxy settings | [The bundled proxy](#the-bundled-https-and-sign-in-proxy) |
 | LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN` | [LibreNMS](#librenms-optional) |
-| Access points from controllers | `WIRELESS_CONTROLLERS_FILE` | [Wireless controllers](#wireless-controllers-optional) |
+| Access points from controllers | `WIRELESS_CONTROLLERS` | [Wireless controllers](#wireless-controllers-optional) |
+| A company CA (Nautobot, LibreNMS, controllers, AD) | `EXTRA_CA_PEM` | [Nautobot](#nautobot) |
 | One board row per Site | `ALERT_BOARD_SITE_LOCATION_TYPE=Site` | [Alert board](#alert-board) |
 | Important sites and devices | `SITE_TIER_FIELD`, `TIER_DEVICE_LEVEL`, `DEVICE_CRITICALITY_FIELD` | [Alert board](#alert-board) |
 | Case numbers that open your ticket | `CASE_URL_TEMPLATE` | [Alert board](#alert-board) |
 | Your SLA target | `AVAILABILITY_TARGET_PCT` | [Alert board](#alert-board) |
 | Messages to Teams or email | `NOTIFY_TEAMS_WEBHOOK_URL`, `NOTIFY_EMAIL_TO`, `SMTP_*` | [Notifications](#notifications) |
 
-### Files the app reads: the config folder
+### How .env works
 
-A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings).
+Every container gets the whole `.env` (`env_file: .env` in each compose file, #739): the API, the pages, the database and, with the bundled proxy, nginx and oauth2-proxy. The compose files set no settings of their own.
 
-1. Put the file in the **`config/` folder** next to `docker-compose.yml`. It is mounted read-only in the container at `/config`, so the setting is `/config/<file>`.
-2. Let the app read it. In Docker the app runs as uid 10001, so give the folder to its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file. [config/README.md](../config/README.md) has the steps.
-
-The folder is git-ignored and kept out of the image, so its secrets are never committed or built in. An empty folder does nothing.
+- **Keep it private:** `.env` holds the passwords (the database, the LDAP bind account, the wireless controllers', the proxy's secrets): `chmod 600 .env`. It is git-ignored and never goes into an image (each `.dockerignore` leaves it out). Back it up: it is not in the database.
+- **Values as written:** no `${VAR}` references. Put single quotes around JSON and around a value with a `$` in it.
+- **JSON settings** (`WIRELESS_CONTROLLERS`, `CRITICALITY_RULES`): on one line, in single quotes, e.g. `CRITICALITY_RULES='{"office": ["core", "router"]}'`. A mistake stops the app at startup and says where (never a password).
+- **A certificate** (`EXTRA_CA_PEM`): the PEM text on one line with `\n` for each line break, or base64 of the file (`base64 -w0 company-ca.pem`).
+- **Outside Docker** (`uv run python run.py` in `api/`): the app reads `api/.env`; copy `.env.example` there and use `localhost` instead of the service names (`postgres`, `redis`).
+- **Upgrading from a version with `config/`:** `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE` stop the app at startup and say what replaces them; a `*_VERIFY_SSL` with a file's path does too. The [changelog](../CHANGELOG.md) has the steps.
 
 ## Nautobot
 
@@ -38,7 +41,8 @@ The folder is git-ignored and kept out of the image, so its secrets are never co
 | `NAUTOBOT_URL` | **required** | Base URL of your Nautobot instance, e.g. `https://nautobot.example.com` (validated at startup) |
 | `NAUTOBOT_TOKEN` | **required** | Nautobot API token. Read-only is enough: the app never writes to Nautobot |
 | `NAUTOBOT_API_VERSION` | *(server default)* | Pin a Nautobot REST API version (e.g. `2.0`, `3.0`) |
-| `NAUTOBOT_VERIFY_SSL` | `true` | Certificate verification: `true`, `false` (e.g. self-signed), or a path to a CA bundle (e.g. `/config/certs/internal-ca.pem`) |
+| `NAUTOBOT_VERIFY_SSL` | `true` | Certificate verification: `true` or `false` (e.g. self-signed). Signed by a company CA: keep `true` and set `EXTRA_CA_PEM` |
+| `EXTRA_CA_PEM` | — | Your company CA's certificate(s), as PEM text (`\n` for line breaks) or base64 of it (#739). Trusted together with the public CAs for Nautobot, LibreNMS and the wireless controllers; alone for the domain controller (AD sign-in). Checked at startup |
 
 ## Database (PostgreSQL)
 
@@ -46,7 +50,7 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 
 | Variable | Default | Description |
 |---|---|---|
-| `NAUTOBOT_MAPS_DATABASE_URL` | bundled PostgreSQL (Docker) | `postgresql://...` URL for the inventory snapshot, alert history, cases and criticality overrides. Without it the alert board stays empty and says so |
+| `NAUTOBOT_MAPS_DATABASE_URL` | — | `postgresql://...` URL for the inventory snapshot, alert history, cases and criticality overrides. With the bundled PostgreSQL: `postgresql://nautobot_maps:<POSTGRES_PASSWORD>@postgres:5432/nautobot_maps` (in `.env.example`). Without it the alert board stays empty and says so |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `nautobot_maps` | Credentials of the bundled PostgreSQL (Docker only). Its port is not published, but set your own password **before the first start**: it is fixed when the data volume is created |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Give up connecting after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (migrations at startup are exempt) |
@@ -74,7 +78,6 @@ See [authentication](authentication.md).
 | `LDAP_BASE_DN` | — | Where users are looked up, e.g. `DC=example,DC=local` |
 | `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | — | The read-only service account that finds a user before their own sign-in, e.g. `svc-maps@example.local` |
 | `LDAP_USER_ATTRIBUTE` | `sAMAccountName` | The attribute people sign in with (its value is their identity's name) |
-| `LDAP_CA_FILE` | — | The CA that signed the domain controller's certificate (PEM): its path in the `api` container; else the system's CAs. With `reverse-proxy/compose.app-sign-in.yml`, the file on the host (mounted for you) |
 | `LDAP_ALLOW_PLAINTEXT` | `false` | Allow `ldap://` (passwords unencrypted): tests only |
 | `LDAP_TIMEOUT_SECONDS` | `10` | Connecting to and asking the directory |
 | `JWT_SIGNING_SECRET` | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
@@ -84,7 +87,9 @@ See [authentication](authentication.md).
 
 ### The bundled HTTPS and sign-in proxy
 
-Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
+Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)).
+
+The API behind it needs these in `.env` too (#739: the compose files set nothing): `AUTH_MODE=header`, `AUTH_REQUIRE_VIEWER=true`, `AUTH_TRUSTED_PROXIES=<PROXY_IP>/32` (`172.30.0.10/32` by default) and, with oauth2-proxy, `AUTH_SIGN_OUT_URL=/oauth2/sign_out`. The API refuses to start with `AUTH_PROXY_SECRET` set but without `AUTH_MODE=header`.
 
 Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`LDAP_URL`, `LDAP_BASE_DN`, `JWT_SIGNING_SECRET`, …); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
 
@@ -92,13 +97,13 @@ Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-pro
 |---|---|---|
 | `PUBLIC_HOSTNAME` | required | The host name people open, e.g. `maps.example.com`; the certificate must match it |
 | `OIDC_ISSUER_URL` | required | Your identity provider, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | required | The app's registration with the identity provider |
+| `OIDC_CLIENT_ID` / `OAUTH2_PROXY_CLIENT_SECRET` | required | The app's registration with the identity provider. The secret has oauth2-proxy's own name (it was `OIDC_CLIENT_SECRET` before #739) |
 | `AUTH_PROXY_SECRET` | required | A long random value nginx sends to the app (`openssl rand -hex 32`) |
-| `OAUTH2_COOKIE_SECRET` | required | 32 random bytes, base64 URL-safe, for the session cookie |
+| `OAUTH2_PROXY_COOKIE_SECRET` | required | 32 random bytes, base64 URL-safe, for the session cookie (`OAUTH2_COOKIE_SECRET` before #739) |
 | `OIDC_GROUPS_CLAIM` | `groups` | The ID token claim with the user's groups |
 | `OIDC_EMAIL_CLAIM` | `email` | Entra ID: `preferred_username` |
 | `OIDC_SCOPE` | `openid email profile` | The scopes asked for |
-| `OIDC_CA_FILE` | — | A PEM file with the CA(s) of an identity provider whose certificate comes from a company CA, e.g. `./config/company-ca.pem`; trusted together with the public CAs ([company CA](authentication.md#company-ca)) |
+| `OIDC_CA_FILE` / `OAUTH2_PROXY_PROVIDER_CA_FILES` | — | A PEM file with the CA(s) of an identity provider whose certificate comes from a company CA, e.g. `./reverse-proxy/certs/company-ca.pem`, and `/etc/oauth2-proxy/provider-ca.pem` (where it is mounted) so oauth2-proxy reads it; set both. Trusted together with the public CAs ([company CA](authentication.md#company-ca)). oauth2-proxy reads only a file: the one file setting left |
 | `OIDC_LOGOUT_URL` | — | Your identity provider's logout address: **Sign out** ends the app's session, then goes here so the provider's session ends too ([signing out](authentication.md#signing-out)). Empty (GitLab has none): a "You are signed out" page, linking the provider to sign out there |
 | `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
 | `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
@@ -126,8 +131,8 @@ The certificate goes in `reverse-proxy/certs/` as `fullchain.pem` and `privkey.p
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs |
 | `LIBRENMS_SYNC_INTERVAL_SECONDS` | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes |
 | `CACHE_TTL` | `300` | Seconds to cache Nautobot API responses |
-| `CACHE_TYPE` | `SimpleCache` (`RedisCache` in `docker-compose.yml`) | Cache backend (cachelib). `SimpleCache` is per worker; `RedisCache` shares the cache and rate limits between workers |
-| `CACHE_REDIS_URL` | — (`redis://redis:6379/0` in `docker-compose.yml`) | Redis URL; required with `CACHE_TYPE=RedisCache` |
+| `CACHE_TYPE` | `SimpleCache` (`RedisCache` in `.env.example`, for the bundled Redis) | Cache backend (cachelib). `SimpleCache` is per worker; `RedisCache` shares the cache and rate limits between workers |
+| `CACHE_REDIS_URL` | — (`redis://redis:6379/0` in `.env.example`) | Redis URL; required with `CACHE_TYPE=RedisCache` |
 | `COMPRESS_RESPONSES` | `true` | gzip text answers over 1 KB (pages, JSON, CSS, JS, CSV) for browsers that accept it: at 1,200 sites the board's data goes from about 1.3 MB to a tenth. `false` where the proxy in front compresses instead (see [operations](operations.md#what-the-container-does)) |
 | `CORS_ORIGINS` | — | Other sites' pages that may call the API from the browser, e.g. `https://portal.example.com` (comma-separated, or a JSON list). The app's own pages share its origin and need nothing; a sign-in proxy's cookie may come along (never with `*`) |
 
@@ -139,9 +144,9 @@ Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to take device up/down status f
 |---|---|---|
 | `LIBRENMS_URL` | — | Base URL of your LibreNMS |
 | `LIBRENMS_API_TOKEN` | — | LibreNMS API token |
-| `LIBRENMS_VERIFY_SSL` | `true` | `true`, `false`, or a path to a CA bundle (e.g. `/config/certs/internal-ca.pem`) |
+| `LIBRENMS_VERIFY_SSL` | `true` | `true` or `false`; a company CA goes in `EXTRA_CA_PEM` |
 
-For a LibreNMS signed by an internal CA, put the CA certificate in `config/certs/` and point the setting at it (`LIBRENMS_VERIFY_SSL=/config/certs/internal-ca.pem`); the same for Nautobot (`NAUTOBOT_VERIFY_SSL`) and a [wireless controller](#wireless-controllers-optional) (`verify_ssl` in its file). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
+For a LibreNMS signed by an internal CA, put the CA certificate in `EXTRA_CA_PEM` ([Nautobot](#nautobot)) and keep `LIBRENMS_VERIFY_SSL=true`; the same CA covers Nautobot and the [wireless controllers](#wireless-controllers-optional). `false` skips verification and should be a last resort, since the API token travels over that connection.
 
 ### Near-real-time status: LibreNMS alert pushes
 
@@ -161,11 +166,11 @@ What a push does: the app asks the LibreNMS API for that one device and stores i
 
 ## Wireless controllers (optional)
 
-Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each. Access points get their address by DHCP, so a controller watches them: one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, not notified, and operational on the status page with them counted (an access point with its own level set is an ordinary alarm) ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#files-the-app-reads-the-config-folder). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m app wireless-check`.
+Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each. Access points get their address by DHCP, so a controller watches them: one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, not notified, and operational on the status page with them counted (an access point with its own level set is an ordinary alarm) ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in `WIRELESS_CONTROLLERS`, as JSON ([how .env works](#how-env-works)). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m app wireless-check`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WIRELESS_CONTROLLERS_FILE` | — | The YAML file listing the instances, e.g. `/config/wireless.yml` ([every key](sources.md#wireless-controllers-access-points)); a mistake in it, or a file the app can't read, stops the app at startup |
+| `WIRELESS_CONTROLLERS` | — | The instances, as JSON on one line in single quotes (#739; [every key](sources.md#wireless-controllers-access-points)): `'{"catalyst_center": [...], "aruba_central": [...]}'`. A mistake in it stops the app at startup, naming the instance, never a password |
 | `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
 | `WIRELESS_AP_LEVEL` | `low` | The level of a site with only access points down (`critical`, `medium` or `low`), under the **Wireless** chip, never notified. An access point with a level set in Nautobot (`DEVICE_CRITICALITY_FIELD`), or marked critical on the board, is an alarm at that level instead |
 
@@ -206,7 +211,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
 | `CRITICAL_ROLE_KEYWORDS` | `core,spine,distribution,router,gateway` | Device role keywords that make a down device **Critical** |
-| `CRITICALITY_RULES_FILE` | — | JSON file with keywords per location type, overriding `CRITICAL_ROLE_KEYWORDS`, e.g. `/config/criticality_rules.json` (start from `criticality_rules.json`) |
+| `CRITICALITY_RULES` | — | Keywords per location type, as JSON on one line in single quotes (#739), overriding `CRITICAL_ROLE_KEYWORDS`: `'{"default": ["core", "router"], "datacenter": ["core", "firewall"]}'` (a fuller example in `.env.example`). Not JSON, or not that shape: the app stops at startup |
 | `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down. A device a [wireless controller](sources.md#wireless-controllers-access-points) lists is an access point too; one of these roles is also matched by name when its serial isn't in the controller |
 | `SITE_TENANT_RELATIONSHIPS` | — | Nautobot Relationships (keys or labels) that link a location to more tenants, shown next to its own tenant. Empty: every Location ↔ Tenant relationship |
 

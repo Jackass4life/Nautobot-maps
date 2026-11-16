@@ -1325,7 +1325,7 @@ def test_admin_sections_say_what_to_set_when_nothing_is(admin_page):
     else:
         assert page.locator("#wireless-none").inner_text() == "No controllers set up"
         assert page.locator("#wireless-check").count() == 0
-        assert "WIRELESS_CONTROLLERS_FILE" in page.locator("#admin-wireless").inner_text()
+        assert "WIRELESS_CONTROLLERS" in page.locator("#admin-wireless").inner_text()
 
 
 def test_share_a_tenants_status_page_from_availability(admin_page, browser):

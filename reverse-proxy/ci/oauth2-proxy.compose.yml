@@ -5,7 +5,8 @@ services:
   oauth2-proxy:
     image: python:3.12-alpine
     command: ["python", "/stub_oauth2_proxy.py"]
-    environment: !reset []
+    # Not the real one: no settings.
+    env_file: !reset []
     volumes:
       - ./reverse-proxy/ci/stub_oauth2_proxy.py:/stub_oauth2_proxy.py:ro
 

@@ -64,7 +64,7 @@ class AdminSettings(common.Answer):
         description="The notification channels set up (webhook, teams, email): the test notification's."
     )
     wireless_controllers: int = Field(
-        description="How many wireless controllers WIRELESS_CONTROLLERS_FILE lists."
+        description="How many wireless controllers WIRELESS_CONTROLLERS lists."
     )
 
 

@@ -72,8 +72,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project --python /usr/local/bin/python3
 
 # Run as an unprivileged user. The code stays root-owned (read-only for the app);
-# all state lives in PostgreSQL. Group 10001 too, explicitly: the files in ./config
-# are given to it (#517).
+# all state lives in PostgreSQL, every setting in the environment (#739). Group 10001
+# too, explicitly (#517).
 RUN groupadd --gid 10001 app && useradd --create-home --uid 10001 --gid 10001 app
 
 COPY alembic.ini docker-entrypoint.sh gunicorn_config.py ./

@@ -2,8 +2,6 @@
 out and the settings that would quietly break something, once per server
 (gunicorn's ``when_ready``, api/gunicorn_config.py)."""
 
-import os
-
 from loguru import logger
 
 from app.core import settings as config
@@ -22,17 +20,6 @@ def log_alert_board_exclusions() -> None:
             "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove "
             "NAUTOBOT_MAPS_DB."
         )
-    for name in ("NAUTOBOT_VERIFY_SSL", "LIBRENMS_VERIFY_SSL"):
-        value = getattr(settings, name)
-        if isinstance(value, str) and not os.path.exists(value):
-            logger.error(
-                "{}={!r} is neither true/false nor an existing CA bundle file: TLS connections "
-                "will fail",
-                name,
-                value,
-            )
-        elif isinstance(value, str) and not os.access(value, os.R_OK):
-            logger.error("{}: {}: TLS connections will fail", name, settings.unreadable_hint(value))
     if settings.AUTH_MODE == "disabled" and settings.ALLOW_UNAUTHENTICATED_WRITES:
         logger.warning(
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach "

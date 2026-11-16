@@ -3,3 +3,5 @@ ci/
 compose.yml
 Dockerfile
 .dockerignore
+# Settings stay outside the image (#739): .env is never in it.
+.env

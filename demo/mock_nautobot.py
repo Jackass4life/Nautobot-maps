@@ -1146,7 +1146,7 @@ def relationship_associations(request: Request):
 
 # ---------------------------------------------------------------------------
 # Cisco Catalyst Center (#508): the demo's access points as one instance
-# lists them, for WIRELESS_CONTROLLERS_FILE (demo/wireless.yml).  sto-ap02 and
+# lists them, for WIRELESS_CONTROLLERS (demo/wireless.env).  sto-ap02 and
 # one in 200 of the scale demo's are unreachable; one AP isn't in Nautobot.
 # ---------------------------------------------------------------------------
 CATALYST_TOKEN = "mock-catalyst-center-token"
@@ -1220,7 +1220,7 @@ def _catalyst_aps() -> list[dict]:
 
 # HPE Aruba Networking New Central (#508): the odd scale sites' access points,
 # one in 200 offline, in pages with a "next" cursor.  Its sign-in is HPE's
-# OAuth client credentials (token_url in demo/wireless.yml points here).
+# OAuth client credentials (token_url in demo/wireless.env points here).
 CENTRAL_TOKEN = "mock-aruba-central-token"
 
 

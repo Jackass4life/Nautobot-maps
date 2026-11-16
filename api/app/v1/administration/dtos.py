@@ -42,7 +42,7 @@ class WirelessControllerCheck(common.Answer):
 
 class WirelessCheck(common.Answer):
     controllers: list[WirelessControllerCheck] = Field(
-        description="One per instance in WIRELESS_CONTROLLERS_FILE."
+        description="One per instance in WIRELESS_CONTROLLERS."
     )
     duplicates: dict[str, list[str]] = Field(
         description="Up to 20 serials more than one controller lists, and which (the newest answer wins)."

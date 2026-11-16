@@ -123,12 +123,6 @@ class TestStartupLog:
             "every location",
         )
 
-    def test_a_missing_ca_bundle(self, monkeypatch, caplog):
-        monkeypatch.setattr(settings, "LIBRENMS_VERIFY_SSL", "/nonexistent/ca.pem")
-        with caplog.at_level("ERROR"):
-            startup.log_alert_board_exclusions()
-        assert "LIBRENMS_VERIFY_SSL='/nonexistent/ca.pem'" in caplog.text
-
     @pytest.mark.parametrize(
         ("secret", "says"),
         [("s3cr3t-value", "with the proxy secret"), ("", "no AUTH_PROXY_SECRET")],

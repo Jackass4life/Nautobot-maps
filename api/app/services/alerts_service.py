@@ -8,7 +8,6 @@ Ported from nautobot_maps/alerts.py (#602): only the imports changed.
 
 import asyncio
 import hashlib
-import json
 import time
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
@@ -299,45 +298,18 @@ ENV_CORE_ROLE_KEYWORDS: tuple = (
     else DEFAULT_CORE_ROLE_KEYWORDS
 )
 
-# Per-location-type rules loaded from the JSON file (if configured).
+# Per-location-type rules: CRITICALITY_RULES (#739, JSON, lower-cased by the settings).
 # Schema: {"<location_type_lower>": ["kw1", "kw2", ...], "default": [...]}
-CRITICALITY_RULES: dict = {}
-if settings.CRITICALITY_RULES_FILE:
-    try:
-        with open(settings.CRITICALITY_RULES_FILE, encoding="utf-8") as _f:
-            _loaded = json.load(_f)
-        if isinstance(_loaded, dict):
-            CRITICALITY_RULES = {
-                k.lower(): [kw.lower() for kw in v]
-                for k, v in _loaded.items()
-                if isinstance(v, list)
-            }
-            logger.info(
-                "Loaded criticality rules from {}: {}",
-                settings.CRITICALITY_RULES_FILE,
-                list(CRITICALITY_RULES.keys()),
-            )
-        else:
-            logger.warning(
-                "Criticality rules file {} must contain a JSON object; ignoring.",
-                settings.CRITICALITY_RULES_FILE,
-            )
-    except PermissionError:
-        logger.error(
-            "Could not load criticality rules: {}; using CRITICAL_ROLE_KEYWORDS",
-            settings.unreadable_hint(settings.CRITICALITY_RULES_FILE),
-        )
-    except Exception as exc:
-        logger.warning(
-            "Could not load criticality rules from {}: {}", settings.CRITICALITY_RULES_FILE, exc
-        )
+CRITICALITY_RULES: dict = dict(settings.CRITICALITY_RULES)
+if CRITICALITY_RULES:
+    logger.info("Criticality rules for {}", list(CRITICALITY_RULES))
 
 
 def get_critical_keywords(location_type: str | None = None) -> tuple:
     """Return the critical-role keyword set for *location_type*.
 
     Resolution order:
-    1. Per-location-type entry in *CRITICALITY_RULES* (from the JSON file).
+    1. Per-location-type entry in *CRITICALITY_RULES* (the CRITICALITY_RULES setting).
     2. ``"default"`` entry in *CRITICALITY_RULES*.
     3. *ENV_CORE_ROLE_KEYWORDS* (from ``CRITICAL_ROLE_KEYWORDS`` env var, or
        the built-in defaults if the env var is not set).

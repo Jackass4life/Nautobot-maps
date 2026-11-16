@@ -49,7 +49,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `bun run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `.env.example` to `api/.env` (with `localhost` for the database instead of `postgres`, and without the `CACHE_*` lines), then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `bun run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -115,8 +115,8 @@ the details.
   - `app/core/settings.py`: every setting, the only module that reads the environment.
     Code ported from the first app reads them as `settings.NAME` (`app/core/legacy_settings.py`)
     at call time; tests change them with `monkeypatch.setattr(settings, "NAME", value)`.
-    Add a new setting there, pass it in `docker-compose.yml` (a test checks this) and document
-    it in `docs/configuration.md` and `.env.example`.
+    Add a new setting there and document it in `docs/configuration.md` and `.env.example`
+    (tests check both). Compose passes nothing itself: every container reads `.env` (#739).
   - `app/db/`: `session.py`, SQLAlchemy's async engine (asyncpg) and the `AsyncDbSession`
     dependency; `middleware.py`, one `AsyncSession` per API request; `connection.py`, the
     ported code's row and key helpers (imported as `db`: `db.row_to_dict()`,
@@ -247,7 +247,7 @@ The suite:
 ### Screenshots
 
 The README's pictures (`docs/images/`) come from `scripts/screenshots.py` (`uv run --project api --group e2e --with Pillow python scripts/screenshots.py`), run against the
-scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)), `WIRELESS_CONTROLLERS_FILE=demo/wireless.yml`
+scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)), the demo's controllers (`set -a; . ../demo/wireless.env; set +a` in `api/`)
 and an empty database, with an admin token (for the Admin page) and AD sign-in on (for the sign-in page: `development/samba_ad.sh`); its docstring has the steps. Run it again when a page they show changes; `--only admin,sign-in` writes just those.
 
 ### How the inventory sync works

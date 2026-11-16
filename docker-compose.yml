@@ -8,6 +8,10 @@
 # Open http://<host>:5000: `web` answers there and passes the API's paths on to `api`.
 # The bundled HTTPS and sign-in proxy goes in front with reverse-proxy/compose.yml.
 #
+# Every setting is in .env (#739): each container gets the whole file (env_file), so
+# nothing is set here. Copy .env.example to .env and `chmod 600 .env`: it holds the
+# passwords. Compose itself reads .env too, for the ports and networks below.
+#
 # NOTE: Do NOT use "docker compose build && docker compose start".
 # "start" only restarts previously created containers and will fail with
 # "has no container to start" on a fresh checkout.  Always use
@@ -25,14 +29,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     logging: *default-logging
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-nautobot_maps}
-      - POSTGRES_USER=${POSTGRES_USER:-nautobot_maps}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nautobot_maps}
+    # POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD.
+    env_file: .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nautobot_maps} -d ${POSTGRES_DB:-nautobot_maps}"]
+      # The container's own settings ($$: not compose's interpolation).
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -52,11 +55,8 @@ services:
     logging: *default-logging
     ports:
       - "127.0.0.1:5000:3000"
-    environment:
-      # The API's paths (/api/, /healthz, /metrics, /mcp, ...) go to the API (#674).
-      - API_URL=http://api:5000
-      # The map's tile server, as the API's: the pages' CSP allows its images.
-      - MAP_TILE_URL=${MAP_TILE_URL:-}
+    # API_URL (the API's paths go there, #674) and MAP_TILE_URL (the pages' CSP).
+    env_file: .env
     depends_on:
       api:
         condition: service_healthy
@@ -69,139 +69,9 @@ services:
       additional_contexts:
         docs: .
     logging: *default-logging
-    # The app's own files (#517): wireless.yml, criticality rules, CA
-    # certificates.  Read-only; empty and harmless when unused (config/README.md).
-    volumes:
-      - ./config:/config:ro
     # Not published: `web` passes the API's paths on (and Prometheus scrapes it
-    # inside the network, or through `web` at /metrics).
-    environment:
-      - NAUTOBOT_URL=${NAUTOBOT_URL}
-      - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN}
-      - NAUTOBOT_VERIFY_SSL=${NAUTOBOT_VERIFY_SSL:-true}
-      - NAUTOBOT_API_VERSION=${NAUTOBOT_API_VERSION:-}
-      # Logging (optional): DEBUG/INFO/WARNING/ERROR, text or json
-      - LOG_LEVEL=${LOG_LEVEL:-}
-      - LOG_FORMAT=${LOG_FORMAT:-}
-      - CACHE_TTL=${CACHE_TTL:-300}
-      - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
-      - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
-      # Gunicorn (optional; defaults: 4 workers, 120 s timeout, bind 0.0.0.0:5000)
-      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-}
-      - GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-}
-      - GUNICORN_BIND=${GUNICORN_BIND:-}
-      # Background syncs and sync intervals (optional; default to CACHE_TTL)
-      - BACKGROUND_SYNC_ENABLED=${BACKGROUND_SYNC_ENABLED:-}
-      - INVENTORY_SYNC_INTERVAL_SECONDS=${INVENTORY_SYNC_INTERVAL_SECONDS:-}
-      - LIBRENMS_SYNC_INTERVAL_SECONDS=${LIBRENMS_SYNC_INTERVAL_SECONDS:-}
-      # Alertmanager and generic webhooks (optional)
-      - ALERTMANAGER_DEVICE_LABELS=${ALERTMANAGER_DEVICE_LABELS:-}
-      - ALERTMANAGER_ALERTNAMES=${ALERTMANAGER_ALERTNAMES:-}
-      - WEBHOOK_ALERT_TTL_HOURS=${WEBHOOK_ALERT_TTL_HOURS:-}
-      # Criticality configuration (all optional)
-      - CRITICAL_ROLE_KEYWORDS=${CRITICAL_ROLE_KEYWORDS:-}
-      - CRITICALITY_RULES_FILE=${CRITICALITY_RULES_FILE:-}
-      # Alert board exclusions (all optional; see .env.example). "-" instead of
-      # ":-" so an empty value in .env clears the location-type default.
-      - ALERT_BOARD_EXCLUDED_LOCATION_TYPES=${ALERT_BOARD_EXCLUDED_LOCATION_TYPES-graveyard,warehouse}
-      - ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=${ALERT_BOARD_EXCLUDED_LOCATION_STATUSES:-}
-      - ALERT_BOARD_EXCLUDED_LOCATION_TAGS=${ALERT_BOARD_EXCLUDED_LOCATION_TAGS:-}
-      - ALERT_BOARD_EXCLUDED_LOCATION_NAMES=${ALERT_BOARD_EXCLUDED_LOCATION_NAMES:-}
-      - ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=${ALERT_BOARD_EXCLUDED_DEVICE_STATUSES:-}
-      - ALERT_DELAY_SECONDS=${ALERT_DELAY_SECONDS:-}
-      - FLAP_CHANGES=${FLAP_CHANGES:-}
-      - AVAILABILITY_BASIS=${AVAILABILITY_BASIS:-}
-      - AVAILABILITY_TARGET_PCT=${AVAILABILITY_TARGET_PCT:-}
-      - CASE_URL_TEMPLATE=${CASE_URL_TEMPLATE:-}
-      - ALERT_MEDIUM_PERCENT=${ALERT_MEDIUM_PERCENT:-}
-      - ALERT_CRITICAL_PERCENT=${ALERT_CRITICAL_PERCENT:-}
-      - SITE_TIER_FIELD=${SITE_TIER_FIELD:-}
-      - TENANT_SCOPE_FIELD=${TENANT_SCOPE_FIELD:-}
-      - STATUS_PAGE_TENANT_DEVICES=${STATUS_PAGE_TENANT_DEVICES:-false}
-      - COUNTRY_LOCATION_TYPE=${COUNTRY_LOCATION_TYPE:-}
-      - SITE_TIERS=${SITE_TIERS:-}
-      - NOTIFY_MIN_LEVEL_BY_TIER=${NOTIFY_MIN_LEVEL_BY_TIER:-}
-      - TIER_DEVICE_LEVEL=${TIER_DEVICE_LEVEL:-}
-      - DEVICE_CRITICALITY_FIELD=${DEVICE_CRITICALITY_FIELD:-}
-      - ALERT_BOARD_SITE_LOCATION_TYPE=${ALERT_BOARD_SITE_LOCATION_TYPE:-}
-      - SITE_TENANT_RELATIONSHIPS=${SITE_TENANT_RELATIONSHIPS:-}
-      - ACCESS_POINT_ROLES=${ACCESS_POINT_ROLES:-Access Point}
-      # Optional authentication / RBAC
-      - AUTH_MODE=${AUTH_MODE:-disabled}
-      - AUTH_HEADER_USER=${AUTH_HEADER_USER:-X-Forwarded-User}
-      - AUTH_HEADER_GROUPS=${AUTH_HEADER_GROUPS:-X-Forwarded-Groups}
-      - AUTH_DEFAULT_ROLE=${AUTH_DEFAULT_ROLE:-}
-      - AUTH_VIEWER_GROUPS=${AUTH_VIEWER_GROUPS:-}
-      - AUTH_OPERATOR_GROUPS=${AUTH_OPERATOR_GROUPS:-}
-      - AUTH_ADMIN_GROUPS=${AUTH_ADMIN_GROUPS:-}
-      - AUTH_NOC_GROUPS=${AUTH_NOC_GROUPS:-}
-      - AUTH_DOV_GROUPS=${AUTH_DOV_GROUPS:-}
-      - AUTH_CUSTOMER_GROUPS=${AUTH_CUSTOMER_GROUPS:-}
-      - AUTH_REQUIRE_VIEWER=${AUTH_REQUIRE_VIEWER:-}
-      - AUTH_GROUP_ROLES=${AUTH_GROUP_ROLES:-}
-      - LDAP_URL=${LDAP_URL:-}
-      - LDAP_BASE_DN=${LDAP_BASE_DN:-}
-      - LDAP_BIND_DN=${LDAP_BIND_DN:-}
-      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD:-}
-      - LDAP_USER_ATTRIBUTE=${LDAP_USER_ATTRIBUTE:-}
-      - LDAP_CA_FILE=${LDAP_CA_FILE:-}
-      - LDAP_ALLOW_PLAINTEXT=${LDAP_ALLOW_PLAINTEXT:-}
-      - LDAP_TIMEOUT_SECONDS=${LDAP_TIMEOUT_SECONDS:-}
-      - JWT_SIGNING_SECRET=${JWT_SIGNING_SECRET:-}
-      - JWT_LIFETIME_SECONDS=${JWT_LIFETIME_SECONDS:-}
-      - JWT_ISSUER=${JWT_ISSUER:-}
-      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
-      - AUTH_TRUSTED_PROXIES=${AUTH_TRUSTED_PROXIES:-}
-      - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:-}
-      - AUTH_SIGN_OUT_URL=${AUTH_SIGN_OUT_URL:-}
-      - ALLOW_UNAUTHENTICATED_WRITES=${ALLOW_UNAUTHENTICATED_WRITES:-}
-      # Map tiles and address search (optional; default: public OpenStreetMap)
-      - MAP_TILE_URL=${MAP_TILE_URL:-}
-      - MAP_TILE_ATTRIBUTION=${MAP_TILE_ATTRIBUTION:-}
-      - MAP_DEFAULT_VIEW=${MAP_DEFAULT_VIEW:-}
-      - GEOCODER_ENABLED=${GEOCODER_ENABLED:-}
-      - GEOCODER_URL=${GEOCODER_URL:-}
-      - GEOCODER_USER_AGENT=${GEOCODER_USER_AGENT:-}
-      # LibreNMS integration (optional)
-      - LIBRENMS_URL=${LIBRENMS_URL:-}
-      - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
-      - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
-      # Wireless controllers' access point status (optional; see docs/sources.md):
-      # e.g. /config/wireless.yml, from ./config
-      - WIRELESS_CONTROLLERS_FILE=${WIRELESS_CONTROLLERS_FILE:-}
-      - WIRELESS_SYNC_INTERVAL_SECONDS=${WIRELESS_SYNC_INTERVAL_SECONDS:-}
-      - WIRELESS_AP_LEVEL=${WIRELESS_AP_LEVEL:-low}
-      # Delete alert history older than this many days (optional; 0/empty keeps everything)
-      - ALERT_HISTORY_RETENTION_DAYS=${ALERT_HISTORY_RETENTION_DAYS:-}
-      # Prometheus metrics at /metrics (optional; default on)
-      - METRICS_ENABLED=${METRICS_ENABLED:-}
-      # MCP server for AI assistants at /mcp (optional; default off)
-      - MCP_ENABLED=${MCP_ENABLED:-}
-      # gzip large answers (optional; default on; false where a proxy compresses)
-      - COMPRESS_RESPONSES=${COMPRESS_RESPONSES:-}
-      # Notifications when a site's level changes (optional; see docs/notifications.md)
-      - NOTIFY_MIN_LEVEL=${NOTIFY_MIN_LEVEL:-}
-      - NOTIFY_TENANTS=${NOTIFY_TENANTS:-}
-      - NOTIFY_BOARD_URL=${NOTIFY_BOARD_URL:-}
-      - NOTIFY_SUMMARY_THRESHOLD=${NOTIFY_SUMMARY_THRESHOLD:-}
-      - NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-}
-      - NOTIFY_WEBHOOK_SECRET=${NOTIFY_WEBHOOK_SECRET:-}
-      - NOTIFY_TEAMS_WEBHOOK_URL=${NOTIFY_TEAMS_WEBHOOK_URL:-}
-      - NOTIFY_EMAIL_TO=${NOTIFY_EMAIL_TO:-}
-      - SMTP_HOST=${SMTP_HOST:-}
-      - SMTP_PORT=${SMTP_PORT:-}
-      - SMTP_USERNAME=${SMTP_USERNAME:-}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
-      - SMTP_FROM=${SMTP_FROM:-}
-      - SMTP_STARTTLS=${SMTP_STARTTLS:-}
-      - MCP_ALLOWED_ORIGINS=${MCP_ALLOWED_ORIGINS:-}
-      # PostgreSQL connect and statement timeouts (optional; defaults 5 s / 60 s)
-      - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-}
-      - DB_STATEMENT_TIMEOUT_SECONDS=${DB_STATEMENT_TIMEOUT_SECONDS:-}
-      # PostgreSQL persistence: the bundled postgres service unless overridden.
-      # Other sites' pages that may call the API (#594); the app's own share its origin.
-      - CORS_ORIGINS=${CORS_ORIGINS:-}
-      - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
+    # inside the network, or through `web` at /metrics). Its settings: .env.
+    env_file: .env
     depends_on:
       redis:
         condition: service_healthy

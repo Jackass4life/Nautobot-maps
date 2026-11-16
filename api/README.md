@@ -7,7 +7,7 @@ PostgreSQL. It serves `web/`'s built pages; the only thing it shares with `web/`
 ## Commands (run from `api/`)
 
 ```bash
-cp .env.example .env                  # DATABASE_URL=postgresql://...
+cp ../.env.example .env               # localhost for the database, not postgres (#739)
 uv sync
 uv run alembic upgrade head           # apply migrations
 uv run python run.py                       # http://127.0.0.1:5000 (FLASK_RUN_PORT), docs at /api/docs; FLASK_DEBUG=true reloads

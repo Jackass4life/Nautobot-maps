@@ -1,12 +1,9 @@
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: nautobot_maps
-      POSTGRES_USER: nautobot_maps
-      POSTGRES_PASSWORD: nautobot_maps
+    env_file: demo.env
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nautobot_maps -d nautobot_maps"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -15,9 +12,8 @@ services:
     # The API image has FastAPI; the mock is its own program (demo/, not in the image).
     build: ../api
     entrypoint: ["python", "/mock/mock_nautobot.py"]
-    environment:
-      # MOCK_SCALE=1200 adds 1,200 generated sites (demo/README.md).
-      MOCK_SCALE: ${MOCK_SCALE:-0}
+    # MOCK_SCALE=1200 in demo.env adds 1,200 generated sites (demo/README.md).
+    env_file: demo.env
     volumes:
       - ./mock_nautobot.py:/mock/mock_nautobot.py:ro
     ports:
@@ -33,8 +29,7 @@ services:
     build: ../web
     ports:
       - "5000:3000"
-    environment:
-      API_URL: http://api:5000
+    env_file: demo.env
     depends_on:
       api:
         condition: service_healthy
@@ -44,18 +39,7 @@ services:
       context: ../api
       additional_contexts:
         docs: ..
-    environment:
-      NAUTOBOT_URL: http://mock-nautobot:8080
-      NAUTOBOT_TOKEN: demo-token
-      CACHE_TTL: "60"
-      # The mock gives London HQ and Paris PoP an importance tier.
-      SITE_TIER_FIELD: tier
-      # Criticality (#377): cph-fw01 is set critical, London's access switches low.
-      DEVICE_CRITICALITY_FIELD: criticality
-      TIER_DEVICE_LEVEL: gold:critical,silver:medium
-      # The alert board reads from the persisted inventory snapshot, so the
-      # demo needs a database (throwaway: no volume).
-      NAUTOBOT_MAPS_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@postgres:5432/nautobot_maps
+    env_file: demo.env
     depends_on:
       postgres:
         condition: service_healthy
