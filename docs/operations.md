@@ -101,9 +101,11 @@ CACHE_REDIS_URL=redis://redis:6379/0
 API_URL=http://api:5000
 EOF
 grep -q '^POSTGRES_PASSWORD=' .env || echo 'POSTGRES_PASSWORD=nautobot_maps' >> .env   # the old default
-# 2. The wireless controllers, if you had config/wireless.yml: one line of JSON
-echo "WIRELESS_CONTROLLERS='$(docker compose run --rm --no-deps -v ./config:/old:ro api \
-  python -c 'import json, yaml; print(json.dumps(yaml.safe_load(open("/old/wireless.yml"))))')'" >> .env
+# 2. The wireless controllers, if you had config/wireless.yml: one line of JSON. Python
+#    directly (--entrypoint): the image's entrypoint would first load the settings, which
+#    stop on WIRELESS_CONTROLLERS_FILE. Check: the line is long, not WIRELESS_CONTROLLERS=''
+echo "WIRELESS_CONTROLLERS='$(docker compose run --rm --no-deps --entrypoint python -v ./config:/old:ro api \
+  -c 'import json, yaml; print(json.dumps(yaml.safe_load(open("/old/wireless.yml"))))')'" >> .env
 # 3. The criticality rules, if you had config/criticality_rules.json
 echo "CRITICALITY_RULES='$(tr -d '\n' < config/criticality_rules.json)'" >> .env
 # 4. A company CA, if a *_VERIFY_SSL, a controller's verify_ssl or LDAP_CA_FILE named one
