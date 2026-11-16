@@ -498,58 +498,15 @@ def test_the_menu_by_role(role, pages, as_role, client):
     config = client.get("/api/v1/page-config").json()
     assert config["access"]["role"] == role
     assert config["access"]["pages"] == pages
-    assert [page["key"] for page in config["pages"]] == [
-        key
-        for key, *_ in __import__("app.services.navigation_service", fromlist=["PAGES"]).PAGES
-        if key in pages
-    ]
     assert config["access"]["landing"] == permissions.ROLES[role].landing
 
 
-@pytest.mark.parametrize(
-    ("role", "hrefs"),
-    [
-        ("customer", ["/customer", "/customer/tenants", "/help", "/api/docs"]),
-        (
-            "noc",
-            ["/noc/board", "/noc/availability", "/noc/maintenance", "/help", "/api/docs", "/noc"],
-        ),
-        (
-            "operator",
-            [
-                "/nwo",
-                "/nwo/board",
-                "/nwo/availability",
-                "/nwo/maintenance",
-                "/nwo/circuits",
-                "/nwo/tenants",
-                "/help",
-                "/api/docs",
-                "/nwo/wall",
-            ],
-        ),
-        (
-            "viewer",
-            [
-                "/",
-                "/alerts",
-                "/availability",
-                "/maintenance",
-                "/circuits",
-                "/tenants",
-                "/help",
-                "/api/docs",
-                "/alerts?view=wall",
-            ],
-        ),
-    ],
-)
-def test_the_menu_opens_the_roles_workspace(role, hrefs, as_role, client):
+@pytest.mark.parametrize("role", ["customer", "noc", "operator", "viewer"])
+def test_each_role_lands_on_its_workspace(role, as_role, client):
     """Customer, NOC and NWO each have their own addresses (#697); the others the flat
-    ones. Each role lands on its workspace."""
+    ones. The menu's addresses are the web's (web/tests/navigation.test.ts, #737)."""
     as_role(role)
     config = client.get("/api/v1/page-config").json()
-    assert [page["href"] for page in config["pages"]] == hrefs
     landing = config["access"]["landing"]
     assert landing == {"customer": "/customer", "noc": "/noc", "operator": "/nwo"}.get(role, "/")
 

@@ -37,7 +37,6 @@ onMounted(async () => {
 
 <template>
   <div>
-    <AppBar active="tenants" />
     <main class="mx-auto max-w-4xl space-y-4 px-4 py-6">
       <h1 class="text-2xl font-bold text-highlighted">Customers</h1>
       <p class="max-w-3xl text-sm text-muted">

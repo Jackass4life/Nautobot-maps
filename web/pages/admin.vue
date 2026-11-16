@@ -58,7 +58,6 @@ async function checkWireless() {
 
 <template>
   <div>
-    <AppBar active="admin" />
     <main class="mx-auto max-w-6xl space-y-4 px-4 py-6">
       <h1 class="text-2xl font-bold text-highlighted">Admin</h1>
       <p v-if="configStatus === 'pending'" class="text-sm text-muted">Loading…</p>

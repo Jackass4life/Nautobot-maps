@@ -200,15 +200,6 @@ WORKSPACES: dict[str, tuple[str, dict[str, str]]] = {
 }
 
 
-def workspace_path(role: str | None, page: str) -> str | None:
-    """*page*'s address in *role*'s workspace, or None (no workspace, or not in it)."""
-    found = WORKSPACES.get(role or "")
-    if not found or page not in found[1]:
-        return None
-    prefix, paths = found
-    return prefix + paths[page]
-
-
 # The roles before the matrix, lowest first: refusals still name the lowest of them
 # that would do (scripts and MCP read ``required_role``).
 OLD_ROLES = ("viewer", "operator", "admin")

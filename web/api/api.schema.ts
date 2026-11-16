@@ -1028,10 +1028,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the caller's access (the menu's pages are the web's own since #737), the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.
          * @description What the pages built with Nuxt read to draw themselves (#463): who is
          *     signed in (the top bar), Nautobot's address (links to its pages), the
-         *     menu, the same as the server-rendered pages show, the Maintenance page's
+         *     caller's access (the menu's pages are the web's own since #737), the Maintenance page's
          *     and Availability's limits, the map's tiles and first view, and the
          *     board's case links and level definitions.
          */
@@ -3088,26 +3088,6 @@ export interface components {
             /** Username */
             username: string | null;
         };
-        /** MenuPage */
-        MenuPage: {
-            /**
-             * Href
-             * @example /circuits
-             */
-            href: string;
-            /**
-             * Key
-             * @example circuits
-             */
-            key: string;
-            /**
-             * Label
-             * @example Circuits
-             */
-            label: string;
-            /** Title */
-            title: string;
-        };
         /** MismatchDto */
         MismatchDto: {
             /** Count */
@@ -3385,11 +3365,6 @@ export interface components {
              * @description Nautobot's address, for links to its pages; empty when not set.
              */
             nautobot_url: string;
-            /**
-             * Pages
-             * @description The top bar's menu, in order: the pages the caller may open (#693).
-             */
-            pages: components["schemas"]["MenuPage"][];
             /** @description Who is signed in; null with AUTH_MODE=disabled or no sign-in. */
             user: components["schemas"]["BarUser"] | null;
         };

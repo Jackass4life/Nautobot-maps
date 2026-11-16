@@ -119,6 +119,8 @@ const alarmHeading = computed(() =>
   ),
 );
 const linkQuery = computed(() => linkParams(criteria.value.tenant, scope).toString());
+// On the top bar's links too (the layout's bar, #737).
+useBarLinks().keep(linkQuery);
 
 // "Only Acme Corp · Show all sites"; a link that matches no site says so (#367).
 const scopeText = computed(() => scopeLabel(scope, all.value));
@@ -533,24 +535,23 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="map-page flex h-dvh flex-col overflow-hidden">
-    <AppBar active="map" :search="false" :link-query="linkQuery">
-      <template #start>
-        <UButton
-          id="panel-bar-toggle"
-          ref="barToggle"
-          class="panel-bar-toggle"
-          :icon="panelHidden ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
-          color="neutral"
-          variant="ghost"
-          aria-controls="sidebar"
-          :aria-expanded="panelHidden ? 'false' : 'true'"
-          :aria-label="panelHidden ? 'Show the panel' : 'Hide the panel'"
-          :title="`${panelHidden ? 'Show the panel' : 'Hide the panel'} ([)`"
-          @click="setPanelHidden(!panelHidden)"
-        />
-      </template>
-    </AppBar>
+  <div class="map-page flex min-h-0 flex-1 flex-col overflow-hidden">
+    <!-- In the layout's top bar (#737), before the app's name. -->
+    <Teleport defer to="#app-bar-start">
+      <UButton
+        id="panel-bar-toggle"
+        ref="barToggle"
+        class="panel-bar-toggle"
+        :icon="panelHidden ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+        color="neutral"
+        variant="ghost"
+        aria-controls="sidebar"
+        :aria-expanded="panelHidden ? 'false' : 'true'"
+        :aria-label="panelHidden ? 'Show the panel' : 'Hide the panel'"
+        :title="`${panelHidden ? 'Show the panel' : 'Hide the panel'} ([)`"
+        @click="setPanelHidden(!panelHidden)"
+      />
+    </Teleport>
 
     <main class="relative min-h-0 flex-1">
       <!-- The left panel (#392): what needs action first, one search, the rest a

@@ -1142,6 +1142,40 @@ def test_the_top_bar_fits_a_phone(browser, path):
     assert errors == [], errors
 
 
+def test_the_menu_is_there_without_page_config_and_opens_pages_in_place(page):
+    """#737: the menu's pages are the web's own: there even when page-config fails
+    (it was empty then), and a click opens the page without loading a new document;
+    the bar stays."""
+    page.route("**/api/v1/page-config", lambda route: route.fulfill(status=503, body="{}"))
+    page.goto(f"{BASE_URL}/availability")
+    open_menu(page)
+    assert page.locator(".app-nav-link").count() == 9
+    page.keyboard.press("Escape")
+    page.unroute("**/api/v1/page-config")
+    page.reload()
+    page.locator(".avail-card, table").first.wait_for()
+
+    documents = []
+    page.on("request", lambda r: r.resource_type == "document" and documents.append(r.url))
+    bar = page.locator("header.app-bar").element_handle()
+    for label, path, shows in (
+        ("Alert Board", "/alerts", "table tbody tr"),
+        ("Map", "/", "#map"),
+        ("Maintenance", "/maintenance", "h1"),
+    ):
+        open_menu(page)
+        page.locator(".app-nav-link", has_text=label).first.click()
+        page.wait_for_url(f"{BASE_URL}{path}")
+        page.locator(shows).first.wait_for()
+        current = page.locator('.app-nav-link[aria-current="page"]')
+        open_menu(page)
+        assert current.inner_text() == label
+        page.keyboard.press("Escape")
+    assert documents == [], documents
+    # The same bar all along: mounted once, by the layout.
+    assert bar.evaluate("el => el.isConnected")
+
+
 def test_the_documentation_pages(page):
     """#433: Documentation in the menu opens the guides; a link to another
     guide opens it at its heading."""

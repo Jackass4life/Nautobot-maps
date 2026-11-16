@@ -5621,13 +5621,6 @@ class TestApiExplorer:
         }
         assert {"month", "from", "to", "basis"} <= names
 
-    def test_the_menu_links_to_the_explorer(self, flask_client):
-        # The pages read the menu from /api/page-config (#463).
-        pages = flask_client.get("/api/v1/page-config").get_json()["pages"]
-        assert {"key": "docs", "href": "/api/docs"}.items() <= next(
-            p for p in pages if p["key"] == "docs"
-        ).items()
-
     def test_the_old_paths_move_for_good(self, flask_client):
         """#483: the reference and the spec live under /api; bookmarks and
         tools reading the old paths are sent on (301, which they remember)."""

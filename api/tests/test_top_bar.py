@@ -101,13 +101,11 @@ def test_the_endpoint_never_calls_upstream(flask_client, monkeypatch):
 class TestPageConfig:
     """GET /api/page-config (#463): what the Nuxt pages' top bar shows."""
 
-    def test_the_menu_is_the_server_pages_menu(self, flask_client):
-        from app.services import navigation_service as navigation
-
-        config = flask_client.get("/api/v1/page-config").get_json()
-        assert config["pages"] == navigation.pages()
-        assert [page["key"] for page in config["pages"]] == [key for key, *_ in navigation.PAGES]
-        assert flask_client.get("/api/v1/page-config").headers["Cache-Control"] == "no-store"
+    def test_no_menu_in_it(self, flask_client):
+        """The menu is the web's own (#737): there on the first paint, not after this."""
+        response = flask_client.get("/api/v1/page-config")
+        assert "pages" not in response.get_json()
+        assert response.headers["Cache-Control"] == "no-store"
 
     def test_no_one_signed_in_without_sign_in(self, flask_client, monkeypatch):
         monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
@@ -168,13 +166,30 @@ class TestPageConfig:
         view = flask_client.get("/api/v1/page-config").get_json()["map"]["view"]
         assert view == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
-    def test_the_scope_is_kept_on_the_map_board_and_wall(self):
-        from app.services import navigation_service as navigation
 
-        pages = {page["key"]: page["href"] for page in navigation.pages("tenant=Acme%20Corp&q=DNK")}
-        assert pages["map"] == "/?tenant=Acme%20Corp&q=DNK"
-        assert pages["wall"] == "/alerts?view=wall&tenant=Acme%20Corp&q=DNK"
-        assert pages["circuits"] == "/circuits"
+def test_the_web_menu_is_the_api_pages():
+    """web/utils/navigation.ts lists the menu (#737): the same pages, in the same order,
+    at the same addresses and with the same labels as navigation_service.PAGES, each
+    with its permission from permissions.PAGE_PERMISSIONS."""
+    import pathlib
+    import re
+
+    from app.auth import permissions
+    from app.services import navigation_service as navigation
+
+    source = (
+        pathlib.Path(__file__).resolve().parents[2] / "web" / "utils" / "navigation.ts"
+    ).read_text()
+    table = source.split("export const MENU_PAGES: readonly MenuPage[] = [", 1)[1].split("];")[0]
+    entries = [
+        dict(re.findall(r'(\w+): "([^"]*)"', entry))
+        for entry in table.split("},")
+        if "key" in entry
+    ]
+    assert [(e["key"], e["path"], e["label"], e["title"], e["permission"]) for e in entries] == [
+        (key, path, label, title, permissions.PAGE_PERMISSIONS[key].value)
+        for key, path, label, title in navigation.PAGES
+    ]
 
 
 @pytest.mark.parametrize(

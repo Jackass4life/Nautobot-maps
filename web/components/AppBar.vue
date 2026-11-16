@@ -11,31 +11,30 @@ import {
   type AppStatus,
 } from "~/utils/appstatus";
 import { matchSites, type SearchableSite } from "~/utils/sitesearch";
+import { MENU_PAGES, menuPages, pageHref } from "~/utils/navigation";
 
-const props = withDefaults(
-  defineProps<{
-    active: string;
-    // The map's panel has its own search, for places too.
-    search?: boolean;
-    // ?tenant= / ?q= the map's and the board's links keep (#367).
-    linkQuery?: string;
-  }>(),
-  { search: true, linkQuery: "" },
-);
+// The layout's (#737): the page shown, from its address (null: none of the menu's).
+const props = defineProps<{ active: string | null }>();
+// The map's panel has its own search, for places too.
+const search = computed(() => props.active !== "map");
+// ?tenant= / ?q= the map's and the board's links keep (#367).
+const { linkQuery } = useBarLinks();
 
-const { data: config } = usePageConfig();
+const { data: config, status: configStatus } = usePageConfig();
 // The search's results open on the map and the board: each link with its page (#695).
 const { can } = useCan();
 const searchable = computed(() => can("page:map") || can("page:board"));
 const { dark, toggle: toggleTheme } = useTheme();
 
-// The menu: every page, this one marked; Admin, only for admins (#530); Sign
-// out last, for someone signed in through the sign-in proxy (#546).
+// The menu (#737): every page from the first paint, as internal links (no reload);
+// once page-config has answered, only the caller's. Admin, only for admins (#530);
+// Sign out last, for someone signed in through the sign-in proxy (#546).
 const menu = computed<DropdownMenuItem[][]>(() => {
-  const pages: DropdownMenuItem[] = (config.value?.pages ?? []).map((page) => ({
+  const access = configStatus.value === "success" ? config.value?.access : null;
+  const shown = access ? menuPages(access.pages) : MENU_PAGES;
+  const pages: DropdownMenuItem[] = shown.map((page) => ({
     label: page.label,
-    to: scoped(page.href, page.key),
-    external: true,
+    to: pageHref(page, access?.role, linkQuery.value),
     active: page.key === props.active,
     "aria-current": page.key === props.active ? "page" : undefined,
     class: "app-nav-link",
@@ -47,7 +46,6 @@ const menu = computed<DropdownMenuItem[][]>(() => {
         label: "Admin",
         icon: "i-lucide-shield",
         to: "/admin",
-        external: true,
         active: props.active === "admin",
         "aria-current": props.active === "admin" ? "page" : undefined,
         class: "app-nav-link app-nav-admin",
@@ -68,15 +66,6 @@ const menu = computed<DropdownMenuItem[][]>(() => {
   }
   return groups;
 });
-
-// The map and the board keep the scope; the wall ("view=wall") too, after it. By
-// the page, not its address: a workspace's are its own (#697).
-const SCOPED = new Set(["map", "alerts", "wall"]);
-function scoped(href: string, key: string): string {
-  const [path, query = ""] = href.split("?");
-  if (!props.linkQuery || !SCOPED.has(key)) return href;
-  return `${path}?${[query, props.linkQuery].filter(Boolean).join("&")}`;
-}
 
 // How fresh the data is: once a minute, not while the tab is hidden.
 const status = shallowRef<AppStatus | null | undefined>(undefined);
@@ -168,7 +157,7 @@ function onSearchFocusOut(event: FocusEvent) {
 }
 function onShortcut(event: KeyboardEvent) {
   // No search here (the map has its own): "/" is left alone.
-  if (!props.search || !isSearchShortcut(event)) return;
+  if (!search.value || !isSearchShortcut(event)) return;
   event.preventDefault();
   openSearch();
 }
@@ -194,15 +183,16 @@ onBeforeUnmount(() => {
   <header
     class="app-bar sticky top-0 z-40 flex h-13 items-center gap-2 border-b border-default bg-default/95 px-3 backdrop-blur sm:gap-4 sm:px-4"
   >
-    <slot name="start" />
-    <a
+    <!-- The map's panel button, teleported here by the map (#737). -->
+    <div id="app-bar-start" class="contents" />
+    <NuxtLink
       class="app-brand flex shrink-0 items-center gap-1.5 font-semibold text-primary"
-      href="/"
+      to="/"
       title="Map"
     >
       <UIcon name="i-lucide-map-pin" class="size-5" />
       <span class="hidden sm:inline">Nautobot Maps</span>
-    </a>
+    </NuxtLink>
 
     <!-- Find a site: an icon on a phone, opening the field over the bar. -->
     <div

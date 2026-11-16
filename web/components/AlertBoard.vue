@@ -124,6 +124,8 @@ const wallLink = computed(() =>
   wallLinkFor({ tenant: criteria.value.tenant, text: criteria.value.site, scope }),
 );
 const linkQuery = computed(() => linkParams(criteria.value.tenant, scope).toString());
+// On the top bar's links too (the layout's bar, #737).
+useBarLinks().keep(linkQuery);
 const moreCount = computed(() => moreFiltersInUse(criteria.value));
 // New filters start again at the first rows; a refresh keeps what was opened.
 watch(criteria, () => (rowLimit.value = ROWS_STEP));
@@ -412,7 +414,6 @@ function shortLabel(values: string[], all: string) {
 
 <template>
   <div>
-    <AppBar active="alerts" :link-query="linkQuery" />
     <main class="mx-auto max-w-[1600px] space-y-3 px-4 py-5">
       <h1 class="text-2xl font-bold text-highlighted">Alert Board</h1>
 

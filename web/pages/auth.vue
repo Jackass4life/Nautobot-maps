@@ -6,6 +6,8 @@
 import { safeRedirect } from "~/utils/signin";
 import { errorMessage } from "~/utils/format";
 
+// No top bar here (#737): nothing to open before signing in.
+definePageMeta({ layout: false });
 useHead({ title: "Sign in · Nautobot Maps" });
 
 const params = new URLSearchParams(window.location.search);
