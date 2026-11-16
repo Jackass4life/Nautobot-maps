@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - the demo's settings are `demo/demo.env` (`MOCK_SCALE` too), its controllers `demo/wireless.env`.
 
 ### Fixed
+- **No "Failed to load locations" error after leaving the map early** (#743): opening another page from the menu before the map had loaded its sites showed a Leaflet error (`_leaflet_pos`) on that page and left the map's refresh running in the background. The map, and Maintenance's refresh, now stop once you leave them
 - **The ☰ menu works from the first moment** (#737): the menu's pages are part of the web pages, not fetched from the API, so the menu is never empty (before it was, until the API had answered, or for good if that call failed). Its links open pages inside the app without reloading it, and the top bar stays put. `GET /api/v1/page-config` no longer has `pages` (the menu); `access.pages` still says which pages the caller may open
 - **A tenant's status page opened from Availability no longer says "This link doesn't work (anymore)" after about an hour** (#727): with the bundled proxy, the session oauth2-proxy renews every hour now reaches the browser on the status page's data too, and the page keeps updating after a refused answer instead of stopping until F5. Rebuild the proxy (`docker compose up -d --build`).
 

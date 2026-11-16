@@ -1176,6 +1176,28 @@ def test_the_menu_is_there_without_page_config_and_opens_pages_in_place(page):
     assert bar.evaluate("el => el.isConnected")
 
 
+def test_leaving_the_map_before_it_has_loaded(page):
+    """#743: the pages switch in place (#737), so the map's start goes on after it is
+    left; with the sites arriving only then, the next page shows no error from it."""
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    held = []
+    page.route("**/api/v1/locations", lambda route: held.append(route))
+    page.goto(f"{BASE_URL}/")
+    page.locator(".leaflet-container").wait_for()
+    assert held, "the map didn't ask for the sites"
+    open_menu(page)
+    page.locator(".app-nav-link", has_text="Alert Board").first.click()
+    page.wait_for_url(f"{BASE_URL}/alerts")
+    page.locator("table tbody tr").first.wait_for()
+    for route in held:
+        route.continue_()
+    page.unroute("**/api/v1/locations")
+    page.wait_for_timeout(1500)
+    assert page.get_by_text("Failed to load locations").count() == 0
+    assert errors == [], errors
+
+
 def test_the_documentation_pages(page):
     """#433: Documentation in the menu opens the guides; a link to another
     guide opens it at its heading."""

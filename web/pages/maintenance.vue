@@ -350,12 +350,16 @@ async function save() {
 // --- start ------------------------------------------------------------------
 
 let timer: ReturnType<typeof setInterval> | undefined;
+// Left before the limits came (#743): the pages switch in place (#737), so the start
+// below would add its timer to a page that is gone.
+let gone = false;
 function onVisible() {
   if (!document.hidden) loadList();
 }
 onMounted(async () => {
   // The page's limits first: the Ended group's days, the history's default period.
   await until(() => config.value?.maintenance);
+  if (gone) return;
   if (historyView && !history.from) history.from = addDays(today, 1 - limits.value.history_days);
   loadList();
   if (historyView) return;
@@ -366,6 +370,7 @@ onMounted(async () => {
   document.addEventListener("visibilitychange", onVisible);
 });
 onBeforeUnmount(() => {
+  gone = true;
   clearInterval(timer);
   document.removeEventListener("visibilitychange", onVisible);
 });
