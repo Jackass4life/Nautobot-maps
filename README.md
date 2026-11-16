@@ -87,16 +87,17 @@ You need Docker and a Nautobot 2.x or 3.x with a read-only API token.
 ```bash
 git clone https://github.com/Jackass4life/Nautobot-maps.git
 cd Nautobot-maps
-cp .env.example .env    # set NAUTOBOT_URL, NAUTOBOT_TOKEN and POSTGRES_PASSWORD
+cp .env.example .env && chmod 600 .env
+# set NAUTOBOT_URL, NAUTOBOT_TOKEN, and your own POSTGRES_PASSWORD (also in NAUTOBOT_MAPS_DATABASE_URL)
 docker compose up --build -d
 # → http://localhost:5000
 ```
 
 > **Use `docker compose up`, not `docker compose build && docker compose start`.** `start` only restarts containers that already exist and fails with *"service … has no container to start"* on a fresh checkout.
 
-- **The database:** the bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created.
+- **The database:** the bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` (and the same password in `NAUTOBOT_MAPS_DATABASE_URL`) before the first start: it is fixed when the data volume is created.
 - **Settings:** every setting is in [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
-- **Files the app reads** (wireless controllers, criticality rules, CA certificates) go in the **`config/`** folder next to `docker-compose.yml`. It is mounted read-only at `/config`, git-ignored and kept out of the image. In Docker the app runs as uid 10001, so let it read the folder through its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file ([config/README.md](config/README.md)).
+- **Everything is in `.env`** (#739): every container reads it, and the compose files set nothing. The wireless controllers and criticality rules are JSON in their setting, a company CA is its text (`EXTRA_CA_PEM`); no other files. It holds the passwords: `chmod 600 .env` ([how .env works](docs/configuration.md#how-env-works)).
 - **Two containers:** `api` (the API) and `web` (the pages, on port 5000; it passes the API's paths on to `api`). Commands run in `api`: `docker compose exec api python -m app <command>` (`token create`, `status-link`, `wireless-check`, `migrate`).
 - **Without Docker** (for development): build the pages once with [bun](https://bun.sh) 1.4 (`cd web && bun install && bun run generate`), then `cd api && uv sync && uv run python run.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -109,7 +110,7 @@ Each of these is optional and can be added later; the map and the board work wit
 | The right data in Nautobot | Coordinates, primary IPs, tenants, and optional custom fields | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) |
 | HTTPS and company sign-in | The bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml`), or your own sign-in proxy | [Sign-in and roles](docs/authentication.md) |
 | LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN`; alert pushes for near-real time | [LibreNMS](docs/nautobot-setup.md#librenms-optional) |
-| Access points from Catalyst Center or Aruba New Central | `config/wireless.yml` and `WIRELESS_CONTROLLERS_FILE=/config/wireless.yml` | [Other sources](docs/sources.md#wireless-controllers-access-points) |
+| Access points from Catalyst Center or Aruba New Central | `WIRELESS_CONTROLLERS` (JSON) | [Other sources](docs/sources.md#wireless-controllers-access-points) |
 | Alertmanager, Zabbix or any webhook | An operator API token | [Other sources](docs/sources.md) |
 | Notifications (webhook, Teams, email) | `NOTIFY_*`, `SMTP_*` | [Notifications](docs/notifications.md) |
 | A status page per customer | A private link per tenant, from **Share…** on Availability or Customers | [Tenant status page](docs/status-page.md) |

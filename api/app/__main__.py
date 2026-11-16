@@ -32,7 +32,7 @@ lists every link.
 ``roles`` prints who may do what (#691): each role's permissions and the groups that
 give it; ``roles --groups G1,G2`` the role and permissions a user in them gets.
 
-``wireless-check`` reads every wireless controller in WIRELESS_CONTROLLERS_FILE
+``wireless-check`` reads every wireless controller in WIRELESS_CONTROLLERS
 now (#508) and says, for each, whether it answers, how many access points it
 lists and how many match a Nautobot device; exit status 1 if one fails.
 """
@@ -172,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def wireless_check_command() -> int:
     if not wireless.configured():
-        print("No wireless controllers (WIRELESS_CONTROLLERS_FILE); nothing to check.")
+        print("No wireless controllers (WIRELESS_CONTROLLERS); nothing to check.")
         return 0
     failed = False
     for result in wireless.check(asyncio.run(inventory.read_devices())):

@@ -37,12 +37,12 @@ def enabled(settings: Settings) -> bool:
 
 
 def server(settings: Settings) -> Server:
-    """The domain controller, its certificate checked against LDAP_CA_FILE (else the
-    system's CAs) and its name."""
+    """The domain controller, its certificate checked against EXTRA_CA_PEM (#739; else
+    the system's CAs) and its name."""
     tls = Tls(
         validate=ssl.CERT_REQUIRED,
         version=ssl.PROTOCOL_TLS_CLIENT,
-        ca_certs_file=settings.ldap_ca_file or None,
+        ca_certs_data=settings.extra_ca_pem or None,
     )
     secure = settings.ldap_url.lower().startswith("ldaps://")
     return Server(

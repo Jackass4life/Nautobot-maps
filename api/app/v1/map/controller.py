@@ -80,7 +80,7 @@ async def api_location_detail(
     Optional query parameter:
       location_type – the location type name (e.g. "Data Center", "Office").
         When provided, the criticality keyword set is resolved from the
-        location-type-scoped rules configured via ``CRITICALITY_RULES_FILE``.
+        location-type-scoped rules configured via ``CRITICALITY_RULES``.
     """
     try:
         detail = await alerts.get_location_detail(location_id, location_type=query.location_type)

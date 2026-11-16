@@ -1,5 +1,8 @@
 """Application settings, read from the environment (and `.env`).
 
+Everything is a setting (#739): the wireless controllers and the criticality rules
+are JSON, a CA certificate is PEM text; no file is read.
+
 Every setting of the current app (nautobot_maps/settings.py) with the same
 name and the same parsing (#588): an empty value means the default (compose
 passes unset variables as ""), except where "" deliberately means "none"
@@ -10,17 +13,18 @@ Read settings with `get_settings().name` at call time; tests change them with
 the `configure` fixture (environment) or `Settings(name=...)`.
 """
 
+import base64
+import binascii
 import ipaddress
 import json
 import math
-import os
 import pathlib
 import re
+import ssl
 from functools import lru_cache
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
-import yaml
 from loguru import logger
 from pydantic import AliasChoices, BeforeValidator, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -46,9 +50,12 @@ WIRELESS_CONTROLLER_KINDS = {
 ARUBA_CENTRAL_TOKEN_URL = "https://sso.common.cloud.hpe.com/as/token.oauth2"
 ARUBA_CENTRAL_REGION = re.compile(r"^[a-z]{2}[0-9]$")
 CONTROLLER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
-# The app's user and group in the container: files mounted from ./config must
-# be readable by this group (#517).
-CONTAINER_GID = 10001
+# The file settings before #739, and what replaced each: set, they stop startup.
+REMOVED_FILE_SETTINGS = {
+    "wireless_controllers_file": "WIRELESS_CONTROLLERS (the file's contents as JSON)",
+    "criticality_rules_file": "CRITICALITY_RULES (the file's contents)",
+    "ldap_ca_file": "EXTRA_CA_PEM (the certificate itself)",
+}
 
 DEFAULT_MAP_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
 DEFAULT_MAP_TILE_ATTRIBUTION = (
@@ -95,14 +102,44 @@ def _validate_nautobot_url(value: str) -> str:
     return normalized
 
 
-def _verify_ssl(value: str) -> bool | str:
-    """ "true" (default) = verify, "false" = skip, anything else = path to a CA bundle."""
+def _verify_ssl(value: str, setting: str = "VERIFY_SSL") -> bool:
+    """ "true" (default) = verify, "false" = skip. A CA is EXTRA_CA_PEM (#739): a file's
+    path here, as before #739, stops startup and says so."""
     value = value.strip()
     if value.lower() in ("false", "no", "0", "off"):
         return False
     if value.lower() in ("", "true", "yes", "1", "on"):
         return True
-    return value
+    raise RuntimeError(
+        f"{setting} is true or false; a CA certificate goes in EXTRA_CA_PEM (#739), "
+        "not as a file's path"
+    )
+
+
+PEM_CERTIFICATE = "-----BEGIN CERTIFICATE-----"
+
+
+def _extra_ca_pem(raw: str) -> str:
+    """EXTRA_CA_PEM (#739): one or more PEM certificates, as text (a line break may be
+    written \\n, to keep it on one line in .env) or base64 of that text. Checked at
+    startup: a context that can't load it would fail every connection later."""
+    text = raw.strip().replace("\\n", "\n")
+    if text and PEM_CERTIFICATE not in text:
+        try:
+            text = base64.b64decode("".join(text.split()), validate=True).decode().strip()
+        except (binascii.Error, UnicodeDecodeError):
+            text = ""
+        if PEM_CERTIFICATE not in text:
+            raise RuntimeError(
+                "EXTRA_CA_PEM: expected PEM certificates (-----BEGIN CERTIFICATE-----...) "
+                "or base64 of them"
+            )
+    if text:
+        try:
+            ssl.create_default_context(cadata=text)
+        except (ssl.SSLError, ValueError) as exc:
+            raise RuntimeError(f"EXTRA_CA_PEM can't be read as certificates: {exc}") from None
+    return text
 
 
 def _networks(name: str, value: str) -> tuple[IpNetwork, ...]:
@@ -143,7 +180,7 @@ def _controller(kind: str, name: str, entry: dict, where: str) -> dict:
     common = {
         "kind": kind,
         "name": name,
-        "verify_ssl": _verify_ssl(str(entry.get("verify_ssl", "true"))),
+        "verify_ssl": _verify_ssl(str(entry.get("verify_ssl", "true")), f"{where}: verify_ssl"),
     }
     if kind == "catalyst_center":
         return {
@@ -176,51 +213,37 @@ def _controller(kind: str, name: str, entry: dict, where: str) -> dict:
     }
 
 
-def unreadable_hint(path: str) -> str:
-    """Why *path* can't be read and what to do, for the startup log or error (#517)."""
-    hint = f"{path} can't be read by this process (uid {os.getuid()}, gid {os.getgid()})"
-    if os.getgid() == CONTAINER_GID:
-        hint += (
-            f"; give the file to the container's group: sudo chgrp {CONTAINER_GID} config/<file> "
-            "&& chmod 640 config/<file> (config/README.md)"
-        )
-    return hint
-
-
-def _wireless_controllers(path: str) -> tuple[dict, ...]:
-    """Every controller in the file at *path*, checked: fail at startup naming
-    the instance and the setting, never echoing a password."""
-    if not path:
+def _wireless_controllers(raw: str) -> tuple[dict, ...]:
+    """Every controller in WIRELESS_CONTROLLERS (#739: JSON, the file's contents before),
+    checked: fail at startup naming the instance and the setting, never echoing a
+    password."""
+    if not raw.strip():
         return ()
+    source = "WIRELESS_CONTROLLERS"
     try:
-        with open(path, encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
-    except PermissionError as exc:
-        raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE: {unreadable_hint(path)}") from exc
-    except (OSError, yaml.YAMLError) as exc:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        # The position only: the text holds passwords.
         raise RuntimeError(
-            f"WIRELESS_CONTROLLERS_FILE {path!r} can't be read: {type(exc).__name__}"
-        ) from exc
+            f"{source} isn't valid JSON (line {exc.lineno}, column {exc.colno}); "
+            'expected {"catalyst_center": [...], "aruba_central": [...]}'
+        ) from None
     if not isinstance(data, dict):
-        raise RuntimeError(
-            f"WIRELESS_CONTROLLERS_FILE {path!r}: expected a mapping such as catalyst_center: [...]"
-        )
+        raise RuntimeError(f'{source}: expected an object such as {{"catalyst_center": [...]}}')
     unknown = set(data) - set(WIRELESS_CONTROLLER_KINDS)
     if unknown:
         raise RuntimeError(
-            f"WIRELESS_CONTROLLERS_FILE {path!r}: unknown {', '.join(sorted(map(str, unknown)))}; "
+            f"{source}: unknown {', '.join(sorted(map(str, unknown)))}; "
             f"expected {', '.join(sorted(WIRELESS_CONTROLLER_KINDS))}"
         )
     controllers = []
     for kind, (required, optional) in WIRELESS_CONTROLLER_KINDS.items():
         entries = data.get(kind) or []
         if not isinstance(entries, list):
-            raise RuntimeError(
-                f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} must be a list of instances"
-            )
+            raise RuntimeError(f"{source}: {kind} must be a list of instances")
         names: set[str] = set()
         for index, entry in enumerate(entries, start=1):
-            where = f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} #{index}"
+            where = f"{source}: {kind} #{index}"
             if not isinstance(entry, dict):
                 raise RuntimeError(f"{where}: expected name, url, ...")
             name = str(entry.get("name") or "").strip().lower()
@@ -229,7 +252,7 @@ def _wireless_controllers(path: str) -> tuple[dict, ...]:
                     f"{where}: name must be 1-32 of a-z, 0-9, _ and -, "
                     "starting with a letter or digit (e.g. dk)"
                 )
-            where = f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} {name!r}"
+            where = f"{source}: {kind} {name!r}"
             if name in names:
                 raise RuntimeError(f"{where} is listed twice")
             names.add(name)
@@ -241,6 +264,31 @@ def _wireless_controllers(path: str) -> tuple[dict, ...]:
                 raise RuntimeError(f"{where}: missing {', '.join(missing)}")
             controllers.append(_controller(kind, name, entry, where))
     return tuple(controllers)
+
+
+def _criticality_rules(raw: str) -> dict[str, list[str]]:
+    """CRITICALITY_RULES (#739: the JSON file's contents before): critical role keywords
+    per location type, {"site": ["core", "router"], "default": [...]}, lower-cased."""
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"CRITICALITY_RULES isn't valid JSON (line {exc.lineno}, column {exc.colno})"
+        ) from None
+    if isinstance(data, dict):
+        # "_comment" and the like: notes, as the file before #739 had.
+        data = {kind: keywords for kind, keywords in data.items() if not kind.startswith("_")}
+    if not isinstance(data, dict) or not all(
+        isinstance(keywords, list) and all(isinstance(k, str) for k in keywords)
+        for keywords in data.values()
+    ):
+        raise RuntimeError('CRITICALITY_RULES: expected {"<location type>": ["keyword", ...], ...}')
+    return {
+        str(kind).lower(): [keyword.lower() for keyword in keywords]
+        for kind, keywords in data.items()
+    }
 
 
 def _map_view(raw: str) -> tuple[float, float, int] | None:
@@ -361,7 +409,7 @@ Url = Annotated[str, _text(lambda v: v.strip().rstrip("/"))]
 Lower = Annotated[str, _text(lambda v: v.strip().lower())]
 Int = Annotated[int, _text(str.strip)]
 CsvSet = Annotated[frozenset[str], NoDecode, _text(lambda v: frozenset(parse_csv_set(v)))]
-VerifySsl = Annotated[bool | str, _text(_verify_ssl)]
+VerifySsl = Annotated[bool, _text(_verify_ssl)]
 
 
 def Flag(default: bool) -> Any:  # reads like a type
@@ -396,7 +444,12 @@ class Settings(BaseSettings):
     nautobot_url: Annotated[str, _text(_validate_nautobot_url)] = ""
     nautobot_token: str = ""
     nautobot_api_version: Text = ""
-    nautobot_verify_ssl: VerifySsl = True
+    nautobot_verify_ssl: Annotated[bool, _text(lambda v: _verify_ssl(v, "NAUTOBOT_VERIFY_SSL"))] = (
+        True
+    )
+    # A company CA (#739): PEM text, trusted with the system's CAs by Nautobot, LibreNMS
+    # and the wireless controllers' connections, and alone by LDAP's.
+    extra_ca_pem: Annotated[str, _text(_extra_ca_pem)] = ""
 
     # --- Caching and sync intervals ------------------------------------------------------------
     cache_ttl: Int = 300
@@ -411,12 +464,13 @@ class Settings(BaseSettings):
     # --- LibreNMS (optional) -------------------------------------------------------------------
     librenms_url: Url = ""
     librenms_api_token: Text = ""
-    librenms_verify_ssl: VerifySsl = True
+    librenms_verify_ssl: Annotated[bool, _text(lambda v: _verify_ssl(v, "LIBRENMS_VERIFY_SSL"))] = (
+        True
+    )
 
     # --- Wireless controllers (#508) -----------------------------------------------------------
-    wireless_controllers_file: Text = ""
-    # Read from WIRELESS_CONTROLLERS_FILE, never from the environment itself.
-    wireless_controllers: Annotated[tuple[dict, ...], NoDecode] = ()
+    # JSON (#739): {"catalyst_center": [...], "aruba_central": [...]}.
+    wireless_controllers: Annotated[tuple[dict, ...], NoDecode, _text(_wireless_controllers)] = ()
     wireless_sync_interval_seconds: Annotated[int, _text(lambda v: max(60, int(v.strip())))] = 300
 
     # --- History, metrics ----------------------------------------------------------------------
@@ -510,8 +564,8 @@ class Settings(BaseSettings):
     ldap_bind_dn: Text = ""
     ldap_bind_password: str = ""
     ldap_user_attribute: Text = "sAMAccountName"
-    # The CA that signed the domain controller's certificate (else the system's).
-    ldap_ca_file: Text = ""
+    # The CA that signed the domain controller's certificate: EXTRA_CA_PEM (#739), else
+    # the system's.
     ldap_allow_plaintext: Flag(False) = False
     ldap_timeout_seconds: Annotated[int, _text(lambda v: max(1, int(v.strip())))] = 10
     # Signs the app's own sign-in tokens: required with LDAP_URL, at least 32 characters.
@@ -525,7 +579,13 @@ class Settings(BaseSettings):
 
     # --- Criticality ---------------------------------------------------------------------------
     critical_role_keywords: Text = ""
-    criticality_rules_file: str = ""
+    # JSON (#739): critical role keywords per location type.
+    criticality_rules: Annotated[dict[str, list[str]], NoDecode, _text(_criticality_rules)] = {}
+
+    # --- Removed (#739): set, they stop startup and say what replaced them -----------------
+    wireless_controllers_file: Text = ""
+    criticality_rules_file: Text = ""
+    ldap_ca_file: Text = ""
 
     # --- Alert board ---------------------------------------------------------------------------
     alert_board_excluded_location_types: CsvSet = frozenset({"graveyard", "warehouse"})
@@ -641,13 +701,6 @@ class Settings(BaseSettings):
             return "low"
         return value
 
-    @field_validator("wireless_controllers", mode="before")
-    @classmethod
-    def _controllers_not_from_env(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            raise RuntimeError("Set WIRELESS_CONTROLLERS_FILE, not WIRELESS_CONTROLLERS")
-        return value
-
     @model_validator(mode="after")
     def _derived(self) -> "Settings":
         if self.nautobot_maps_database_url:
@@ -659,10 +712,21 @@ class Settings(BaseSettings):
         self.alert_critical_percent = min(
             100, max(self.alert_medium_percent + 1, self.alert_critical_percent)
         )
+        for field, instead in REMOVED_FILE_SETTINGS.items():
+            if getattr(self, field):
+                raise RuntimeError(
+                    f"{field.upper()} was removed (#739): set {instead} in .env instead"
+                )
+        if self.auth_proxy_secret and self.auth_mode != "header":
+            # The bundled proxy's settings are .env's since #739, AUTH_MODE too: without
+            # it the app would ignore the proxy's sign-in.
+            raise RuntimeError(
+                "AUTH_PROXY_SECRET is set but AUTH_MODE isn't header: behind the bundled "
+                "proxy set AUTH_MODE=header, AUTH_REQUIRE_VIEWER=true and "
+                "AUTH_TRUSTED_PROXIES=<the proxy's address>/32 in .env (.env.example)"
+            )
         if self.ldap_url:
             _check_ad_login(self)
-        if self.wireless_controllers_file and not self.wireless_controllers:
-            self.wireless_controllers = _wireless_controllers(self.wireless_controllers_file)
         return self
 
     def sqlalchemy_url(self) -> URL:
@@ -700,11 +764,10 @@ def env_name(field: str) -> str:
     return str(alias or field).upper()
 
 
-# Not read from the environment: derived from another setting.
-DERIVED = {"wireless_controllers"}
-# Every setting's environment name, for tests that check each is passed and documented.
+# Every setting's environment name, for tests that check each is documented; the
+# removed ones only stop startup.
 SETTING_NAMES = tuple(
-    sorted(env_name(field) for field in Settings.model_fields if field not in DERIVED)
+    sorted(env_name(field) for field in Settings.model_fields if field not in REMOVED_FILE_SETTINGS)
 )
 
 

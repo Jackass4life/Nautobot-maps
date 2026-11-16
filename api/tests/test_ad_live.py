@@ -31,7 +31,7 @@ def live(configure, pg_database):
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
         LDAP_URL=LIVE_URL,
-        LDAP_CA_FILE=LIVE_CA,
+        EXTRA_CA_PEM=open(LIVE_CA, encoding="ascii").read(),
         JWT_SIGNING_SECRET="live-test-secret-" + "x" * 32,
         **ACCOUNTS,
     )
@@ -52,7 +52,7 @@ def test_the_password_decides(live):
 
 def test_the_certificate_is_checked(live, configure, tmp_path):
     """Another CA's certificate (here: the system's CAs only) is refused."""
-    configure(LDAP_CA_FILE="/etc/ssl/certs/ca-certificates.crt")
+    configure(EXTRA_CA_PEM=open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read())
     with pytest.raises(ad_service.DirectoryUnavailable):
         ad_service.authenticate("jdoe", "Jane-Pass-2026!x", get_settings())
 

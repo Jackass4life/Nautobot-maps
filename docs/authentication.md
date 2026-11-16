@@ -47,7 +47,7 @@ With `AUTH_MODE=disabled`:
 
 ## With a sign-in proxy
 
-Set `AUTH_MODE=header` and put the app behind a reverse proxy or SSO gateway that handles the login and passes the user and their groups in headers. The app ships one ready to use, nginx + oauth2-proxy ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in)); the settings below are what it sets for you, and what your own proxy needs.
+Set `AUTH_MODE=header` and put the app behind a reverse proxy or SSO gateway that handles the login and passes the user and their groups in headers. The app ships one ready to use, nginx + oauth2-proxy ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in)); the settings below are what it needs in `.env` (#739), and what your own proxy needs.
 
 ```dotenv
 AUTH_MODE=header
@@ -186,7 +186,22 @@ Instead of setting up a proxy yourself, use the one in `reverse-proxy/`: **nginx
    openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=maps.example.com" \
      -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
    ```
-3. **Settings** in `.env` (see `.env.example`, "HTTPS and sign-in"): `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml`, `PUBLIC_HOSTNAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `AUTH_PROXY_SECRET` and `OAUTH2_COOKIE_SECRET`, plus `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` with your provider's group names or IDs.
+3. **Settings** in `.env` (see `.env.example`, "HTTPS and sign-in"; every container reads it, #739):
+   ```dotenv
+   COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml
+   PUBLIC_HOSTNAME=maps.example.com
+   OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0
+   OIDC_CLIENT_ID=...
+   OAUTH2_PROXY_CLIENT_SECRET=...       # oauth2-proxy's own name for it
+   OAUTH2_PROXY_COOKIE_SECRET=...       # 32 random bytes, base64 URL-safe
+   AUTH_PROXY_SECRET=...                # openssl rand -hex 32
+   # The API behind the proxy:
+   AUTH_MODE=header
+   AUTH_REQUIRE_VIEWER=true
+   AUTH_TRUSTED_PROXIES=172.30.0.10/32  # PROXY_IP, /32
+   AUTH_SIGN_OUT_URL=/oauth2/sign_out
+   ```
+   plus `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` with your provider's group names or IDs. The API refuses to start with `AUTH_PROXY_SECRET` but without `AUTH_MODE=header`; oauth2-proxy without its two secrets.
 4. `docker compose up -d`, then open `https://<your host>`.
 
 #### What it does
@@ -222,10 +237,10 @@ Instead of setting up a proxy yourself, use the one in `reverse-proxy/`: **nginx
 #### GitLab (self-managed or gitlab.com)
 
 - Create the application under **Admin Area → Applications** (instance-wide) or a group's **Settings → Applications**: redirect URI `https://<your host>/oauth2/callback`, **Confidential** on, scopes `openid`, `profile` and `email`.
-- `OIDC_ISSUER_URL=https://gitlab.example.com` (the GitLab address itself, no path), and its application ID and secret as `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`.
+- `OIDC_ISSUER_URL=https://gitlab.example.com` (the GitLab address itself, no path), and its application ID and secret as `OIDC_CLIENT_ID` / `OAUTH2_PROXY_CLIENT_SECRET`.
 - `OIDC_GROUPS_CLAIM=groups_direct`: the groups the user is a direct member of, as full paths such as `netops/noc`. Use those paths in `AUTH_*_GROUPS` (e.g. `AUTH_OPERATOR_GROUPS=netops/noc`). Membership through a parent group doesn't count: add the users to the group itself.
 - `AUTH_DEFAULT_ROLE` (a role for everyone who signs in) is only safe on a self-managed GitLab whose accounts are your staff. **Never on gitlab.com**: anyone with a gitlab.com account can sign in to the application.
-- A self-managed GitLab with a certificate from your company CA also needs `OIDC_CA_FILE` (below).
+- A self-managed GitLab with a certificate from your company CA also needs `OIDC_CA_FILE` and `OAUTH2_PROXY_PROVIDER_CA_FILES` (below).
 
 #### Company CA
 
@@ -237,11 +252,15 @@ error while discovery OIDC configuration: ... tls: failed to verify certificate:
 
 Give it that CA:
 
-1. Get the CA certificate as a PEM file: the root (and any intermediate) CA from your IT, or the host's bundle if the host already trusts it (`/etc/ssl/certs/ca-certificates.crt` on Debian and Ubuntu, `/etc/pki/tls/certs/ca-bundle.crt` on RHEL). Copy it into the [config folder](configuration.md#configuration), e.g. `config/company-ca.pem`.
-2. Make it readable by all: `chmod 644 config/company-ca.pem`. oauth2-proxy runs as a user of its own, not the app's group, and a CA certificate is public anyway.
-3. `OIDC_CA_FILE=./config/company-ca.pem` in `.env`, then `docker compose up -d`.
+1. Get the CA certificate as a PEM file: the root (and any intermediate) CA from your IT, or the host's bundle if the host already trusts it (`/etc/ssl/certs/ca-certificates.crt` on Debian and Ubuntu, `/etc/pki/tls/certs/ca-bundle.crt` on RHEL). Put it next to the TLS certificate, e.g. `reverse-proxy/certs/company-ca.pem` (oauth2-proxy reads only a file: the one file setting left, #739).
+2. Make it readable by all: `chmod 644 reverse-proxy/certs/company-ca.pem`. oauth2-proxy runs as a user of its own, and a CA certificate is public anyway.
+3. In `.env`, both of these (the file on this host, and where oauth2-proxy finds it), then `docker compose up -d`:
+   ```dotenv
+   OIDC_CA_FILE=./reverse-proxy/certs/company-ca.pem
+   OAUTH2_PROXY_PROVIDER_CA_FILES=/etc/oauth2-proxy/provider-ca.pem
+   ```
 
-It is trusted **together with** the public CAs, so a provider with a public certificate keeps working. A path that doesn't exist stops `docker compose up` with an error.
+It is trusted **together with** the public CAs, so a provider with a public certificate keeps working. A path that doesn't exist stops `docker compose up` with an error. The same CA for the app's own connections (Nautobot, LibreNMS, the domain controller) is `EXTRA_CA_PEM`, its text ([configuration](configuration.md#nautobot)).
 
 Don't turn the certificate check off instead (`OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY=true`): then anyone on the network who can answer for the identity provider's address can sign in as anyone, admin included.
 
@@ -327,13 +346,13 @@ LDAP_URL=ldaps://dc1.example.local     # ldaps:// only
 LDAP_BASE_DN=DC=example,DC=local
 LDAP_BIND_DN=svc-maps@example.local    # the read-only service account
 LDAP_BIND_PASSWORD=...
-LDAP_CA_FILE=/certs/company-ca.pem     # the CA that signed the DC's certificate
+EXTRA_CA_PEM=-----BEGIN CERTIFICATE-----\nMIID...   # the CA that signed the DC's certificate
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 ```
 
 - **Base DN:** your domain's parts: `example.local` is `DC=example,DC=local`. To look further down only, an OU: `OU=Staff,DC=example,DC=local`.
 - **Service account:** an ordinary domain user with no rights beyond reading the directory (every domain user can). Its password goes in `.env`, never in the app's log.
-- **The CA:** the domain controller's certificate is usually from your company CA; export it as PEM (the same one as for [Company CA](#company-ca)) and mount it into the `api` container, then set `LDAP_CA_FILE` to its path there. A certificate the CA didn't sign, or for another name, is refused.
+- **The CA:** the domain controller's certificate is usually from your company CA; export it as PEM (the same one as for [Company CA](#company-ca)) and put its text in `EXTRA_CA_PEM` (#739: one line with `\n` for the line breaks, or `base64 -w0 company-ca.pem`). With it, LDAP trusts only that CA; without it, the public CAs. A certificate the CA didn't sign, or for another name, is refused.
 - **The name in LDAP_URL** must be the one in the domain controller's certificate (not an IP address).
 - **People sign in with** `sAMAccountName` by default (`LDAP_USER_ATTRIBUTE`); it is their identity's name: `python -m app identity create jdoe --role noc`.
 - The app refuses to start with AD sign-in set up unsafely: `JWT_SIGNING_SECRET` shorter than 32 characters, `ldap://` instead of `ldaps://` (only `LDAP_ALLOW_PLAINTEXT=true`, for tests), or no `LDAP_BASE_DN`.
@@ -352,11 +371,14 @@ LDAP_URL=ldaps://dc1.example.local
 LDAP_BASE_DN=DC=example,DC=local
 LDAP_BIND_DN=svc-maps@example.local
 LDAP_BIND_PASSWORD=...
-LDAP_CA_FILE=./config/company-ca.pem   # the file on this host: mounted into api
+EXTRA_CA_PEM=...                       # the DC's CA, its text (above)
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
+AUTH_MODE=header
+AUTH_REQUIRE_VIEWER=true
+AUTH_TRUSTED_PROXIES=172.30.0.10/32    # PROXY_IP, /32
 ```
 
-then `docker compose up -d --build` (the proxy's image is built with `SIGN_IN=app`). It sets `AUTH_MODE=header` and `AUTH_REQUIRE_VIEWER=true` for you, and refuses to start without `LDAP_URL`, `LDAP_BASE_DN` or `JWT_SIGNING_SECRET`. Sign out is the app's own. To build the proxy's image yourself: `docker build --build-arg DOMAIN=… --build-arg SIGN_IN=app reverse-proxy` (the default, `SIGN_IN=oauth2-proxy`, is the company sign-in above). Going back is setting `COMPOSE_FILE` to `reverse-proxy/compose.yml` again.
+then `docker compose up -d --build` (the proxy's image is built with `SIGN_IN=app`). The API refuses to start with `AUTH_PROXY_SECRET` but without `AUTH_MODE=header`, and with `LDAP_URL` but without `LDAP_BASE_DN` or a `JWT_SIGNING_SECRET` of 32 characters; without `LDAP_URL` nobody can sign in on `/auth`. Sign out is the app's own. To build the proxy's image yourself: `docker build --build-arg DOMAIN=… --build-arg SIGN_IN=app reverse-proxy` (the default, `SIGN_IN=oauth2-proxy`, is the company sign-in above). Going back is setting `COMPOSE_FILE` to `reverse-proxy/compose.yml` again.
 
 ## API tokens
 

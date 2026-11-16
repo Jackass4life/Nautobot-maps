@@ -164,7 +164,7 @@ class TestNautobotRequests:
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("false", False), ("true", True), ("/etc/ssl/certs/ca.pem", "/etc/ssl/certs/ca.pem")],
+        [("false", False), ("true", True)],
     )
     def test_verify_ssl(self, nautobot_set, configure, value, expected):
         configure(NAUTOBOT_VERIFY_SSL=value)
@@ -358,11 +358,15 @@ class TestUpstreamRetries:
         assert other[0] is upstream_http.client(True)
         assert upstream_http.client(False) is not upstream_http.client(True)
 
-    def test_a_ca_bundle_path_is_an_ssl_context(self, monkeypatch):
-        loaded = []
-        monkeypatch.setattr(
-            upstream_http.ssl, "create_default_context", lambda cafile: loaded.append(cafile)
-        )
-        upstream_http._ssl("/etc/ssl/company-ca.pem")
-        assert loaded == ["/etc/ssl/company-ca.pem"]
-        assert upstream_http._ssl(False) is False
+    def test_extra_ca_pem_is_trusted_with_the_systems(self, configure):
+        """#739: EXTRA_CA_PEM's certificates join the system's CAs; verify=False still
+        skips the check, and a new CA gets a new client."""
+        pem = open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read()
+        first = pem[: pem.index("-----END CERTIFICATE-----") + 25]
+        context = upstream_http._ssl(True, first)
+        assert context.cert_store_stats()["x509_ca"] > 1  # the system's, and this one
+        assert upstream_http._ssl(True, "") is True
+        assert upstream_http._ssl(False, first) is False
+        plain = upstream_http.client(True)
+        configure(EXTRA_CA_PEM=first)
+        assert upstream_http.client(True) is not plain

@@ -23,32 +23,36 @@ What the board does with them: [access points](alert-board.md#access-points). Na
 
 **Matching.** By **serial** (capitals don't matter), else by **name** (the part before the first dot), against the Nautobot devices. By name only for a device whose role is an access point, and only for a name one access point carries: `ap-01` at two sites matches neither. Which of them are access points is still `ACCESS_POINT_ROLES` ([configuration](configuration.md)). An access point in maintenance, or at a site in maintenance, isn't down.
 
-**Several instances, of either kind.** List them in one YAML file, with read-only accounts, `config/wireless.yml` next to `docker-compose.yml` (the app reads it as `/config/wireless.yml`):
+**Several instances, of either kind.** List them in `WIRELESS_CONTROLLERS` in `.env`, with read-only accounts, as JSON (#739: a setting, no file). This is what it holds, laid out to read:
 
-```yaml
-# config/wireless.yml
-catalyst_center:
-  - name: dk                      # a-z, 0-9, _ and -; shown as "Catalyst Center dk"
-    url: https://dnac-dk.example.com
-    username: maps-ro
-    password: "..."
-    verify_ssl: true              # true, false, or a path to a CA bundle
-  - name: se
-    url: https://dnac-se.example.com
-    username: maps-ro
-    password: "..."
-aruba_central:                    # New Central (not classic Central)
-  - name: eu                      # shown as "Aruba Central eu"
-    region: de1                   # us1, de1, gb1, in1, au1, cn1, ...; or base_url: https://...
-    client_id: "..."              # a Central-scoped API client from the GreenLake workspace
-    client_secret: "..."
-  - name: us
-    region: us1
-    client_id: "..."
-    client_secret: "..."
+```json
+{
+  "catalyst_center": [
+    {"name": "dk", "url": "https://dnac-dk.example.com", "username": "maps-ro", "password": "...", "verify_ssl": true},
+    {"name": "se", "url": "https://dnac-se.example.com", "username": "maps-ro", "password": "..."}
+  ],
+  "aruba_central": [
+    {"name": "eu", "region": "de1", "client_id": "...", "client_secret": "..."},
+    {"name": "us", "region": "us1", "client_id": "...", "client_secret": "..."}
+  ]
+}
 ```
 
-**Every key in the file** (anything else stops startup, naming it):
+`aruba_central` is New Central (not classic Central): a Central-scoped API client from the GreenLake workspace. In `.env` it goes on one line, in single quotes:
+
+```sh
+WIRELESS_CONTROLLERS='{"catalyst_center": [{"name": "dk", "url": "https://dnac-dk.example.com", "username": "maps-ro", "password": "..."}], "aruba_central": [{"name": "eu", "region": "de1", "client_id": "...", "client_secret": "..."}]}'
+WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60)
+```
+
+Had a `config/wireless.yml` before #739? This prints it as one line of JSON, with the app's own Python (the file stays where it is):
+
+```bash
+docker compose run --rm --no-deps -v ./config:/old:ro api \
+  python -c 'import json, yaml; print(json.dumps(yaml.safe_load(open("/old/wireless.yml"))))'
+```
+
+**Every key** (anything else stops startup, naming it):
 
 | Key | Catalyst Center (`catalyst_center`) | Aruba New Central (`aruba_central`) |
 |---|---|---|
@@ -59,26 +63,13 @@ aruba_central:                    # New Central (not classic Central)
 | `base_url` | — | the API's `https://` address, when it isn't `https://<region>.api.central.arubanetworks.com`; **this or `region`** |
 | `client_id` / `client_secret` | — | **required**: a Central-scoped API client from GreenLake |
 | `token_url` | — | default `https://sso.common.cloud.hpe.com/as/token.oauth2` (HPE's sign-in, always verified) |
-| `verify_ssl` | `true` (default), `false`, or a CA bundle path such as `/config/certs/internal-ca.pem` | the same, for the `base_url` (and a custom `token_url`) |
+| `verify_ssl` | `true` (default) or `false`; a company CA goes in `EXTRA_CA_PEM` ([configuration](configuration.md#nautobot)) | the same, for the `base_url` (and a custom `token_url`) |
 
 For New Central, create the API client under **Manage Workspace → Personal API clients** in HPE GreenLake, for the **Central** instance (a workspace-scoped client can't read Central). It needs only to read monitoring. There is no refresh token to keep: the app asks HPE's sign-in service (`https://sso.common.cloud.hpe.com/as/token.oauth2`, or `token_url`) for a new token, which lasts two hours, when the old one is about to expire.
 
-```sh
-WIRELESS_CONTROLLERS_FILE=/config/wireless.yml
-WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60)
-```
+`.env` holds its passwords: `chmod 600 .env`. After a change: `docker compose up -d` (the `api` container is recreated with the new settings).
 
-`docker-compose.yml` mounts the `config/` folder read-only at `/config`, and it is git-ignored and kept out of the image, so the file's passwords are never committed or built in. In Docker the app runs as user and group **10001**: keep the file yours and let the app read it through its group, then start the app.
-
-```bash
-sudo chgrp -R 10001 config && sudo chmod 2750 config
-chmod 640 config/wireless.yml
-docker compose up -d --force-recreate api
-```
-
-A file the app can't read stops it at startup, saying what to run ([config/README.md](../config/README.md)). After editing the file, run the last command again. Without Docker, `WIRELESS_CONTROLLERS_FILE` is just the file's path.
-
-Every URL must be `https` (credentials travel over it; only `localhost` may be `http`, for the demo). HPE's sign-in service is always verified, whatever `verify_ssl` says: that setting is for the Central or Catalyst Center address. A mistake in the file (a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
+Every URL must be `https` (credentials travel over it; only `localhost` may be `http`, for the demo). HPE's sign-in service is always verified, whatever `verify_ssl` says: that setting is for the Central or Catalyst Center address. A mistake in it (not JSON, a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
 
 **How it reads them.** Every instance is read on its own, in bulk, by the background scheduler, never one request per site:
 - Catalyst Center: one sign-in (`POST /dna/system/api/v1/auth/token`), then the access points in pages of 500 (`GET /dna/intent/api/v1/network-device?family=Unified AP`): about 20 requests for 10,000 access points. Online is `Reachable`.

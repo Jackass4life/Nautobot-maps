@@ -13,6 +13,11 @@
 # "Sign-in with AD"; docs/authentication.md, "Sign-in with AD".
 # Paths here are relative to the project directory (where docker-compose.yml is).
 # tests/test_proxy_compose.py keeps what this shares with compose.yml the same.
+#
+# Every setting is in .env (#739), the API's for this proxy too (AUTH_MODE=header,
+# AUTH_REQUIRE_VIEWER, AUTH_TRUSTED_PROXIES, AUTH_PROXY_SECRET, LDAP_URL, LDAP_BASE_DN,
+# JWT_SIGNING_SECRET; a company CA for the domain controller in EXTRA_CA_PEM). nginx
+# refuses to start without the proxy's; the API without LDAP_BASE_DN or the secret.
 
 services:
   # Only nginx talks to the pages and the API.
@@ -23,27 +28,6 @@ services:
       - edge
 
   api:
-    environment:
-      - AUTH_MODE=header
-      # Pages without sign-in go to /auth; paths without it still need a token.
-      - AUTH_REQUIRE_VIEWER=true
-      - AUTH_TRUSTED_PROXIES=${PROXY_IP:-172.30.0.10}/32
-      - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET (see .env.example)}
-      - LDAP_URL=${LDAP_URL:?set LDAP_URL (ldaps://, see .env.example)}
-      - LDAP_BASE_DN=${LDAP_BASE_DN:?set LDAP_BASE_DN}
-      - JWT_SIGNING_SECRET=${JWT_SIGNING_SECRET:?set JWT_SIGNING_SECRET (openssl rand -base64 48)}
-      # The CA that signed the domain controller's certificate: LDAP_CA_FILE is the
-      # file on this host here, mounted below (unset: the public CAs).
-      - LDAP_CA_FILE=${LDAP_CA_FILE:+/etc/nautobot-maps/ldap-ca.pem}
-    volumes:
-      # Nothing (/dev/null) without LDAP_CA_FILE; a missing file is an error, not an
-      # empty directory made in its place.
-      - type: bind
-        source: ${LDAP_CA_FILE:-/dev/null}
-        target: /etc/nautobot-maps/ldap-ca.pem
-        read_only: true
-        bind:
-          create_host_path: false
     networks:
       - default
       - edge
@@ -65,8 +49,8 @@ services:
     ports:
       - "${PROXY_HTTP_PORT:-80}:80"
       - "${PROXY_HTTPS_PORT:-443}:443"
-    environment:
-      - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET}
+    # AUTH_PROXY_SECRET.
+    env_file: .env
     volumes:
       # The certificate, mounted: a new one needs only a restart, not a build.
       - ./reverse-proxy/certs:/etc/nginx/certs:ro

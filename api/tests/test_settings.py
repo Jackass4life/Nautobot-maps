@@ -2,14 +2,16 @@
 
 Ported from the current app's tests/test_config.py, tests/test_app.py
 (map view, NAUTOBOT_URL, verify SSL) and tests/test_wireless.py (the wireless
-controllers file); the parse helpers keep their names, so the assertions are
-the same.
+controllers, a file until #739: JSON now, written here as YAML for reading); the
+parse helpers keep their names, so the assertions are the same.
 """
 
+import base64
 import ipaddress
-import os
+import json
 import pathlib
 import re
+import subprocess
 
 import pytest
 import yaml
@@ -22,8 +24,8 @@ REPO_ROOT = API_ROOT.parent
 
 # Read only to warn that it is still set (#153): neither passed nor documented.
 LEGACY_SETTINGS = {"NAUTOBOT_MAPS_DB"}
-# Only for the development server.
-NOT_PASSED_BY_COMPOSE = {
+# Not in .env.example (docs/configuration.md has them): only for the development server.
+NOT_IN_ENV_EXAMPLE = {
     # The development server's (python run.py), and development's SQL log.
     "FLASK_DEBUG",
     "FLASK_RUN_PORT",
@@ -31,11 +33,34 @@ NOT_PASSED_BY_COMPOSE = {
     # The development server's: where `bun run generate` put the pages (#674: the API
     # image has none; the web image serves them).
     "WEB_BUILD_DIR",
-    # compose sets NAUTOBOT_MAPS_DATABASE_URL to its own PostgreSQL, which wins.
+    # The new stack's name; compose's .env has NAUTOBOT_MAPS_DATABASE_URL, which wins.
     "DATABASE_URL",
-    "DATABASE_PASSWORD",
     *LEGACY_SETTINGS,
 }
+# Every compose file of the app (#739): settings come from an env file, never from an
+# environment: block.
+COMPOSE_FILES = (
+    "docker-compose.yml",
+    "reverse-proxy/compose.yml",
+    "reverse-proxy/compose.app-sign-in.yml",
+    "reverse-proxy/ci/compose.yml",
+    "reverse-proxy/ci/oauth2-proxy.compose.yml",
+    "reverse-proxy/ci/images.compose.yml",
+    "demo/docker-compose.yml",
+)
+
+
+class _ComposeLoader(yaml.SafeLoader):
+    """Compose's own tags (``!reset``), kept as plain values."""
+
+
+_ComposeLoader.add_constructor("!reset", lambda loader, node: None)
+
+
+def env_example_names() -> set[str]:
+    """The settings .env.example names, set or commented out."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    return set(re.findall(r"^#? ?([A-Z][A-Z0-9_]*)=", text, flags=re.MULTILINE))
 
 
 def load(monkeypatch, **env: str) -> Settings:
@@ -51,12 +76,46 @@ def load(monkeypatch, **env: str) -> Settings:
 # --- Plumbing ------------------------------------------------------------------------------
 
 
-def test_compose_passes_every_setting():
+@pytest.mark.parametrize("name", COMPOSE_FILES)
+def test_no_environment_in_the_compose_files(name):
+    """#739: every setting is in .env (each container's env_file), none in compose."""
+    compose = yaml.load((REPO_ROOT / name).read_text("utf-8"), Loader=_ComposeLoader)
+    for service, definition in compose["services"].items():
+        assert "environment" not in (definition or {}), f"{name}: {service}"
+
+
+def test_the_api_and_web_read_dot_env():
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
-    environment = compose["services"]["api"]["environment"]
-    passed = {entry.split("=", 1)[0] for entry in environment}
-    missing = sorted(set(SETTING_NAMES) - passed - NOT_PASSED_BY_COMPOSE)
-    assert not missing, f"add to docker-compose.yml (api environment): {missing}"
+    for service in ("postgres", "web", "api"):
+        assert compose["services"][service]["env_file"] == ".env", service
+    # No ./config any more (#739): nothing mounted into the API.
+    assert "volumes" not in compose["services"]["api"]
+    assert not (REPO_ROOT / "config").exists()
+
+
+def test_env_example_lists_every_setting():
+    """.env.example is the one place to start from (#739): every setting, with the
+    compose stack's own (the database, the cache, the pages' API_URL)."""
+    names = env_example_names()
+    missing = sorted(set(SETTING_NAMES) - names - NOT_IN_ENV_EXAMPLE)
+    assert not missing, f"add to .env.example: {missing}"
+    stack = {"POSTGRES_PASSWORD", "NAUTOBOT_MAPS_DATABASE_URL", "CACHE_TYPE", "API_URL"}
+    assert stack <= names
+    assert not (API_ROOT / ".env.example").exists()
+    assert not (REPO_ROOT / "web" / ".env.example").exists()
+
+
+def test_env_example_parses_as_settings(monkeypatch):
+    """Its values, as compose passes them, start the app: the JSON settings too."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    values = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", text, flags=re.MULTILINE))
+    known = {name: value for name, value in values.items() if name in SETTING_NAMES}
+    assert load(monkeypatch, **known).cache_type == "RedisCache"
+    # The commented examples parse too.
+    examples = dict(re.findall(r"^# ([A-Z][A-Z0-9_]*)=('\{.*\}')$", text, flags=re.MULTILINE))
+    assert {"WIRELESS_CONTROLLERS", "CRITICALITY_RULES"} <= set(examples)
+    parsed = load(monkeypatch, **{name: value.strip("'") for name, value in examples.items()})
+    assert parsed.wireless_controllers and parsed.criticality_rules
 
 
 def test_every_setting_is_documented():
@@ -93,12 +152,11 @@ def test_empty_settings_mean_defaults(monkeypatch):
     assert defaults.cache_ttl == 300 and defaults.inventory_sync_interval_seconds == 300
 
 
-def test_empty_is_a_value_where_compose_says_so():
-    """compose passes these with ${NAME-default}: set empty means none (#588)."""
-    compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+def test_empty_is_a_value_where_it_was_in_compose():
+    """These were passed with ${NAME-default} (#588): unset is the default, set empty
+    means none, now that .env passes them as written (#739)."""
     for field in settings.EMPTY_IS_A_VALUE:
-        name = field.upper()
-        assert re.search(rf"{name}=\$\{{{name}-", compose), name
+        assert Settings.model_fields[field].default, field
 
 
 # --- Values --------------------------------------------------------------------------------
@@ -269,9 +327,43 @@ def test_cors_origins_json_or_csv(monkeypatch):
     assert s.cors_origins == ["https://a.example", "https://b.example"]
 
 
-def test_controllers_come_from_the_file_only(monkeypatch):
-    with pytest.raises(RuntimeError, match="Set WIRELESS_CONTROLLERS_FILE"):
-        load(monkeypatch, WIRELESS_CONTROLLERS='[{"kind": "catalyst_center"}]')
+@pytest.mark.parametrize(
+    ("name", "instead"),
+    [
+        ("WIRELESS_CONTROLLERS_FILE", "set WIRELESS_CONTROLLERS"),
+        ("CRITICALITY_RULES_FILE", "set CRITICALITY_RULES"),
+        ("LDAP_CA_FILE", "set EXTRA_CA_PEM"),
+    ],
+)
+def test_a_file_setting_stops_startup_and_says_what_replaced_it(monkeypatch, name, instead):
+    """#739: no files; an old .env says what to set instead."""
+    with pytest.raises(RuntimeError, match=f"{name} was removed .*{instead}"):
+        load(monkeypatch, **{name: "/config/x"})
+    assert name not in SETTING_NAMES
+
+
+def test_a_proxy_secret_needs_header_mode(monkeypatch):
+    """The bundled proxy's API settings are .env's (#739): its secret without
+    AUTH_MODE=header (the old overlay set it) stops startup, saying what to set."""
+    with pytest.raises(RuntimeError, match="AUTH_MODE=header, AUTH_REQUIRE_VIEWER=true"):
+        load(monkeypatch, AUTH_PROXY_SECRET="s3cret")
+    assert load(monkeypatch, AUTH_PROXY_SECRET="s3cret", AUTH_MODE="header").auth_proxy_secret
+
+
+def test_criticality_rules(monkeypatch):
+    s = load(
+        monkeypatch,
+        CRITICALITY_RULES='{"_comment": "a note", "Site": ["Core", "router"], "default": []}',
+    )
+    assert s.criticality_rules == {"site": ["core", "router"], "default": []}
+    assert load(monkeypatch).criticality_rules == {}
+    for wrong, message in (
+        ('{"site": ["core"', "isn't valid JSON"),
+        ('["core"]', "expected"),
+        ('{"site": "core"}', "expected"),
+    ):
+        with pytest.raises(RuntimeError, match=message):
+            load(monkeypatch, CRITICALITY_RULES=wrong)
 
 
 # --- Ported: map view, NAUTOBOT_URL, verify SSL (tests/test_app.py) ---------------------
@@ -323,27 +415,70 @@ def test_validate_nautobot_url():
         ("false", False),
         ("no", False),
         ("0", False),
-        ("/certs/internal-ca.pem", "/certs/internal-ca.pem"),
     ],
 )
 def test_verify_setting_values(value, expected):
-    """Both upstreams accept true/false or a CA bundle path (#191)."""
+    """Both upstreams accept true/false (#191); a CA is EXTRA_CA_PEM (#739)."""
     assert settings._verify_ssl(value) == expected
 
 
 def test_verify_ssl_from_the_environment(monkeypatch):
-    s = load(monkeypatch, LIBRENMS_VERIFY_SSL="/certs/ca.pem", NAUTOBOT_VERIFY_SSL="off")
-    assert (s.librenms_verify_ssl, s.nautobot_verify_ssl) == ("/certs/ca.pem", False)
+    s = load(monkeypatch, LIBRENMS_VERIFY_SSL="false", NAUTOBOT_VERIFY_SSL="off")
+    assert (s.librenms_verify_ssl, s.nautobot_verify_ssl) == (False, False)
     assert load(monkeypatch).nautobot_verify_ssl is True
+    # A CA file's path, as before #739: stops startup, naming the setting.
+    with pytest.raises(RuntimeError, match=r"LIBRENMS_VERIFY_SSL is true or false.*EXTRA_CA_PEM"):
+        load(monkeypatch, LIBRENMS_VERIFY_SSL="/config/certs/internal-ca.pem")
+
+
+def a_ca_pem(tmp_path) -> str:
+    """A self-signed CA certificate, PEM."""
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=Test CA",
+            "-keyout",
+            str(tmp_path / "key.pem"),
+            "-out",
+            str(tmp_path / "ca.pem"),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return (tmp_path / "ca.pem").read_text()
+
+
+def test_extra_ca_pem_as_text_one_line_or_base64(tmp_path, monkeypatch):
+    """EXTRA_CA_PEM (#739): the certificate itself, as it is, with \\n for its line
+    breaks (one line in .env) or base64; checked at startup."""
+    pem = a_ca_pem(tmp_path)
+    one_line = pem.strip().replace("\n", "\\n")
+    encoded = base64.b64encode(pem.encode()).decode()
+    for raw in (pem, one_line, encoded):
+        assert load(monkeypatch, EXTRA_CA_PEM=raw).extra_ca_pem == pem.strip()
+    assert load(monkeypatch).extra_ca_pem == ""
+    with pytest.raises(RuntimeError, match="expected PEM certificates"):
+        load(monkeypatch, EXTRA_CA_PEM="/config/certs/internal-ca.pem")
+    lines = pem.splitlines()
+    broken = "\n".join([lines[0], lines[1][::-1], *lines[2:]])
+    with pytest.raises(RuntimeError, match="EXTRA_CA_PEM can't be read as certificates"):
+        load(monkeypatch, EXTRA_CA_PEM=broken)
 
 
 # --- Ported: the wireless controllers file (tests/test_wireless.py) ---------------------
 
 
 def write(tmp_path, text: str) -> str:
-    path = tmp_path / "wireless.yml"
-    path.write_text(text, encoding="utf-8")
-    return str(path)
+    """WIRELESS_CONTROLLERS's JSON, from YAML (easier to read here)."""
+    return json.dumps(yaml.safe_load(text))
 
 
 def test_any_number_of_instances(tmp_path, monkeypatch):
@@ -366,7 +501,7 @@ catalyst_center:
     assert (dk["name"], dk["url"], dk["verify_ssl"]) == ("dk", "https://dnac-dk.example.com", True)
     assert (se["kind"], se["password"], se["verify_ssl"]) == ("catalyst_center", "two", False)
     assert settings._wireless_controllers("") == ()
-    assert load(monkeypatch, WIRELESS_CONTROLLERS_FILE=path).wireless_controllers == (dk, se)
+    assert load(monkeypatch, WIRELESS_CONTROLLERS=path).wireless_controllers == (dk, se)
 
 
 @pytest.mark.parametrize(
@@ -397,13 +532,20 @@ catalyst_center:
             " {name: dk, url: 'https://y', username: u, password: p}]",
             "listed twice",
         ),
-        ("catalyst_center: [", "can't be read: ParserError"),
+        ("[]", "expected an object"),
     ],
 )
 def test_a_controller_mistake_stops_startup_and_names_it(tmp_path, text, message):
     with pytest.raises(RuntimeError) as caught:
         settings._wireless_controllers(write(tmp_path, text))
     assert message in str(caught.value)
+
+
+def test_not_json_says_where_never_what(monkeypatch):
+    raw = '{"catalyst_center": [{"name": "dk", "password": "hunter2",}]}'
+    with pytest.raises(RuntimeError, match=r"isn't valid JSON \(line 1, column") as caught:
+        load(monkeypatch, WIRELESS_CONTROLLERS=raw)
+    assert "hunter2" not in str(caught.value)
 
 
 def test_a_password_is_never_in_the_message(tmp_path, monkeypatch):
@@ -415,7 +557,7 @@ def test_a_password_is_never_in_the_message(tmp_path, monkeypatch):
     assert "hunter2" not in str(caught.value)
     # Nor when it stops startup through the settings.
     with pytest.raises(RuntimeError) as caught:
-        load(monkeypatch, WIRELESS_CONTROLLERS_FILE=path)
+        load(monkeypatch, WIRELESS_CONTROLLERS=path)
     assert "hunter2" not in str(caught.value)
 
 
@@ -484,20 +626,3 @@ def test_localhost_may_be_http(tmp_path):
         "catalyst_center: [{name: demo, url: 'http://127.0.0.1:8080', username: u, password: p}]",
     )
     assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
-
-
-@pytest.mark.skipif(os.getuid() == 0, reason="root reads any file")
-def test_an_unreadable_file_says_what_to_do(tmp_path, monkeypatch):
-    # In the container the app is uid/gid 10001, not the file's owner on the host (#517).
-    path = write(tmp_path, "catalyst_center: []")
-    os.chmod(path, 0)
-    with pytest.raises(RuntimeError, match="can't be read by this process"):
-        settings._wireless_controllers(path)
-    monkeypatch.setattr(os, "getgid", lambda: settings.CONTAINER_GID)
-    with pytest.raises(RuntimeError, match="sudo chgrp 10001 config/<file> && chmod 640"):
-        settings._wireless_controllers(path)
-
-
-def test_a_missing_file_says_so(tmp_path):
-    with pytest.raises(RuntimeError, match="can't be read: FileNotFoundError"):
-        settings._wireless_controllers(str(tmp_path / "none.yml"))

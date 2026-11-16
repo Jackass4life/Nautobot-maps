@@ -161,8 +161,8 @@ async function checkWireless() {
             </li>
           </ul>
           <p v-if="!admin.wireless_controllers" class="text-sm text-muted">
-            Access points from Cisco Catalyst Center or Aruba New Central: list the controllers in a
-            file and set <code>WIRELESS_CONTROLLERS_FILE</code>, then restart the app.
+            Access points from Cisco Catalyst Center or Aruba New Central: list the controllers in
+            <code>WIRELESS_CONTROLLERS</code> in <code>.env</code> (JSON), then restart the app.
             <NuxtLink
               to="/help/sources#wireless-controllers-access-points"
               class="text-primary hover:underline"

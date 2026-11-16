@@ -8,7 +8,7 @@ For the person who keeps the app running: upgrades, backups, monitoring and the 
 |---|---|---|
 | Upgrade | Set the new version in `docker-compose.override.yml`, then `docker compose pull api web && docker compose up -d` | [Run a released version](#run-a-released-version) |
 | Roll back | Set the previous version, restore the backup taken before the upgrade | [Backup and restore](#backup-and-restore) |
-| Back up | The database, plus `.env` and the `config/` folder | [Backup and restore](#backup-and-restore) |
+| Back up | The database, plus `.env` (and the proxy's `reverse-proxy/certs/`) | [Backup and restore](#backup-and-restore) |
 | Change a port or volume | `docker-compose.override.yml`, never `docker-compose.yml` | [Local overrides](#local-overrides-ports-volumes-) |
 | Watch it | `/healthz` for probes, `/metrics` for Prometheus | [Monitoring](#monitoring) |
 | Fix sites missing from the map | The map's **Check** list | [Missing or wrong coordinates](#sites-with-missing-or-wrong-coordinates) |
@@ -84,6 +84,51 @@ Take a [backup](#backup-and-restore) first. The first start migrates the databas
 
 Afterwards, when you are ready (each optional): create an identity for each person (at least one admin first), then `AUTH_GROUP_ROLES=false` so only they get in ([moving to identities](authentication.md#identities)); or turn on [sign-in with AD](authentication.md#sign-in-with-ad), with the bundled proxy too ([with the bundled proxy](authentication.md#with-the-bundled-proxy)). To roll back to 0.5.x, restore the backup: 0.5.x doesn't start on a database 0.6.0 has migrated.
 
+### Every setting in .env, no config/ folder (#739)
+
+The compose files no longer set anything: every container reads the whole `.env`, and the files in `config/` became settings. Take a [backup](#backup-and-restore) of `.env` and `config/` first. Then, in the folder with `docker-compose.yml`:
+
+```bash
+git pull
+chmod 600 .env
+# 1. The stack's own settings, which docker-compose.yml used to fill in (use your POSTGRES_* values):
+cat >> .env <<'EOF'
+POSTGRES_DB=nautobot_maps
+POSTGRES_USER=nautobot_maps
+NAUTOBOT_MAPS_DATABASE_URL=postgresql://nautobot_maps:<your POSTGRES_PASSWORD>@postgres:5432/nautobot_maps
+CACHE_TYPE=RedisCache
+CACHE_REDIS_URL=redis://redis:6379/0
+API_URL=http://api:5000
+EOF
+grep -q '^POSTGRES_PASSWORD=' .env || echo 'POSTGRES_PASSWORD=nautobot_maps' >> .env   # the old default
+# 2. The wireless controllers, if you had config/wireless.yml: one line of JSON
+echo "WIRELESS_CONTROLLERS='$(docker compose run --rm --no-deps -v ./config:/old:ro api \
+  python -c 'import json, yaml; print(json.dumps(yaml.safe_load(open("/old/wireless.yml"))))')'" >> .env
+# 3. The criticality rules, if you had config/criticality_rules.json
+echo "CRITICALITY_RULES='$(tr -d '\n' < config/criticality_rules.json)'" >> .env
+# 4. A company CA, if a *_VERIFY_SSL, a controller's verify_ssl or LDAP_CA_FILE named one
+echo "EXTRA_CA_PEM=$(base64 -w0 config/certs/internal-ca.pem)" >> .env
+```
+
+Then edit `.env`: remove `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE`; set each `*_VERIFY_SSL` that named a file back to `true` (in `WIRELESS_CONTROLLERS` too, `"verify_ssl": true` instead of a path).
+
+**With the bundled proxy**, the API's settings for it are now `.env`'s too. Add them, and rename oauth2-proxy's two secrets:
+
+```bash
+cat >> .env <<'EOF'
+AUTH_MODE=header
+AUTH_REQUIRE_VIEWER=true
+AUTH_TRUSTED_PROXIES=172.30.0.10/32
+EOF
+# With oauth2-proxy (reverse-proxy/compose.yml) only:
+echo 'AUTH_SIGN_OUT_URL=/oauth2/sign_out' >> .env
+sed -i 's/^OIDC_CLIENT_SECRET=/OAUTH2_PROXY_CLIENT_SECRET=/; s/^OAUTH2_COOKIE_SECRET=/OAUTH2_PROXY_COOKIE_SECRET=/' .env
+```
+
+`AUTH_TRUSTED_PROXIES` is your `PROXY_IP` with `/32` (`172.30.0.10` unless you changed it). An identity provider's CA (`OIDC_CA_FILE`) is still a file, for oauth2-proxy: move it next to the TLS certificate and name it twice, `OIDC_CA_FILE=./reverse-proxy/certs/company-ca.pem` and `OAUTH2_PROXY_PROVIDER_CA_FILES=/etc/oauth2-proxy/provider-ca.pem` ([company CA](authentication.md#company-ca)).
+
+Then `docker compose up -d --build` and check `docker compose logs api`: a setting from before stops the API at startup and names what replaces it (`WIRELESS_CONTROLLERS_FILE was removed (#739): set WIRELESS_CONTROLLERS ...`), and so does `AUTH_PROXY_SECRET` without `AUTH_MODE=header`. Once it runs, `config/` can go (keep the backup).
+
 ## Building the API, the pages and the proxy separately (#672)
 
 Each part has its own Dockerfile, built from its own folder. `docker-compose.yml` builds `api` and `web` this way, and `reverse-proxy/compose.yml` the proxy; for a deployment that runs them some other way:
@@ -104,14 +149,14 @@ cd reverse-proxy && docker build -t nautobot-maps-reverse-proxy --build-arg DOMA
 - Build args: `DOMAIN` (required), `SIGN_IN` (`oauth2-proxy`, or `app`: no oauth2-proxy, the identity headers always empty), `API_HOST`/`API_PORT` (`api`, 5000), `WEB_HOST`/`WEB_PORT` (`web`, 3000), `OAUTH2_PROXY` (`oauth2-proxy:4180`), `RESOLVER` (127.0.0.11, Docker's DNS). The names are looked up as requests come in, so the proxy starts before the others.
 - At run time: `AUTH_PROXY_SECRET` and, with oauth2-proxy, `OIDC_ISSUER_URL` (it stops and says so without them), `OIDC_LOGOUT_URL` (may be empty).
 - The certificate: `reverse-proxy/certs/fullchain.pem` and `privkey.pem` are copied into the image when they are there at build time, or mount them on `/etc/nginx/certs`. An image with the key in it belongs in a private registry only; mounting keeps it out of the image.
-- oauth2-proxy runs as its own container, with the settings in `reverse-proxy/compose.yml`.
+- oauth2-proxy runs as its own container: its fixed settings are its command line in `reverse-proxy/compose.yml`, its secrets come from `.env` (`OAUTH2_PROXY_CLIENT_SECRET`, `OAUTH2_PROXY_COOKIE_SECRET`).
 - The API must trust the proxy for sign-in: `AUTH_MODE=header`, `AUTH_REQUIRE_VIEWER=true`, `AUTH_TRUSTED_PROXIES=<the proxy's address>/32`, the same `AUTH_PROXY_SECRET`, and `AUTH_SIGN_OUT_URL=/oauth2/sign_out`.
 
 The proxy sends `/api/` (but the `/api/docs` page), `/healthz`, `/mcp`, `/help/images/` and the old `/docs`, `/openapi.json` and `/static/` to the API, and every other path to the pages. `/metrics` isn't served: Prometheus scrapes the API directly.
 
-## The config folder
+## The .env file
 
-`docker-compose.yml` mounts `./config` read-only at `/config`: the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate api`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
+Every setting is in `.env` (#739), and every container reads the whole file (`env_file: .env`): the compose files set nothing, and the app reads no other files. The wireless controllers and the criticality rules are JSON in their setting, a company CA its text (`EXTRA_CA_PEM`) ([how .env works](configuration.md#how-env-works)). It holds the passwords, so `chmod 600 .env`; it is git-ignored and never built into an image. A change takes effect with `docker compose up -d` (the containers are recreated). Back it up: it is not in the database.
 
 ## Local overrides (ports, volumes, …)
 
@@ -186,7 +231,7 @@ What to keep, and what comes back by itself:
 
 - **Rebuilt automatically:** the Nautobot and LibreNMS inventory caches (cables included) and what the wireless controllers say (access points, Plug and Play, which switch port each is on). Losing them costs one full sync.
 - **Not rebuilt from anywhere:** alert history (when devices went down and came back), case numbers, criticality overrides, site level changes, maintenance windows, API tokens and each tenant's status page link (lost, every customer needs a new link). **Back these up.**
-- **Not in the database at all:** `.env` and the `config/` folder (wireless controllers, criticality rules, CA certificates). Keep a copy with your other secrets.
+- **Not in the database at all:** `.env` (every setting, the wireless controllers' passwords too) and, with the bundled proxy, `reverse-proxy/certs/`. Keep a copy with your other secrets.
 
 With the bundled `docker-compose.yml` everything lives in the `postgres_data` volume; `docker compose down -v`, or losing the host, deletes it.
 

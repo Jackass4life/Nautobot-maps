@@ -110,7 +110,7 @@ All of it, with where to click: [What to set in Nautobot and LibreNMS](nautobot-
 | Ignore short blips | `ALERT_DELAY_SECONDS` | [Alert delay](#alert-delay) |
 | Case numbers that open your ticket | `CASE_URL_TEMPLATE=https://itsm.example.com/ticket/{case}` | [Cases, Copy and history](#cases-copy-and-history) |
 | Down within seconds | LibreNMS alert pushes | [LibreNMS](nautobot-setup.md#librenms-optional) |
-| Access points from a controller | `WIRELESS_CONTROLLERS_FILE` | [Access points](#access-points) |
+| Access points from a controller | `WIRELESS_CONTROLLERS` | [Access points](#access-points) |
 
 Every setting: [configuration](configuration.md#alert-board).
 
@@ -132,7 +132,7 @@ Each site gets one level, from its **monitored devices**: devices with a primary
 
 Down or up comes from the device's status in Nautobot (`Offline`, `Failed` and `Decommissioning` are down), and from LibreNMS when it is configured.
 
-A device is **core** when its role contains a critical keyword, or when it is marked critical by an override (`/api/v1/criticality-overrides`). The keywords are `CRITICAL_ROLE_KEYWORDS` (default `core,spine,distribution,router,gateway`), or per location type from `CRITICALITY_RULES_FILE` (see `criticality_rules.json`).
+A device is **core** when its role contains a critical keyword, or when it is marked critical by an override (`/api/v1/criticality-overrides`). The keywords are `CRITICAL_ROLE_KEYWORDS` (default `core,spine,distribution,router,gateway`), or per location type from `CRITICALITY_RULES` (JSON; an example in `.env.example`).
 
 ### Device and site criticality
 

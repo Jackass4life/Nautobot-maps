@@ -136,7 +136,7 @@ With nothing set, the share of a site's devices that are down decides: some down
 - **Where:** Device → **Role**. Nothing new to add.
 - **What it does:** a down device whose role name contains `core`, `spine`, `distribution`, `router` or `gateway` makes its site **Critical**, and the site's other down devices are marked "Likely caused by" it.
 - **Unless:** the device has its own **criticality** set (above): that always wins, so a core router set to `low` gives Low. An operator can also mark a device "not critical" in the app, which turns this rule off for it.
-- **App setting (to change the words):** `CRITICAL_ROLE_KEYWORDS=core,spine,router`, or different words per location type in `CRITICALITY_RULES_FILE`.
+- **App setting (to change the words):** `CRITICAL_ROLE_KEYWORDS=core,spine,router`, or different words per location type in `CRITICALITY_RULES` (JSON).
 
 **Editing a tier or a criticality field doesn't page anyone**, even when it changes a site's level: only a device going down or coming back does. **Changing a role can page**: renaming a down device's role to one with a core word (for example Access Switch → Core Router) can make its site Critical and send a notification.
 

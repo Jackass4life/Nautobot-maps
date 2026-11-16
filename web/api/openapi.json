@@ -160,7 +160,7 @@
             "type": "array"
           },
           "wireless_controllers": {
-            "description": "How many wireless controllers WIRELESS_CONTROLLERS_FILE lists.",
+            "description": "How many wireless controllers WIRELESS_CONTROLLERS lists.",
             "title": "Wireless Controllers",
             "type": "integer"
           }
@@ -6173,7 +6173,7 @@
         "additionalProperties": false,
         "properties": {
           "controllers": {
-            "description": "One per instance in WIRELESS_CONTROLLERS_FILE.",
+            "description": "One per instance in WIRELESS_CONTROLLERS.",
             "items": {
               "$ref": "#/components/schemas/WirelessControllerCheck"
             },
@@ -9589,7 +9589,7 @@
     },
     "/api/v1/locations/{location_id}/detail": {
       "get": {
-        "description": "Optional query parameter:\n  location_type \u2013 the location type name (e.g. \"Data Center\", \"Office\").\n    When provided, the criticality keyword set is resolved from the\n    location-type-scoped rules configured via ``CRITICALITY_RULES_FILE``.",
+        "description": "Optional query parameter:\n  location_type \u2013 the location type name (e.g. \"Data Center\", \"Office\").\n    When provided, the criticality keyword set is resolved from the\n    location-type-scoped rules configured via ``CRITICALITY_RULES``.",
         "operationId": "getLocationDetail",
         "parameters": [
           {

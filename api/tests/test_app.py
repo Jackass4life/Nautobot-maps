@@ -3507,47 +3507,18 @@ class TestInventoryCacheSync:
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
 # ---------------------------------------------------------------------------
-class TestCriticalityRulesFile:
-    def test_load_valid_rules_file(self, tmp_path):
-        """A valid JSON rules file is parsed into _CRITICALITY_RULES."""
-        rules = {"datacenter": ["core", "firewall"], "office": ["router"]}
-        rules_file = tmp_path / "rules.json"
-        rules_file.write_text(json.dumps(rules))
+class TestCriticalityRules:
+    def test_rules_from_the_setting(self, monkeypatch):
+        """CRITICALITY_RULES (#739, JSON) gives each location type its keywords."""
+        monkeypatch.setattr(
+            alerts, "CRITICALITY_RULES", {"datacenter": ["core", "firewall"], "office": ["router"]}
+        )
+        assert alerts.get_critical_keywords("datacenter") == ("core", "firewall")
+        assert alerts.get_critical_keywords("Office") == ("router",)
 
-        orig = dict(alerts.CRITICALITY_RULES)
-        orig_file = settings.CRITICALITY_RULES_FILE
-        try:
-            settings.CRITICALITY_RULES_FILE = str(rules_file)
-            # Re-run the loading logic
-            with open(str(rules_file)) as f:
-                loaded = json.load(f)
-            alerts.CRITICALITY_RULES = {
-                k.lower(): [kw.lower() for kw in v]
-                for k, v in loaded.items()
-                if isinstance(v, list)
-            }
-            assert alerts.get_critical_keywords("datacenter") == ("core", "firewall")
-            assert alerts.get_critical_keywords("office") == ("router",)
-        finally:
-            alerts.CRITICALITY_RULES = orig
-            settings.CRITICALITY_RULES_FILE = orig_file
-
-    def test_rules_file_bad_format_ignored(self, tmp_path):
-        """A rules file with a non-dict top level is ignored gracefully."""
-        bad_file = tmp_path / "bad.json"
-        bad_file.write_text(json.dumps(["not", "a", "dict"]))
-
-        orig = dict(alerts.CRITICALITY_RULES)
-        try:
-            # Simulate what the loading code does
-            with open(str(bad_file)) as f:
-                loaded = json.load(f)
-            if not isinstance(loaded, dict):
-                pass  # Would be ignored in real code
-            # _CRITICALITY_RULES should remain unchanged
-            assert alerts.CRITICALITY_RULES == orig
-        finally:
-            alerts.CRITICALITY_RULES = orig
+    def test_the_setting_is_read_at_import(self, monkeypatch):
+        """The module's rules are the settings' (lower-cased there)."""
+        assert alerts.CRITICALITY_RULES == dict(settings.CRITICALITY_RULES)
 
 
 # ---------------------------------------------------------------------------

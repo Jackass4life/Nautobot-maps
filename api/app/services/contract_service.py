@@ -576,9 +576,7 @@ CONTRACT: tuple[Endpoint, ...] = (
         request="POST /dna/system/api/v1/auth/token (basic auth), then GET /dna/intent/api/v1/network-device "
         "?family=Unified AP, X-Auth-Token, pages of 500 (offset from 1); the response array",
         stored_in="wireless_ap_status (one row per AP per instance)",
-        notes=(
-            "Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",
-        ),
+        notes=("Every instance in WIRELESS_CONTROLLERS is checked; the last one read is shown.",),
     ),
     Endpoint(
         CATALYST_CENTER,
@@ -696,9 +694,7 @@ CONTRACT: tuple[Endpoint, ...] = (
         "API client), then GET https://<region>.api.central.arubanetworks.com/network-monitoring/v1/aps, "
         "Authorization: Bearer, limit=1000 and the next cursor; the items array",
         stored_in="wireless_ap_status (one row per AP per instance)",
-        notes=(
-            "Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",
-        ),
+        notes=("Every instance in WIRELESS_CONTROLLERS is checked; the last one read is shown.",),
     ),
 )
 
