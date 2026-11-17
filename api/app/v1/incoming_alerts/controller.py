@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.auth import permissions
 from app.clients import caching
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import inventory_service as inventory
@@ -53,7 +53,8 @@ async def api_librenms_alert(request: Request, body: Body, form: Form):
     seconds.  A device LibreNMS doesn't know is ``{"updated": false}``, not
     an error, so LibreNMS doesn't keep retrying.
     """
-    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
+    settings = get_settings()
+    if not (settings.librenms_url or "").strip() or not (settings.librenms_api_token or "").strip():
         return deps.Json(
             {"error": "LibreNMS is not configured (LIBRENMS_URL, LIBRENMS_API_TOKEN)"},
             status_code=409,
