@@ -10,7 +10,7 @@
 #   docs   the repository's root: docs/, README.md and CONTRIBUTING.md, which the help
 #          pages show; without it the help pages say they aren't in this image
 # The pages are the web image's (web/Dockerfile).
-FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
 
 # The optional contexts: empty unless --build-context gives them.
 FROM scratch AS certs
