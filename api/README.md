@@ -35,7 +35,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `frontend/` | `web/`'s built pages in development (`WEB_BUILD_DIR`), the security headers and gzip on every answer |
 | `repositories/<resource>_repository.py` | All queries; takes an `AsyncSession`, returns ORM objects (`AsyncBaseRepository` in `core/repository.py`) |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
-| `core/` | Settings (`settings.py`: `get_settings()`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
+| `core/` | Settings (`settings.py`: the shared `settings` object), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
 | `db/` | `session.py` (async engine on asyncpg, sessionmaker, `AsyncDbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `aconnection.py` (the ported SQL on asyncpg, advisory locks), `connection.py` (row and key helpers) |
 | `auth/` | Sign-in and role dependencies (`dependencies.py`) |
 | `context/` | Per-request context (`request.py`, the request's database session in `db.py`) |
@@ -63,8 +63,8 @@ response status is < 400, otherwise rolls back, and always closes it. Routes tak
 ## Settings (#588)
 
 Every setting is described in
-[docs/configuration.md](../docs/configuration.md). Read with `get_settings().name`
-(`app/core/settings.py`, the only module that reads the environment); an empty value means
+[docs/configuration.md](../docs/configuration.md). Read with `settings.name`
+(`from app.core.settings import settings`: the only module that reads the environment, once); an empty value means
 the default. Only the new stack's own:
 
 | Setting | Default | Meaning |
@@ -129,9 +129,9 @@ their behaviour is pinned by many tests, they were ported close to verbatim, on 
   committed at once outside a transaction, as its autocommit connections were; with the
   connect and statement timeouts. `app/db/connection.py` keeps its helpers (`db.row_to_dict()`,
   `db.placeholders()`, ...).
-- Settings: `get_settings().nautobot_url`, read inside the function (#745: the
-  `settings.NAUTOBOT_URL` proxy is gone); a test's `override_settings(nautobot_url=...)`
-  (`tests/overrides.py`) changes it for every module until the test ends.
+- Settings: one shared object, `from app.core.settings import settings` (#754), read as
+  `settings.nautobot_url` inside the function; a test's `override_settings(nautobot_url=...)`
+  (`tests/overrides.py`) changes that object, so every module sees it, until the test ends.
 
 The background work is `app/services/scheduler.py`: one asyncio task per process, the
 `background_scheduler` advisory lock so one process works at a time, the due syncs every

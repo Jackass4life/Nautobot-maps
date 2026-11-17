@@ -11,17 +11,17 @@ changes: the names are kept from the Flask days. With AUTH_MODE=header it listen
 import uvicorn
 
 from app import server, startup
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.logs import config as logs
 
 
 def host() -> str:
-    return "127.0.0.1" if get_settings().auth_mode == "header" else "0.0.0.0"
+    return "127.0.0.1" if settings.auth_mode == "header" else "0.0.0.0"
 
 
 def port() -> int:
     try:
-        return int(get_settings().flask_run_port or 5000)
+        return int(settings.flask_run_port or 5000)
     except (ValueError, TypeError):
         return 5000
 
@@ -33,7 +33,7 @@ def main() -> None:
         "app.api:app",
         host=host(),
         port=port(),
-        reload=get_settings().flask_debug,
+        reload=settings.flask_debug,
         **server.UVICORN_OPTIONS,  # type: ignore[arg-type]
     )
 

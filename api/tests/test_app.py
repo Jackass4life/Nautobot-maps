@@ -17,7 +17,7 @@ import pytest
 from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
 from app.core import settings as config
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import aconnection
 from app.db import connection as db
 from app.repositories import board_repository as board_store
@@ -2272,13 +2272,13 @@ class TestAlertLifecycleTracking:
     def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
         first_payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": get_settings().cache_ttl,
+            "stale_after_seconds": settings.cache_ttl,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
         second_payload = {
             "checked_at": "2026-01-01T00:05:00Z",
-            "stale_after_seconds": get_settings().cache_ttl,
+            "stale_after_seconds": settings.cache_ttl,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2321,7 +2321,7 @@ class TestAlertLifecycleTracking:
         )
         # The stored board outlives the sync interval a little (#295).
         assert all(
-            call.kwargs.get("timeout") == get_settings().cache_ttl + alerts.BOARD_TTL_SLACK_SECONDS
+            call.kwargs.get("timeout") == settings.cache_ttl + alerts.BOARD_TTL_SLACK_SECONDS
             for call in cache_set.call_args_list
         )
 
@@ -2329,7 +2329,7 @@ class TestAlertLifecycleTracking:
         caching.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": get_settings().cache_ttl,
+            "stale_after_seconds": settings.cache_ttl,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2354,7 +2354,7 @@ class TestAlertLifecycleTracking:
         caching.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": get_settings().cache_ttl,
+            "stale_after_seconds": settings.cache_ttl,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -3749,8 +3749,8 @@ class TestDeviceDisplayIp:
         )
 
     def test_enrichment_records_matched_librenms_hostname(self):
-        orig_url, orig_token = get_settings().librenms_url, get_settings().librenms_api_token
-        get_settings().librenms_url, get_settings().librenms_api_token = (
+        orig_url, orig_token = settings.librenms_url, settings.librenms_api_token
+        settings.librenms_url, settings.librenms_api_token = (
             "https://librenms.test",
             "tok",
         )
@@ -3764,7 +3764,7 @@ class TestDeviceDisplayIp:
                 )
             )
         finally:
-            get_settings().librenms_url, get_settings().librenms_api_token = orig_url, orig_token
+            settings.librenms_url, settings.librenms_api_token = orig_url, orig_token
         assert enriched[0]["librenms_hostname"] == "router01"
 
 

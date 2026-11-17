@@ -9,7 +9,7 @@ from fastapi import Depends, Request
 from app.auth import permissions
 from app.auth.permissions import Permission
 from app.core.exceptions import ApiError
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.services import auth_service, role_service
 from app.services.auth_service import CurrentUser
 
@@ -20,7 +20,7 @@ async def get_current_user(request: Request) -> CurrentUser:
     if user is None:
         # The roles as the database has them (#713), read at most every 30 s.
         await role_service.refresh()
-        user = await auth_service.resolve_user(request, get_settings())
+        user = await auth_service.resolve_user(request, settings)
         request.state.user = user
     return user
 
@@ -31,7 +31,7 @@ CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 def check_request(request: Request, user: CurrentUserDep) -> None:
     """Every router's dependency: cross-site changes, rejected tokens, status
     tokens, AUTH_REQUIRE_VIEWER (``auth_service.check_request``)."""
-    refused = auth_service.check_request(request, user, get_settings())
+    refused = auth_service.check_request(request, user, settings)
     if refused is not None:
         raise ApiError(*refused)
 
@@ -47,7 +47,7 @@ def require_permission(
     def check(request: Request, user: CurrentUserDep) -> None:
         refused = auth_service.permission_problem(
             user,
-            get_settings(),
+            settings,
             required,
             request.method,
             open_when_disabled,

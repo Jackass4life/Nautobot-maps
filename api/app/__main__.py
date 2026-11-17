@@ -43,7 +43,7 @@ import sys
 
 from app import migrate
 from app.auth import permissions
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import aconnection, session
 from app.logs import config as logs
 from app.services import auth_service, role_service
@@ -240,7 +240,6 @@ async def status_link_command(db, args) -> int:
 def roles_command(args) -> int:
     """The matrix (#685) and the groups that give each role (#691); with --groups, the
     role and permissions a user in those groups gets."""
-    settings = get_settings()
     # As the database has them (#713).
     asyncio.run(role_service.refresh(force=True))
     if args.groups is not None:
@@ -361,7 +360,7 @@ def schema_version_command() -> int:
     from alembic.runtime.migration import MigrationContext
     from alembic.script import ScriptDirectory
 
-    url = get_settings().sqlalchemy_url()
+    url = settings.sqlalchemy_url()
     head = ScriptDirectory.from_config(
         migrate.alembic_config(url.render_as_string(hide_password=False))
     ).get_current_head()

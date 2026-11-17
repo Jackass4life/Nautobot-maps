@@ -16,7 +16,7 @@ from datetime import UTC
 
 from loguru import logger
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.logs import parts
 
 # loguru adds the stack trace, if any, on the lines below.
@@ -109,7 +109,6 @@ def configure() -> None:
     """Send every log line to stderr (the access log to stdout) at LOG_LEVEL in
     LOG_FORMAT, and Python's standard logging through loguru."""
     global _configured
-    settings = get_settings()
     logger.remove()
     logger.configure(patcher=name_and_part)
     as_json = settings.log_format == "json"
@@ -141,7 +140,6 @@ def configured() -> bool:
 
 def gunicorn_logconfig() -> dict:
     """``logconfig_dict`` for gunicorn: its error log through loguru, like every other line."""
-    settings = get_settings()
     return {
         "version": 1,
         "disable_existing_loggers": False,

@@ -8,7 +8,7 @@ with ``monkeypatch.setattr(nautobot, "fetch_all_pages", ...)``.
 from loguru import logger
 
 from app.clients import caching, http
-from app.core.settings import get_settings
+from app.core.settings import settings
 
 
 def nested_str(obj: object, *keys: str) -> str:
@@ -109,7 +109,6 @@ def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) ->
     not use the cache: it would be served a previous sync's pages and miss changes
     (#185).
     """
-    settings = get_settings()
     if not settings.nautobot_url or not settings.nautobot_token:
         raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     cache_key = f"{endpoint}:{params}"

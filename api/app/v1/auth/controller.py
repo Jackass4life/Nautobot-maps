@@ -11,7 +11,7 @@ from loguru import logger
 from app.auth.dependencies import CurrentUserDep, require_permission
 from app.auth.permissions import Permission
 from app.core.exceptions import ApiError, responses
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.frontend import controller as frontend
 from app.services import ad_service, auth_service, identity_service, login_service
 from app.utils.body import body_schema
@@ -28,7 +28,6 @@ router = APIRouter(prefix="/me", tags=sections.tag("auth"))
     response_model=MeDto,
 )
 def get_current_user(user: CurrentUserDep) -> MeDto:
-    settings = get_settings()
     return MeDto(
         username=user.username or None,
         # Not signed in, no role (role_from_groups gives the default role to anyone).
@@ -63,7 +62,7 @@ def _off() -> ApiError:
 @page_router.get("/auth", dependencies=[deps.PUBLIC], name="auth.sign_in_page")
 def sign_in_page():
     """The sign-in page (#717): user name and password, with AD sign-in on."""
-    if not auth_service.app_sign_in_on(get_settings()):
+    if not auth_service.app_sign_in_on(settings):
         raise _off()
     return frontend.shell()
 
@@ -99,7 +98,6 @@ async def sign_in(request: Request) -> JSONResponse:
     gets a token, for ``Authorization: Bearer``, also set as an HttpOnly cookie for
     the pages. An unknown user and a wrong password get the same answer; failed
     sign-ins wait longer after 5."""
-    settings = get_settings()
     if not auth_service.app_sign_in_on(settings):
         raise _off()
     username, password = await _credentials(request)
@@ -161,7 +159,6 @@ async def sign_in(request: Request) -> JSONResponse:
 def verify_sign_in(request: Request, user: CurrentUserDep) -> Jwt:
     """The caller's sign-in token's claims (the example's /auth/verify): 401 without
     a valid one."""
-    settings = get_settings()
     claims = (
         login_service.verify(auth_service.app_token(request), settings)
         if user.signed_in_with == "app"

@@ -9,7 +9,7 @@ Ported from nautobot_maps/metrics.py (#602): only the imports changed.
 
 from datetime import UTC, datetime
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import aconnection
 from app.services import contract_service as contract
 from app.utils import timeutil
@@ -66,7 +66,6 @@ async def sync_rows(conn: aconnection.Connection) -> dict:
 
 async def collect(conn: aconnection.Connection | None) -> str:
     """All metrics, from the database behind *conn* (``None``: no database)."""
-    settings = get_settings()
     out = Exposition()
     out.gauge("nautobot_maps_up", "The app answers.", [({}, 1)])
     out.gauge(

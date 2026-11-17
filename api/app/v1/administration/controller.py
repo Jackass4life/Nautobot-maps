@@ -16,7 +16,7 @@ from app.auth import permissions
 from app.auth.dependencies import CurrentUserDep, require_permission
 from app.auth.permissions import Permission
 from app.core.exceptions import ApiError, responses
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import aconnection, session
 from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
@@ -173,7 +173,6 @@ def api_notifications_test():
     Returns ``{"results": {"webhook": "ok", "email": "error: ..."}}``; errors
     never include a URL or password.  400 when no channel is configured.
     """
-    settings = get_settings()
     channels = notify.configured_channels()
     if not channels:
         if settings.notify_email_to and not settings.smtp_host:
@@ -202,8 +201,7 @@ ADMIN_OR_STATUS_TOKENS = Depends(
 def _all_tokens(request: Request, user: CurrentUser) -> bool:
     """Whether the caller may use every token (an admin), not only status tokens."""
     return (
-        auth_service.permission_problem(user, get_settings(), (Permission.ADMIN,), request.method)
-        is None
+        auth_service.permission_problem(user, settings, (Permission.ADMIN,), request.method) is None
     )
 
 

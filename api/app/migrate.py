@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from alembic import command
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import session
 from app.logs import config as logs
 
@@ -145,7 +145,7 @@ async def _migrate(engine: AsyncEngine, url: str) -> str:
 def engine_for(url: URL) -> AsyncEngine:
     """An asyncpg engine for migrations (#643): a connection per use, the app's connect
     timeout and no statement timeout (a migration may take longer)."""
-    async_url, args = session.async_url(url, get_settings().db_connect_timeout_seconds, 0)
+    async_url, args = session.async_url(url, settings.db_connect_timeout_seconds, 0)
     return create_async_engine(async_url, poolclass=NullPool, connect_args=args)
 
 
@@ -166,7 +166,7 @@ def main() -> None:
     if not logs.configured():
         logs.configure()
     try:
-        migrate(get_settings().sqlalchemy_url())
+        migrate(settings.sqlalchemy_url())
     except MigrationRefused as refused:
         raise SystemExit(f"Not migrating: {refused}") from None
 

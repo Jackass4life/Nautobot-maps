@@ -6,7 +6,7 @@ app/services/auth_service.py's rules (#592) on the request being answered
 """
 
 from app.context import request as requestctx
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import session
 from app.services import auth_service
 from app.services.auth_service import CurrentUser
@@ -18,7 +18,7 @@ STATUS_API_PREFIX = auth_service.STATUS_API_PREFIX
 
 
 def is_config_valid() -> bool:
-    return get_settings().auth_mode in SUPPORTED_MODES
+    return settings.auth_mode in SUPPORTED_MODES
 
 
 def _user() -> CurrentUser:
@@ -27,7 +27,7 @@ def _user() -> CurrentUser:
     request = requestctx.current().starlette
     user = getattr(request.state, "user", None)
     if user is None:
-        user = session.from_sync(auth_service.resolve_user, request, get_settings())
+        user = session.from_sync(auth_service.resolve_user, request, settings)
         request.state.user = user
     return user
 
@@ -61,7 +61,7 @@ def may(permission) -> bool:  # type: ignore[no-untyped-def]
     in AUTH_MODE=disabled is open to anyone, as every route's check."""
     return (
         auth_service.permission_problem(
-            _user(), get_settings(), (permission,), requestctx.current().method
+            _user(), settings, (permission,), requestctx.current().method
         )
         is None
     )
@@ -69,11 +69,11 @@ def may(permission) -> bool:  # type: ignore[no-untyped-def]
 
 def access() -> dict:
     """This request's caller's role, pages and permissions (#693)."""
-    return auth_service.access(_user(), get_settings())
+    return auth_service.access(_user(), settings)
 
 
 def may_administer() -> bool:
-    return auth_service.may_administer(_user(), get_settings())
+    return auth_service.may_administer(_user(), settings)
 
 
 def is_status_token(user: dict) -> bool:
@@ -81,9 +81,9 @@ def is_status_token(user: dict) -> bool:
 
 
 def status_access(tenant: str):  # type: ignore[no-untyped-def]
-    return auth_service.status_access(_user(), get_settings(), tenant)
+    return auth_service.status_access(_user(), settings, tenant)
 
 
 def check_viewer():  # type: ignore[no-untyped-def]
     view = requestctx.current()
-    return auth_service.check_request(view.starlette, _user(), get_settings())
+    return auth_service.check_request(view.starlette, _user(), settings)

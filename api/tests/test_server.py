@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from app import server, startup
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.logs import config as logs
 from tests.overrides import overridden
 
@@ -22,7 +22,7 @@ def test_one_access_log_line_with_the_same_fields(asgi_client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
         asgi_client.get(
             "/api/v1/app-status?x=1",
-            headers={get_settings().auth_header_user: "olga", "User-Agent": "probe/1"},
+            headers={settings.auth_header_user: "olga", "User-Agent": "probe/1"},
         )
     lines = [record for record in caplog.records if record.name == ACCESS]
     assert len(lines) == 1

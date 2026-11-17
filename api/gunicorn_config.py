@@ -8,7 +8,7 @@ app's lifespan; a database lock lets one of them work at a time (#154).
 
 import os
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.logs import config as logs
 
 
@@ -23,7 +23,7 @@ worker_class = "app.server.Worker"
 timeout = max(120, _env_int("GUNICORN_TIMEOUT", 120))
 
 accesslog = None
-loglevel = get_settings().log_level.lower()
+loglevel = settings.log_level.lower()
 # loguru in the master, so the workers it forks have it too (#633).
 logs.configure()
 logconfig_dict = logs.gunicorn_logconfig()

@@ -206,7 +206,7 @@ def test_the_web_menu_is_the_api_pages():
 )
 def test_the_sign_out_url_is_a_path_or_http(value, expected):
     """#546: anything else is ignored with a warning, never put in a link."""
-    code = "from app.core.settings import get_settings; print(get_settings().auth_sign_out_url)"
+    code = "from app.core.settings import settings; print(settings.auth_sign_out_url)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=pathlib.Path(__file__).resolve().parent.parent,

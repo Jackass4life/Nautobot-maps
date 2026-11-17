@@ -296,10 +296,10 @@ class TestSignIn:
         user = auth_service.CurrentUser(
             True, "token:acme-page", [], "status", "disabled", "acme-page", "Acme"
         )
-        from app.core.settings import get_settings
+        from app.core.settings import settings
 
-        assert auth_service.status_access(user, get_settings(), "ACME ") is None
-        assert auth_service.status_access(user, get_settings(), "Globex") == (
+        assert auth_service.status_access(user, settings, "ACME ") is None
+        assert auth_service.status_access(user, settings, "Globex") == (
             {"error": "This token is for another tenant"},
             403,
         )

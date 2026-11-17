@@ -5,7 +5,7 @@ from sqlalchemy import Connection, make_url
 
 from alembic import context
 from app import migrate
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.logs import config as logs
 from app.models import Base
 
@@ -29,7 +29,7 @@ target_metadata = Base.metadata
 # An explicit URL (tests set it) wins over the app setting. The config is a
 # ConfigParser: "%" (percent-encoded credentials) must be written as "%%".
 if not config.get_main_option("sqlalchemy.url"):
-    url = get_settings().sqlalchemy_url().render_as_string(hide_password=False)
+    url = settings.sqlalchemy_url().render_as_string(hide_password=False)
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,

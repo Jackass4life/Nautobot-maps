@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import app
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.services import ad_service, identity_service, login_service, role_service
 from tests import db as adb
 
@@ -36,7 +36,7 @@ def live(configure, pg_database):
         **ACCOUNTS,
     )
     login_service.forget_failures()
-    return get_settings()
+    return settings
 
 
 def test_the_password_decides(live):
@@ -54,13 +54,13 @@ def test_the_certificate_is_checked(live, configure, tmp_path):
     """Another CA's certificate (here: the system's CAs only) is refused."""
     configure(EXTRA_CA_PEM=open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read())
     with pytest.raises(ad_service.DirectoryUnavailable):
-        ad_service.authenticate("jdoe", "Jane-Pass-2026!x", get_settings())
+        ad_service.authenticate("jdoe", "Jane-Pass-2026!x", settings)
 
 
 def test_a_wrong_service_account_is_the_setups_fault(live, configure):
     configure(LDAP_BIND_PASSWORD="not-it")
     with pytest.raises(ad_service.DirectoryUnavailable):
-        ad_service.authenticate("jdoe", "Jane-Pass-2026!x", get_settings())
+        ad_service.authenticate("jdoe", "Jane-Pass-2026!x", settings)
 
 
 def test_sign_in_through_the_api(live):
