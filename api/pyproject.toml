@@ -51,8 +51,9 @@ extend-exclude = ["alembic/versions"]
 select = ["E", "F", "I", "B", "UP", "BLE", "RUF", "TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-# Removed in #745: read a setting with get_settings().name, inside the function.
-"app.core.legacy_settings".msg = "Removed (#745): use app.core.settings.get_settings()"
+# Removed in #745 and #754: read a setting with settings.name, inside the function.
+"app.core.legacy_settings".msg = "Removed (#745): use `from app.core.settings import settings`"
+"app.core.settings.get_settings".msg = "Removed (#754): use `from app.core.settings import settings`"
 
 [tool.ruff.lint.per-file-ignores]
 # The current app's contract declarations, copied unchanged (#598): docs/data-contract.md

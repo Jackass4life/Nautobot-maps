@@ -4,7 +4,7 @@ out and the settings that would quietly break something, once per server
 
 from loguru import logger
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 
 
 def _format_set_for_log(values: set[str]) -> str:
@@ -13,7 +13,6 @@ def _format_set_for_log(values: set[str]) -> str:
 
 def log_alert_board_exclusions() -> None:
     """Log the alert-board configuration once at startup."""
-    settings = get_settings()
     if settings.legacy_sqlite_db:
         logger.error(
             "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "

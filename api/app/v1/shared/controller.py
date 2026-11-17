@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from loguru import logger
 
 from app.auth import permissions
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
@@ -41,7 +41,6 @@ def api_page_config():
     caller's access (the menu's pages are the web's own since #737), the Maintenance page's
     and Availability's limits, the map's tiles and first view, and the
     board's case links and level definitions."""
-    settings = get_settings()
     at = availability.now()
     view = settings.map_default_view
     access = auth.access()
@@ -98,7 +97,6 @@ async def api_app_status():
     oldest source's last good sync) and ``sources`` (``name``, ``state``,
     ``message``, ``last_success``).
     """
-    settings = get_settings()
     # No database configured: nothing synced, not an outage.
     rows = {} if not db.dialect() else None
     if db.dialect():

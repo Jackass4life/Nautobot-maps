@@ -58,7 +58,7 @@ def test_retention_defaults_to_two_years(value, days):
         [
             sys.executable,
             "-c",
-            "from app.core.settings import get_settings; print(get_settings().alert_history_retention_days)",
+            "from app.core.settings import settings; print(settings.alert_history_retention_days)",
         ],
         cwd=pathlib.Path(__file__).resolve().parents[1],
         env={**os.environ, "ALERT_HISTORY_RETENTION_DAYS": value},

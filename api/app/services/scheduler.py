@@ -12,7 +12,7 @@ from datetime import UTC
 from loguru import logger
 
 from app.clients import caching
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.db import aconnection, session
 from app.db import connection as db
 from app.services import alerts_service as alerts
@@ -42,7 +42,6 @@ SHUTDOWN_GRACE_SECONDS = 5
 
 def tick_seconds() -> int:
     """Seconds between ticks: often enough to catch a due sync promptly."""
-    settings = get_settings()
     intervals = [settings.inventory_sync_interval_seconds]
     if (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip():
         intervals.append(settings.librenms_sync_interval_seconds)
@@ -53,7 +52,7 @@ def tick_seconds() -> int:
 
 async def prune_alert_history_if_due() -> None:
     """Daily history retention (#194); a failure is logged, never stops the syncs."""
-    if get_settings().alert_history_retention_days <= 0:
+    if settings.alert_history_retention_days <= 0:
         return
     try:
         async with aconnection.connect() as conn:
@@ -119,7 +118,7 @@ async def sync_wireless() -> bool:
 
 def start_wireless_sync() -> None:
     """Run ``sync_wireless`` in the background unless it is still running."""
-    if not get_settings().wireless_controllers or not _wireless_running.acquire(blocking=False):
+    if not settings.wireless_controllers or not _wireless_running.acquire(blocking=False):
         return
 
     async def run() -> None:
@@ -296,7 +295,6 @@ def start() -> bool:
     """Start this process's scheduler task once, on the running event loop (the app's
     lifespan). Returns whether it runs."""
     global _started, _stop, _task
-    settings = get_settings()
     if (
         not settings.background_sync_enabled
         or not db.dialect()

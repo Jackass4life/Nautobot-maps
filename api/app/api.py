@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from app import v1
 from app.core import cors
 from app.core.exceptions import install_error_handlers
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.core.version import version
 from app.db.middleware import DbSessionMiddleware
 from app.frontend import controller as frontend
@@ -31,7 +31,7 @@ def create_app() -> FastAPI:
         redoc_url=None,
     )
     app.add_middleware(DbSessionMiddleware)
-    cors.configure(app, get_settings())
+    cors.configure(app, settings)
     # The current app's /api/<path>: 308 to /api/v1/<path> (#613).
     app.add_middleware(legacy_paths.LegacyApiRedirect, routes=lambda: app.routes)
     # The security headers and gzip on every answer, errors included (#594).

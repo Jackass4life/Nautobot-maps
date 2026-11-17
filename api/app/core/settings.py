@@ -9,9 +9,10 @@ passes unset variables as ""), except where "" deliberately means "none"
 (EMPTY_IS_A_VALUE). Invalid values that stop the current app at startup stop
 this one too (RuntimeError); those it warns about fall back the same way.
 
-Read settings with `get_settings().name` inside the function that needs them, never
-at import (#745); tests change them with the `configure` fixture (environment), the
-`override_settings` fixture or `overridden()` (in code), or `Settings(name=...)`.
+One shared object, read once at import (#754): `from app.core.settings import settings`,
+then `settings.name` inside the function that needs it, never at import. Tests change
+the object: the `configure` fixture (environment), the `override_settings` fixture or
+`overridden()` (in code); or they build their own `Settings(name=...)`.
 """
 
 import base64
@@ -22,7 +23,6 @@ import math
 import pathlib
 import re
 import ssl
-from functools import lru_cache
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
@@ -772,14 +772,6 @@ SETTING_NAMES = tuple(
 )
 
 
-# For tests only (tests/overrides.py: the override_settings fixture, overridden()):
-# values laid over the environment's, kept across fresh settings. App code never sets it.
-OVERRIDES: dict[str, object] = {}
-
-
-@lru_cache
-def get_settings() -> Settings:
-    settings = Settings()
-    for field, value in OVERRIDES.items():
-        setattr(settings, field, value)
-    return settings
+# The settings, read from the environment and .env once (#754). Tests change this object
+# (tests/overrides.py), never rebind it, so every module that imported it sees the change.
+settings = Settings()

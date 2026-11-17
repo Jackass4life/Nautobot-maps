@@ -6,7 +6,7 @@ import pytest
 from app.auth import permissions, scopes
 from app.auth.permissions import Permission
 from app.core import exceptions
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.services import auth_service
 from app.services.auth_service import CurrentUser
 
@@ -53,7 +53,6 @@ def test_a_route_scope_with_a_path_parameter(configure):
     """``authorize("tenant:{tenant}:view")``: a role's wildcard covers every tenant;
     the refusal names the scope as filled in."""
     configure(AUTH_MODE="header")
-    settings = get_settings()
     original = permissions.ROLES["customer"]
     permissions.ROLES["customer"] = permissions.RoleDef(
         original.label, original.landing, original.scopes | {"tenant:acme:view"}

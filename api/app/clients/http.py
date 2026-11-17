@@ -15,7 +15,7 @@ import time
 
 import httpx
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 
 RETRY_STATUSES = (429, 502, 503, 504)
 MAX_RETRY_AFTER_SECONDS = 30
@@ -47,7 +47,7 @@ def _ssl(verify: bool, extra_ca: str = "") -> bool | ssl.SSLContext:
 
 def client(verify: bool = True) -> httpx.Client:
     """The shared client for this certificate setting, created on first use."""
-    key = (verify, get_settings().extra_ca_pem)
+    key = (verify, settings.extra_ca_pem)
     with _clients_lock:
         current = _clients.get(key)
         if current is None:

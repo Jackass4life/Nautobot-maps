@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.frontend import security
 
 
@@ -115,7 +115,7 @@ def no_access_page(exc: ApiError) -> HTMLResponse:
     """A browser gets a page, not JSON: what happened and how to sign out (the proxy
     would sign them straight back in as the same person otherwise). No styles or
     scripts: the CSP allows none inline."""
-    sign_out = get_settings().auth_sign_out_url
+    sign_out = settings.auth_sign_out_url
     link = f'<p><a href="{html.escape(sign_out)}">Sign out</a></p>' if sign_out else ""
     body = (
         '<!DOCTYPE html><html lang="en"><meta charset="utf-8">'
@@ -161,7 +161,7 @@ def install_error_handlers(app: FastAPI) -> None:
             from app.services import auth_service
 
             user = await get_current_user(request)
-            refused = auth_service.check_request(request, user, get_settings())
+            refused = auth_service.check_request(request, user, settings)
             if refused is not None:
                 return JSONResponse(status_code=refused[1], content=refused[0])
         message = _HTTP_MESSAGES.get(exc.status_code) or exc.detail or "Request failed"
@@ -190,5 +190,5 @@ def install_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=500,
             content={"error": "Internal server error"},
-            headers=dict(security.security_headers(get_settings())),
+            headers=dict(security.security_headers(settings)),
         )

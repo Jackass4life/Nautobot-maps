@@ -260,10 +260,9 @@ def finish(request: Request, response):  # type: ignore[no-untyped-def]
 
     from fastapi.responses import FileResponse, StreamingResponse
 
-    from app.core.settings import get_settings
+    from app.core.settings import settings
     from app.frontend import compression, security
 
-    settings = get_settings()
     headers = response.headers
     for name, value in security.security_headers(settings):
         if name not in headers:

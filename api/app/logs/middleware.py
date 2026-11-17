@@ -14,7 +14,7 @@ import time
 
 from loguru import logger
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.logs import parts
 
 FORMAT = '{h} "{user}" "{r}" {s} {b} {M}ms "{a}"'
@@ -57,7 +57,7 @@ class AccessLog:
                 FORMAT,
                 **{
                     "h": client[0],
-                    "user": _header(scope, get_settings().auth_header_user) or "-",
+                    "user": _header(scope, settings.auth_header_user) or "-",
                     "r": f"{scope.get('method', '-')} {target} "
                     f"HTTP/{scope.get('http_version', '1.1')}",
                     "s": response["status"],

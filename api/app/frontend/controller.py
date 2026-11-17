@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.auth.dependencies import check_request, public
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.frontend import files
 
 ASSETS_PREFIX = "/_nuxt/"
@@ -32,7 +32,7 @@ router = APIRouter(dependencies=[Depends(check_request)], include_in_schema=Fals
 
 
 def build_dir() -> pathlib.Path:
-    return pathlib.Path(get_settings().web_build_dir)
+    return pathlib.Path(settings.web_build_dir)
 
 
 def shell(headers: dict | None = None) -> Response:

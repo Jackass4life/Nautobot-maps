@@ -206,11 +206,8 @@ def test_cross_site_reads_are_not_refused(client):
 
 
 def test_settings_are_validated(configure):
-    from app.core.settings import get_settings
-
-    configure(AUTH_MODE="sometimes")
     with pytest.raises(ValueError):
-        get_settings()
+        configure(AUTH_MODE="sometimes")
 
 
 def test_cors_allows_cookies_from_web(configure):
@@ -258,13 +255,13 @@ PRIORITY = ("admin", "operator", "noc", "customer", "viewer")
 def test_the_first_role_in_order_wins_and_roles_never_merge(configure, first):
     """In groups for several roles, a user gets the first of admin, operator, noc,
     customer, viewer: with every lower one too, still that one."""
-    from app.core.settings import get_settings
+    from app.core.settings import settings
     from app.services import auth_service
 
     configure(**{f"AUTH_{role.upper()}_GROUPS": f"g-{role}" for role in PRIORITY})
     groups = [f"G-{role}" for role in PRIORITY[first:]]
-    assert auth_service.role_from_groups(groups, get_settings()) == PRIORITY[first]
-    assert auth_service.role_from_groups(["other"], get_settings()) == ""
+    assert auth_service.role_from_groups(groups, settings) == PRIORITY[first]
+    assert auth_service.role_from_groups(["other"], settings) == ""
 
 
 @pytest.mark.parametrize(

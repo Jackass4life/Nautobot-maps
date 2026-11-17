@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.context.db import db_session_ctx
-from app.core.settings import get_settings
+from app.core.settings import settings
 
 
 def _server_settings(options: str) -> dict[str, str]:
@@ -75,7 +75,6 @@ def async_url(url: URL, connect_timeout: int, statement_timeout_seconds: int) ->
 
 def make_async_engine(**kwargs):  # type: ignore[no-untyped-def]
     """The app's async engine; *kwargs* for create_async_engine (tests: poolclass)."""
-    settings = get_settings()
     url, args = async_url(
         settings.sqlalchemy_url(),
         settings.db_connect_timeout_seconds,
@@ -90,7 +89,7 @@ def make_probe_engine():  # type: ignore[no-untyped-def]
     """The health check's own (#594): a new connection per probe (no stale pooled one, no
     waiting for a pool slot), 2 s to connect and 2 s for the statement;
     app/services/health_service.py cancels the whole probe after 2 s too (#655)."""
-    url, args = async_url(get_settings().sqlalchemy_url(), 2, 2)
+    url, args = async_url(settings.sqlalchemy_url(), 2, 2)
     return create_async_engine(url, poolclass=NullPool, connect_args=args)
 
 

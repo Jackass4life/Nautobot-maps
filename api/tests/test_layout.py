@@ -53,12 +53,16 @@ def test_the_old_places_are_gone():
 
 
 def _settings_read_outside_a_function(tree: ast.AST) -> list[int]:
-    """Lines calling get_settings() that run at import: in a module or class body, a
-    default value or a decorator."""
+    """Lines reading a setting (``settings.name``) that run at import: in a module or
+    class body, a default value or a decorator."""
     found = []
 
     def visit(node: ast.AST, in_body: bool) -> None:
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "get_settings":
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "settings"
+        ):
             if not in_body:
                 found.append(node.lineno)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
@@ -76,8 +80,8 @@ def _settings_read_outside_a_function(tree: ast.AST) -> list[int]:
 
 
 def test_no_setting_is_read_at_import():
-    """get_settings() inside the function that needs it (#745): read at import, a
-    setting would be frozen before a test (or a reload) changes it."""
+    """settings.name inside the function that needs it (#745, #754): read at import, a
+    setting would be copied before a test changes the shared object."""
     offenders = [
         f"{path.relative_to(API_ROOT)}:{line}"
         for path in sorted(APP.rglob("*.py"))
@@ -88,10 +92,10 @@ def test_no_setting_is_read_at_import():
 
 def test_the_import_guard_finds_a_read_at_import():
     code = (
-        "A = get_settings().x\n"
-        "class C:\n    b = get_settings().y\n"
-        "def f(c=get_settings().z):\n    return get_settings().w\n"
-        "g = lambda: get_settings().v\n"
+        "A = settings.x\n"
+        "class C:\n    b = settings.y\n"
+        "def f(c=settings.z):\n    return settings.w\n"
+        "g = lambda: settings.v\n"
     )
     assert _settings_read_outside_a_function(ast.parse(code)) == [1, 3, 4]
 

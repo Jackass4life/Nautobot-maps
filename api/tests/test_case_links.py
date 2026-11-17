@@ -34,7 +34,7 @@ def test_case_url(override_settings):
     ],
 )
 def test_only_http_templates_with_a_placeholder(value, expected):
-    code = "from app.core.settings import get_settings; print(get_settings().case_url_template)"
+    code = "from app.core.settings import settings; print(settings.case_url_template)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=REPO_ROOT / "api",  # where app/ is

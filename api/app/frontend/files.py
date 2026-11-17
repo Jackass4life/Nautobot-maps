@@ -19,7 +19,7 @@ from fastapi import Request
 from fastapi.responses import FileResponse, Response
 
 from app.core.exceptions import ApiError
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.frontend import compression
 
 
@@ -54,7 +54,7 @@ def send(
         "Cache-Control": f"public, max-age={max_age}" if max_age is not None else "no-cache",
     }
     zipped = (
-        get_settings().compress_responses
+        settings.compress_responses
         and compression.compressible(media_type)
         and stat.st_size <= compression.MAX_FILE_BYTES
         and request.method == "GET"

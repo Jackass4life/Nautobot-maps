@@ -413,10 +413,9 @@ def test_the_pages_are_told_exactly_what_the_api_allows(configure, mode, role):
     never shows a button the API refuses, nor hides one it allows; a read is allowed
     whenever they are. (With AUTH_MODE=disabled every read is open, also a feature's
     whose changes aren't, e.g. the criticality list: the set names what can be used.)"""
-    from app.core.settings import get_settings
+    from app.core.settings import settings
 
     configure(**MODES[mode])
-    settings = get_settings()
     if role is None:
         user = CurrentUser(auth_mode=settings.auth_mode)
     else:
@@ -539,12 +538,11 @@ def test_every_menu_page_needs_a_permission():
 def test_can_write_and_can_administer_as_before(configure, mode, role):
     """The deprecated flags (#693) answer as before for the old roles: can_write the
     board's own changes, can_administer a POST needing admin."""
-    from app.core.settings import get_settings
+    from app.core.settings import settings
 
     if role and not mode.startswith("header"):
         return
     configure(**MODES[mode])
-    settings = get_settings()
     user = (
         CurrentUser(auth_mode=settings.auth_mode)
         if role is None

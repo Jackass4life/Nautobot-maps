@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.auth import permissions
 from app.clients import caching
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
@@ -173,7 +173,6 @@ def geocode(query: str):
     Results are cached for a day, and the service is asked at most once per
     second across all workers: the public Nominatim allows no more.
     """
-    settings = get_settings()
     cache_key = f"geocode:{query.strip().lower()}"
     cached = caching.get(cache_key)
     if cached is not None:
@@ -235,7 +234,7 @@ async def api_search(query: Annotated[dtos.SearchQuery, Query()]):
 
     # Fall back to geocoding
     if lat is None or lon is None:
-        if not get_settings().geocoder_enabled:
+        if not settings.geocoder_enabled:
             return deps.Json(
                 {"error": "Address search is turned off; enter coordinates as lat,lon"},
                 status_code=400,

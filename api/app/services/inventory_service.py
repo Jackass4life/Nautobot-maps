@@ -17,7 +17,7 @@ import httpx
 from loguru import logger
 
 from app.clients import caching, librenms, nautobot
-from app.core.settings import DEVICE_LEVELS, get_settings
+from app.core.settings import DEVICE_LEVELS, settings
 from app.db import aconnection, session
 from app.db import connection as db
 from app.services import contract_service as contract
@@ -86,7 +86,7 @@ def address_country(physical_address: str) -> str:
 def hierarchy_country(location_id: str, tree: dict[str, dict]) -> str:
     """The name of the nearest location of type COUNTRY_LOCATION_TYPE at or
     above *location_id* (#386); *tree* is ``location_tree``'s."""
-    country_type = get_settings().country_location_type.strip().lower()
+    country_type = settings.country_location_type.strip().lower()
     return next(
         (
             node["name"]
@@ -249,7 +249,7 @@ def normalize_locations(
     if invalid_tenant_scopes:
         logger.warning(
             "Invalid {} custom field on {} locations; tenant status will use all monitored devices there",
-            get_settings().tenant_scope_field,
+            settings.tenant_scope_field,
             invalid_tenant_scopes,
         )
     return locations
@@ -270,7 +270,6 @@ def custom_field_value(obj: dict, field: str) -> str:
 
 def location_tenant_scopes(location: dict) -> tuple[dict, bool]:
     """A Location's tenant -> roles mapping, case-folded; malformed values disable the scope."""
-    settings = get_settings()
     if not settings.tenant_scope_field:
         return {}, False
     fields = location.get("custom_fields")
@@ -299,12 +298,12 @@ def location_tenant_scopes(location: dict) -> tuple[dict, bool]:
 
 def location_tier(location: dict) -> str:
     """The location's value of the SITE_TIER_FIELD custom field, lowercased, or "" (#293)."""
-    return custom_field_value(location, get_settings().site_tier_field)
+    return custom_field_value(location, settings.site_tier_field)
 
 
 def device_criticality(device: dict) -> str:
     """The device's DEVICE_CRITICALITY_FIELD: critical, medium or low; "" when unset or unknown (#377)."""
-    value = custom_field_value(device, get_settings().device_criticality_field)
+    value = custom_field_value(device, settings.device_criticality_field)
     return value if value in DEVICE_LEVELS else ""
 
 
@@ -333,7 +332,7 @@ def fetch_location_tenant_links() -> list[dict] | None:
                 continue
             key = str(rel.get("key") or rel.get("slug") or "").strip()
             label = nautobot.nested_str(rel, "label", "name", "display") or key
-            wanted = get_settings().site_tenant_relationships
+            wanted = settings.site_tenant_relationships
             if wanted and key.lower() not in wanted and label.lower() not in wanted:
                 continue
             selected.append((rel, label))
@@ -1050,7 +1049,6 @@ def state_due(state: dict | None, interval_seconds: int) -> bool:
 def cache_version() -> str:
     """CACHE_VERSION, and the custom fields read at sync time: setting or
     changing one forces a full resync, not a wait for the daily one (#377)."""
-    settings = get_settings()
     fields = [
         settings.site_tier_field,
         settings.device_criticality_field,
@@ -1690,7 +1688,6 @@ async def sync_nautobot(force: bool = False) -> None:
     """Read Nautobot's locations and devices (changed ones, or all on a full
     reconcile) into the cache. On the async connection since #659: the
     upstream reads in a thread, a failure recorded on the sync state."""
-    settings = get_settings()
     if not db.dialect() or not settings.nautobot_url or not settings.nautobot_token:
         return
     source = "nautobot_inventory"
@@ -1844,7 +1841,6 @@ def _fetch_librenms() -> list:
 async def sync_librenms(force: bool = False) -> None:
     """Read LibreNMS's device statuses into the cache. On the async connection
     since #659: the upstream read in a thread, a failure recorded on the sync state."""
-    settings = get_settings()
     if (
         not db.dialect()
         or not (settings.librenms_url or "").strip()
@@ -1944,7 +1940,6 @@ async def sources_to_sync(
     """``(Nautobot, LibreNMS)``: which configured sources to sync now: due,
     Nautobot's cache from an older version, or *force*d, but not one that
     synced successfully less than *cooldown_seconds* ago.  One state read per source."""
-    settings = get_settings()
     nautobot_on = bool(settings.nautobot_url and settings.nautobot_token)
     librenms_on = bool(
         (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip()

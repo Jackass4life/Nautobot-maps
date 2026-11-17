@@ -7,7 +7,7 @@ import gzip
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.core.settings import get_settings
+from app.core.settings import settings
 from app.frontend import compression, security
 
 
@@ -19,7 +19,6 @@ class FinishMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        settings = get_settings()
         request_headers = Headers(scope=scope)
         may_gzip = (
             settings.compress_responses

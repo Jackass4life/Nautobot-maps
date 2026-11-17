@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -63,7 +64,6 @@ from sqlalchemy.pool import NullPool  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.api import app  # noqa: E402
-from app.core.settings import get_settings  # noqa: E402
 from app.db import session  # noqa: E402
 from app.logs import config as logs  # noqa: E402
 from app.models import Base  # noqa: E402
@@ -233,9 +233,17 @@ def default_roles(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fresh_settings():
-    get_settings.cache_clear()
+    """Every test starts from the environment's settings and the overrides in force (a
+    module's fixture may keep one for all its tests), and leaves no value it set behind."""
+    from tests import overrides
+
+    overrides.reload()
     yield
-    get_settings.cache_clear()
+    # monkeypatch may put the environment back only after this (another autouse fixture
+    # set it up first): a value the test set on purpose can still be invalid here. The
+    # next test reads the settings again anyway.
+    with contextlib.suppress(RuntimeError, ValueError):
+        overrides.reload()
 
 
 @pytest.fixture
@@ -259,13 +267,13 @@ def configure(monkeypatch):
     """Set settings through the environment, e.g. configure(AUTH_MODE="header")."""
 
     def apply(**env: str) -> None:
-        from app.core import settings as config
+        from tests import overrides
 
         for key, value in env.items():
             monkeypatch.setenv(key, value)
             # Set here explicitly: a value a ported test left set in code doesn't win.
-            config.OVERRIDES.pop(key.lower(), None)
-        get_settings.cache_clear()
+            overrides.ACTIVE.pop(key.lower(), None)
+        overrides.reload()
 
     return apply
 

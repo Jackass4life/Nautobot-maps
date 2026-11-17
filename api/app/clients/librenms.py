@@ -8,12 +8,11 @@ from urllib.parse import quote
 import httpx
 
 from app.clients import http
-from app.core.settings import get_settings
+from app.core.settings import settings
 
 
 def get(path: str, params: dict | None = None) -> dict:
     """Perform a GET request against the LibreNMS REST API."""
-    settings = get_settings()
     base_url = (settings.librenms_url or "").strip().rstrip("/")
     api_token = (settings.librenms_api_token or "").strip()
     if not base_url or not api_token:
@@ -40,7 +39,6 @@ def fetch_device(device: str) -> dict | None:
 
 
 def configured() -> bool:
-    settings = get_settings()
     return bool(
         (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip()
     )
