@@ -117,8 +117,10 @@ the details.
     at import (`tests/test_layout.py` checks); tests change them with the `override_settings`
     fixture (`override_settings(nautobot_url="")`) or `with overridden(...)` from
     `tests/overrides.py`, or through the environment with `configure(NAUTOBOT_URL="")`.
-    Add a new setting there and document it in `docs/configuration.md` and `.env.example`
-    (tests check both). Compose passes nothing itself: every container reads `.env` (#739).
+    Add a new setting there and document it in `docs/configuration.md` (with its **Read by**:
+    `api`) and `.env.example` (tests check both). Compose passes nothing itself: every
+    container reads `.env` (#739). A variable a script or test reads from the environment goes
+    in configuration.md's "Not in .env" table (#749; `tests/test_settings.py` checks).
   - `app/db/`: `session.py`, SQLAlchemy's async engine (asyncpg) and the `AsyncDbSession`
     dependency; `middleware.py`, one `AsyncSession` per API request; `connection.py`, the
     ported code's row and key helpers (imported as `db`: `db.row_to_dict()`,

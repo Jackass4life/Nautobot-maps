@@ -16,6 +16,9 @@ Usage:
     NAUTOBOT_TOKEN=aaaa-bbbb-cccc-dddd-eeee \
     python development/seed_nautobot.py
 
+NAUTOBOT_VERIFY_SSL (default false) checks Nautobot's certificate. The defaults are the
+development stack's Nautobot (development/docker-compose.yml).
+
 The script is idempotent – running it twice will not create duplicates.
 """
 
