@@ -14,7 +14,7 @@ Ported from nautobot_maps/status.py (#602): only the imports changed.
 
 from datetime import timedelta
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.services import inventory_service as inventory
 from app.utils import timeutil
 
@@ -103,7 +103,7 @@ DEVICE_ORDER = ("down", "maintenance", "up")
 def _named(row: dict, tenant: str) -> list[dict]:
     """The tenant's own devices at the site by name (#555), down first; []
     without STATUS_PAGE_TENANT_DEVICES, also from a board built with it."""
-    if not settings.STATUS_PAGE_TENANT_DEVICES:
+    if not get_settings().status_page_tenant_devices:
         return []
     devices = (row.get("tenant_devices") or {}).get(tenant) or []
     return sorted(
