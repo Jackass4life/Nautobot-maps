@@ -33,3 +33,4 @@ def when_ready(server) -> None:  # type: ignore[no-untyped-def]
     from app import startup
 
     startup.log_alert_board_exclusions()
+    startup.log_unknown_settings()

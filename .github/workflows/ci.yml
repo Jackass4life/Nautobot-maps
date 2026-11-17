@@ -453,6 +453,18 @@ jobs:
         # (api and web via their images' HEALTHCHECK, the mock via its compose one).
         run: docker compose -f demo/docker-compose.yml up -d --build --wait --wait-timeout 180
 
+      - name: The .env check runs in the image (#758)
+        # As docs/configuration.md says to run it, with the file on stdin. .env.example has
+        # nothing unread or invalid (exit 0); a broken one exits 1 and names the line.
+        run: |
+          check() { docker compose -f demo/docker-compose.yml run --rm --no-deps -T --entrypoint python api -m app.check_env -; }
+          check < .env.example
+          printf 'LOG_LEVEL=LOUD\nAPI_PORT=1\n' > broken.env
+          if check < broken.env > report.txt; then echo "a broken .env passed"; exit 1; fi
+          cat report.txt
+          grep -q 'API_PORT (line 2)' report.txt && grep -q 'Invalid LOG_LEVEL' report.txt
+          rm broken.env report.txt
+
       - name: The API and the pages run as non-root users
         run: |
           for service in api web; do

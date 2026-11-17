@@ -25,6 +25,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `api.py` | App, middleware, routers under `/api/v1`, spec at `/api/openapi.json` (`app.api:app`) |
 | `lifespan.py` | Startup and shutdown: response cache, Nautobot's SSL warnings, the background scheduler |
 | `__main__.py` | The command line, `python -m app …` (below) |
+| `check_env.py` | `python -m app.check_env [FILE]`: what in a `.env` nothing reads, is invalid, is set twice or is the default (#758) |
 | `migrate.py` | `python -m app migrate`: adopts a schema-33 database, upgrades to head |
 | `startup.py` | The startup log: what the board leaves out, settings that would quietly break something |
 | `server.py` | uvicorn's options (no proxy headers, no server header) for `run.py` and gunicorn |
@@ -35,7 +36,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `frontend/` | `web/`'s built pages in development (`WEB_BUILD_DIR`), the security headers and gzip on every answer |
 | `repositories/<resource>_repository.py` | All queries; takes an `AsyncSession`, returns ORM objects (`AsyncBaseRepository` in `core/repository.py`) |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
-| `core/` | Settings (`settings.py`: the shared `settings` object), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
+| `core/` | Settings (`settings.py`: the shared `settings` object), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`), `env_names.py` (every name anything reads, #758) |
 | `db/` | `session.py` (async engine on asyncpg, sessionmaker, `AsyncDbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `aconnection.py` (the ported SQL on asyncpg, advisory locks), `connection.py` (row and key helpers) |
 | `auth/` | Sign-in and role dependencies (`dependencies.py`) |
 | `context/` | Per-request context (`request.py`, the request's database session in `db.py`) |

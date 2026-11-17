@@ -163,7 +163,7 @@ The real work happens here, one module per job. The big ones:
 
 ### Other bits
 
-- `__main__.py`: the command line, `python -m app …` (`migrate`, `token create`, `identity …`, `role …`, `status-link`, `wireless-check`, …).
+- `__main__.py`: the command line, `python -m app …` (`migrate`, `token create`, `identity …`, `role …`, `status-link`, `wireless-check`, …). `check_env.py`: `python -m app.check_env`, a check of a `.env` file (its own command: it must run when the settings in the environment are broken).
 - `logs/`: logging. Each line names its part (`[sync]`, `[api]`, …) so you can filter by it (`logs/parts.py`).
 - `context/request.py`: the current request, for code deep below a route that needs a header.
 - `frontend/`: in development, serves the built pages and adds the security headers.
@@ -257,7 +257,7 @@ A few rules the code follows, which the tests rely on:
 
 **…add a setting.**
 1. Add a field to `Settings` in `api/app/core/settings.py`, with a comment.
-2. Document it in `docs/configuration.md` and `.env.example`. The compose files pass nothing themselves: every container reads `.env`.
+2. Document it in `docs/configuration.md` and `.env.example`. The compose files pass nothing themselves: every container reads `.env`. A name another part reads (compose, nginx, the web container) goes in `OTHER_PARTS` in `api/app/core/env_names.py` too, or the API warns that nothing reads it.
 
 `api/tests/test_settings.py` fails until both are done.
 

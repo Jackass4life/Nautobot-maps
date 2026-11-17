@@ -112,7 +112,11 @@ echo "CRITICALITY_RULES='$(tr -d '\n' < config/criticality_rules.json)'" >> .env
 echo "EXTRA_CA_PEM=$(base64 -w0 config/certs/internal-ca.pem)" >> .env
 ```
 
-Then edit `.env`: remove `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE`; set each `*_VERIFY_SSL` that named a file back to `true` (in `WIRELESS_CONTROLLERS` too, `"verify_ssl": true` instead of a path).
+Then edit `.env`: remove `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE`; set each `*_VERIFY_SSL` that named a file back to `true` (in `WIRELESS_CONTROLLERS` too, `"verify_ssl": true` instead of a path). Releases after 0.6.0 can check the result (#758): it lists leftovers, names set twice and values the API would refuse, never a value:
+
+```bash
+docker compose run --rm --no-deps -T --entrypoint python api -m app.check_env - < .env
+```
 
 **With the bundled proxy**, the API's settings for it are now `.env`'s too. Add them, and rename oauth2-proxy's two secrets:
 

@@ -11,7 +11,7 @@ and the current app's schema version when the database has one.
 T [--notify-email ADDRESSES [--notify-after MINUTES]]``, #707, #729), ``token list
 [--all] [--tenant TENANT]``, ``token revoke ID`` and ``token purge
 [--older-than DAYS] [--dry-run]`` manage API tokens (#297, #528); ``create``
-is how the first admin token is made (``docker compose exec app python -m
+is how the first admin token is made (``docker compose exec api python -m
 app ...``).
 
 ``identity create NAME --role R``, ``identity list``, ``identity delete NAME`` and

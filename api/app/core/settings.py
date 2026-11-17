@@ -20,6 +20,7 @@ import binascii
 import ipaddress
 import json
 import math
+import os
 import pathlib
 import re
 import ssl
@@ -763,6 +764,12 @@ def env_name(field: str) -> str:
     if isinstance(alias, AliasChoices):
         alias = alias.choices[0]
     return str(alias or field).upper()
+
+
+def environment_names() -> list[str]:
+    """The names in the environment (never their values), for the startup warning about
+    names nothing reads (app/core/env_names.py)."""
+    return [name.upper() for name in os.environ]
 
 
 # Every setting's environment name, for tests that check each is documented; the

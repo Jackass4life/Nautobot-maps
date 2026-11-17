@@ -41,6 +41,11 @@ Every container gets the whole `.env` (`env_file: .env` in each compose file, #7
   - `compose`: `docker compose` itself, while it starts the containers (a port, a network, a file to mount, oauth2-proxy's command line, nginx's build). `compose (nginx build)` needs `docker compose up -d --build` after a change.
   - `build`: only when the pages are built (`bun run generate`); a running container ignores it.
   - `dev server`: only `uv run python run.py` (development), never the Docker image.
+- **Check it:** `python -m app.check_env` lists what in your `.env` nothing reads (a typo, a leftover, another app's names), what the API would refuse, a name set twice (only the last line counts) and lines set to the default anyway. It prints names and line numbers, never a value, and exits with 1 when something is unread or invalid. With Docker, from the folder with `.env`:
+  ```
+  docker compose run --rm --no-deps -T --entrypoint python api -m app.check_env - < .env
+  ```
+  At startup the API also warns about a name in its environment that looks like a setting but isn't one: `Unknown setting AUTH_MOD (did you mean AUTH_MODE?): ignored`.
 - **Upgrading from a version with `config/`:** `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE` stop the app at startup and say what replaces them; a `*_VERIFY_SSL` with a file's path does too. [Operations](operations.md#every-setting-in-env-no-config-folder-739) has the steps.
 
 ## Nautobot
@@ -129,6 +134,7 @@ What `docker compose` starts, and how the containers find each other. `.env.exam
 |---|---|---|---|
 | `COMPOSE_FILE` | compose | `docker-compose.yml` | The compose files to use, `:`-separated: add `reverse-proxy/compose.yml` (or `reverse-proxy/compose.app-sign-in.yml`) for [the bundled proxy](#the-bundled-https-and-sign-in-proxy) |
 | `API_URL` | web | — (`http://api:5000` in `.env.example`) | Where the pages' container sends the API's paths (`/api/`, `/healthz`, `/metrics`, …). Without it they answer 404, which is fine behind the bundled proxy: nginx sends them to the API itself |
+| `HEALTHCHECK_PORT` | api (health check) | `5000` | The port the API image's Docker health check asks `/healthz` on: set it with `GUNICORN_BIND` when the API listens on another port |
 | `MIGRATE_ON_START` | api | `true` | The API image's entrypoint (`api/docker-entrypoint.sh`) applies the database migrations before starting; `false` skips that (run `python -m app migrate` yourself) |
 | `NUXT_PUBLIC_API_BASE` | build | empty (the API is the pages' own origin) | Another address for the API, built into the pages by `bun run generate`. The published web image is built without it: setting it in `.env` changes nothing |
 
