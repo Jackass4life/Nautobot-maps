@@ -1639,61 +1639,57 @@ class TestErrorHandlers:
 class TestConfigurableCriticalKeywords:
     """Tests for the _get_critical_keywords / compute_alert_level helpers."""
 
-    def setup_method(self):
-        """Reset module-level keyword state before each test."""
-        self._orig_env_kw = alerts.ENV_CORE_ROLE_KEYWORDS
-        self._orig_rules = dict(alerts.CRITICALITY_RULES)
-
-    def teardown_method(self):
-        alerts.ENV_CORE_ROLE_KEYWORDS = self._orig_env_kw
-        alerts.CRITICALITY_RULES = self._orig_rules
-
-    def test_default_keywords_applied(self):
+    def test_default_keywords_applied(self, override_settings):
         """Without any configuration the built-in defaults are used."""
-        alerts.ENV_CORE_ROLE_KEYWORDS = alerts.DEFAULT_CORE_ROLE_KEYWORDS
-        alerts.CRITICALITY_RULES = {}
+        override_settings(critical_role_keywords="", criticality_rules={})
         kw = alerts.get_critical_keywords()
         assert "core" in kw
         assert "router" in kw
 
-    def test_env_override_replaces_defaults(self):
-        """_ENV_CORE_ROLE_KEYWORDS env override replaces defaults when no JSON rules."""
-        alerts.ENV_CORE_ROLE_KEYWORDS = ("firewall", "border")
-        alerts.CRITICALITY_RULES = {}
+    def test_env_override_replaces_defaults(self, override_settings):
+        """CRITICAL_ROLE_KEYWORDS replaces defaults when no JSON rules."""
+        override_settings(critical_role_keywords="Firewall, border", criticality_rules={})
         kw = alerts.get_critical_keywords()
         assert kw == ("firewall", "border")
 
-    def test_env_override_used_as_fallback_for_unknown_type(self):
+    def test_env_override_used_as_fallback_for_unknown_type(self, override_settings):
         """When rules have no matching type and no 'default' key, env override is used."""
-        alerts.ENV_CORE_ROLE_KEYWORDS = ("firewall",)
-        alerts.CRITICALITY_RULES = {"datacenter": ["core", "spine"]}
+        override_settings(
+            critical_role_keywords="firewall", criticality_rules={"datacenter": ["core", "spine"]}
+        )
         kw = alerts.get_critical_keywords("office")
         assert kw == ("firewall",)
 
-    def test_location_type_rule_matched(self):
+    def test_location_type_rule_matched(self, override_settings):
         """The exact location_type key is returned when present in rules."""
-        alerts.CRITICALITY_RULES = {
-            "datacenter": ["core", "firewall"],
-            "office": ["router"],
-        }
+        override_settings(
+            criticality_rules={
+                "datacenter": ["core", "firewall"],
+                "office": ["router"],
+            }
+        )
         kw = alerts.get_critical_keywords("Datacenter")
         assert "firewall" in kw
 
-    def test_rules_default_key_used_for_unknown_type(self):
+    def test_rules_default_key_used_for_unknown_type(self, override_settings):
         """The 'default' key in rules is the fallback for unknown location types."""
-        alerts.CRITICALITY_RULES = {
-            "default": ["core", "spine"],
-            "office": ["router"],
-        }
+        override_settings(
+            criticality_rules={
+                "default": ["core", "spine"],
+                "office": ["router"],
+            }
+        )
         kw = alerts.get_critical_keywords("warehouse")
         assert kw == ("core", "spine")
 
-    def test_compute_alert_level_respects_location_type(self):
+    def test_compute_alert_level_respects_location_type(self, override_settings):
         """compute_alert_level uses the correct keyword set for the given location type."""
-        alerts.CRITICALITY_RULES = {
-            "office": ["router"],
-            "datacenter": ["core", "firewall"],
-        }
+        override_settings(
+            criticality_rules={
+                "office": ["router"],
+                "datacenter": ["core", "firewall"],
+            }
+        )
         # A "firewall" device offline in a datacenter → critical
         dc_devices = [{"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"}]
         result = alerts.compute_alert_level(dc_devices, location_type="datacenter")
@@ -1751,13 +1747,9 @@ class TestLocationDetailWithLocationType:
         assert "devices" in data
         assert "alert" in data
 
-    def test_location_type_influences_alert(self, flask_client):
+    def test_location_type_influences_alert(self, flask_client, override_settings):
         """When location_type maps to rules, compute_alert_level uses correct keywords."""
-
-        orig_rules = dict(alerts.CRITICALITY_RULES)
-        orig_env = alerts.ENV_CORE_ROLE_KEYWORDS
-        alerts.CRITICALITY_RULES = {"datacenter": ["firewall"]}
-        alerts.ENV_CORE_ROLE_KEYWORDS = ()
+        override_settings(criticality_rules={"datacenter": ["firewall"]})
 
         firewall_devices_page = {
             "count": 1,
@@ -1783,14 +1775,10 @@ class TestLocationDetailWithLocationType:
                 return firewall_devices_page
             return {"count": 0, "next": None, "results": []}
 
-        try:
-            with patch.object(nautobot, "get", side_effect=mock_get):
-                resp = flask_client.get("/api/v1/locations/loc-1/detail?location_type=datacenter")
-            data = resp.get_json()
-            assert data["alert"]["level"] == "critical"
-        finally:
-            alerts.CRITICALITY_RULES = orig_rules
-            alerts.ENV_CORE_ROLE_KEYWORDS = orig_env
+        with patch.object(nautobot, "get", side_effect=mock_get):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail?location_type=datacenter")
+        data = resp.get_json()
+        assert data["alert"]["level"] == "critical"
 
 
 # ---------------------------------------------------------------------------
@@ -3508,17 +3496,12 @@ class TestInventoryCacheSync:
 # Tests: criticality_rules.json loading
 # ---------------------------------------------------------------------------
 class TestCriticalityRules:
-    def test_rules_from_the_setting(self, monkeypatch):
-        """CRITICALITY_RULES (#739, JSON) gives each location type its keywords."""
-        monkeypatch.setattr(
-            alerts, "CRITICALITY_RULES", {"datacenter": ["core", "firewall"], "office": ["router"]}
-        )
+    def test_rules_from_the_setting(self, configure):
+        """CRITICALITY_RULES (#739, JSON) gives each location type its keywords, read at
+        call time."""
+        configure(CRITICALITY_RULES='{"Datacenter": ["Core", "firewall"], "office": ["router"]}')
         assert alerts.get_critical_keywords("datacenter") == ("core", "firewall")
         assert alerts.get_critical_keywords("Office") == ("router",)
-
-    def test_the_setting_is_read_at_import(self, monkeypatch):
-        """The module's rules are the settings' (lower-cased there)."""
-        assert alerts.CRITICALITY_RULES == dict(settings.CRITICALITY_RULES)
 
 
 # ---------------------------------------------------------------------------
