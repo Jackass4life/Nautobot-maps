@@ -2,6 +2,10 @@
 
 Run against a running app: ``E2E_BASE_URL=http://127.0.0.1:5055 python -m pytest e2e/``
 (CI starts the mock, PostgreSQL and the app first; see the e2e job).
+
+Environment (docs/configuration.md, "Not in .env"): E2E_BASE_URL, the app; API tokens
+E2E_OPERATOR_TOKEN, E2E_ADMIN_TOKEN, E2E_NOC_TOKEN and E2E_CUSTOMER_TOKEN for the tests
+that sign in with that role (`python -m app token create … --role <role>`).
 """
 
 import csv

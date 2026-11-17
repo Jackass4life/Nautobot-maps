@@ -139,6 +139,120 @@ def test_every_setting_is_documented():
     assert not missing, f"document in docs/configuration.md or api/README.md: {missing}"
 
 
+def config_rows() -> list[tuple[list[str], str]]:
+    """docs/configuration.md's settings tables: each row's names and its Read by cell."""
+    text = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    rows, read_by = [], None
+    for line in text.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not line.startswith("|"):
+            read_by = None
+        elif cells[0] == "Variable":
+            read_by = cells.index("Read by") if "Read by" in cells else None
+            assert read_by is not None, f"a settings table without Read by: {line}"
+        elif read_by is not None and not cells[0].startswith("---"):
+            rows.append((re.findall(r"`([A-Z][A-Z0-9_]*)`", cells[0]), cells[read_by]))
+    return rows
+
+
+def _text(*patterns: str) -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for pattern in patterns
+        for path in sorted(REPO_ROOT.glob(pattern))
+    )
+
+
+def nginx_runtime_names() -> set[str]:
+    """What nginx's container fills in when it starts (NGINX_ENVSUBST_FILTER); the rest
+    of its templates are filled in when the image is built, from build arguments."""
+    dockerfile = (REPO_ROOT / "reverse-proxy" / "Dockerfile").read_text(encoding="utf-8")
+    names = re.search(r'NGINX_ENVSUBST_FILTER="\^\(([A-Z0-9_|]+)\)\$"', dockerfile)
+    assert names, "reverse-proxy/Dockerfile: NGINX_ENVSUBST_FILTER moved"
+    return set(names.group(1).split("|"))
+
+
+def _reads(reader: str, name: str) -> bool:
+    """Whether *reader* (a Read by entry) really reads *name*, by its source (#749)."""
+    base = reader.split(" (")[0]
+    if base in {"api", "dev server"}:
+        return name in SETTING_NAMES or name in _text("api/docker-entrypoint.sh")
+    if base == "gunicorn":
+        return f'"{name}"' in _text("api/gunicorn_config.py")
+    if base == "web":
+        return f"process.env.{name}" in _text("web/server/**/*.ts")
+    if base == "postgres":
+        return name.startswith("POSTGRES_")
+    if base == "oauth2-proxy":
+        return name.startswith("OAUTH2_PROXY_")
+    if base == "nginx":
+        return name in nginx_runtime_names()
+    if base == "compose":
+        return name == "COMPOSE_FILE" or f"${{{name}" in _text(*COMPOSE_FILES)
+    if base == "build":
+        return name in _text("web/nuxt.config.ts")
+    path = reader.strip("`")
+    assert (REPO_ROOT / path).is_file(), f"Read by names no part or file: {reader}"
+    return name in (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def test_every_env_example_setting_is_in_a_settings_table():
+    """Not only the API's: the containers' and compose's too (#749)."""
+    documented = {name for names, _ in config_rows() for name in names}
+    missing = sorted(env_example_names() - documented)
+    assert not missing, f"add to a table in docs/configuration.md: {missing}"
+
+
+def test_read_by_names_the_parts_that_read_it():
+    """Each row's Read by (#749) matches the code: every part it names reads the
+    setting, and the API, the pages, nginx and compose aren't left out where they do.
+    "a / b" pairs each name with its own readers."""
+    compose = _text(*COMPOSE_FILES)
+    web = _text("web/server/**/*.ts")
+    for names, cell in config_rows():
+        assert cell, f"no Read by: {names}"
+        groups = cell.split(" / ")
+        if len(groups) != len(names):
+            groups = [cell] * len(names)
+        for name, group in zip(names, groups, strict=True):
+            readers = [reader.strip() for reader in re.split(r",(?![^(]*\))", group)]
+            for reader in readers:
+                assert _reads(reader, name), f"{name}: {reader} doesn't read it"
+            bases = {reader.split(" (")[0] for reader in readers}
+            # Scripts' rows ("Not in .env") name files: the containers' rows are checked.
+            if name in env_example_names() and not all("/" in reader for reader in readers):
+                expected = {
+                    "api": name in SETTING_NAMES,
+                    "compose": f"${{{name}" in compose,
+                    "nginx": name in nginx_runtime_names(),
+                    "web": f"process.env.{name}" in web,
+                }
+                # The development server is the API too.
+                if "dev server" in bases:
+                    bases.add("api")
+                for base, reads in expected.items():
+                    assert not reads or base in bases, f"{name}: add {base} to Read by"
+
+
+def test_the_scripts_settings_are_documented():
+    """Every variable a script or test reads from the environment, outside the API's
+    settings, is on docs/configuration.md ("Not in .env", #749)."""
+    docs = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    skip = {".venv", "node_modules", "example", ".git"}
+    names: dict[str, str] = {}
+    for path in sorted(REPO_ROOT.rglob("*.py")):
+        relative = path.relative_to(REPO_ROOT)
+        if skip & set(relative.parts) or relative.parts[:2] == ("api", "app"):
+            continue
+        source = path.read_text(encoding="utf-8")
+        for name in re.findall(
+            r"""os\.(?:getenv|environ\.get|environ\[)\(?\s*["']([A-Z][A-Z0-9_]*)["']""", source
+        ):
+            names.setdefault(name, str(relative))
+    missing = sorted(f"{name} ({at})" for name, at in names.items() if f"`{name}`" not in docs)
+    assert not missing, f"document in docs/configuration.md: {missing}"
+
+
 def test_only_the_settings_module_reads_the_environment():
     readers = [
         str(path.relative_to(API_ROOT))

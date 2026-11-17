@@ -14,6 +14,9 @@ Endpoints implemented:
   GET /api/extras/relationships/, /api/extras/relationship-associations/
 
 Token auth: any request must carry  Authorization: Token <any non-empty value>
+
+Environment (docs/configuration.md, "Not in .env"): MOCK_SCALE=1200 adds that many
+generated sites (demo/README.md); MOCK_AP_DHCP=1 drops the access points' primary IPs.
 """
 
 import os

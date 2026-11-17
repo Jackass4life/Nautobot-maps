@@ -3,6 +3,10 @@
     python reverse-proxy/ci/smoke.py https://localhost:443 http://localhost:80
 
 The app must run with AUTH_MODE=header and noc-operators as an operator group.
+Environment (docs/configuration.md, "Not in .env"): STATUS_LINK and STATUS_TOKEN, a
+tenant's status page link and a status token for it (CI makes them; unset, the checks
+fail), and OIDC_LOGOUT_URL, the logout address nginx was started with, where Sign out
+must end up.
 """
 
 import json
