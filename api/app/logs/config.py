@@ -16,7 +16,7 @@ from datetime import UTC
 
 from loguru import logger
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.logs import parts
 
 # loguru adds the stack trace, if any, on the lines below.
@@ -109,21 +109,22 @@ def configure() -> None:
     """Send every log line to stderr (the access log to stdout) at LOG_LEVEL in
     LOG_FORMAT, and Python's standard logging through loguru."""
     global _configured
+    settings = get_settings()
     logger.remove()
     logger.configure(patcher=name_and_part)
-    as_json = settings.LOG_FORMAT == "json"
+    as_json = settings.log_format == "json"
     for stream, level, keep in (
-        (sys.stderr, settings.LOG_LEVEL, _not_access),
+        (sys.stderr, settings.log_level, _not_access),
         (sys.stdout, ACCESS_LEVEL, keep_access_line),
     ):
         if as_json:
             logger.add(_json_sink(stream), level=level, filter=keep, format="{message}")
         else:
             logger.add(stream, level=level, filter=keep, format=TEXT_FORMAT, colorize=False)
-    logging.basicConfig(handlers=[InterceptHandler()], level=settings.LOG_LEVEL, force=True)
+    logging.basicConfig(handlers=[InterceptHandler()], level=settings.log_level, force=True)
     # httpx writes a line per upstream request at INFO (#645): those only with
     # LOG_LEVEL=DEBUG; httpcore's connection details never.
-    quiet = logging.DEBUG if settings.LOG_LEVEL == "DEBUG" else logging.WARNING
+    quiet = logging.DEBUG if settings.log_level == "DEBUG" else logging.WARNING
     logging.getLogger("httpx").setLevel(quiet)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     # uvicorn's and gunicorn's own handlers would print a second, unformatted line.
@@ -140,23 +141,24 @@ def configured() -> bool:
 
 def gunicorn_logconfig() -> dict:
     """``logconfig_dict`` for gunicorn: its error log through loguru, like every other line."""
+    settings = get_settings()
     return {
         "version": 1,
         "disable_existing_loggers": False,
         "handlers": {"loguru": {"()": InterceptHandler}},
         # gunicorn merges this into its defaults, whose root logger names a
         # "console" handler that this config replaces.
-        "root": {"level": settings.LOG_LEVEL, "handlers": ["loguru"]},
+        "root": {"level": settings.log_level, "handlers": ["loguru"]},
         "loggers": {
             "gunicorn.error": {
-                "level": settings.LOG_LEVEL,
+                "level": settings.log_level,
                 "handlers": ["loguru"],
                 "propagate": False,
             },
             # Off (accesslog = None): the app writes its own access log (#436).
             "gunicorn.access": {"level": "INFO", "handlers": ["loguru"], "propagate": False},
             "uvicorn.error": {
-                "level": settings.LOG_LEVEL,
+                "level": settings.log_level,
                 "handlers": ["loguru"],
                 "propagate": False,
             },

@@ -113,8 +113,10 @@ the details.
     `board_store.function()`.
   - `app/models/` and `alembic/`: the schema (SQLAlchemy models, Alembic revisions).
   - `app/core/settings.py`: every setting, the only module that reads the environment.
-    Code ported from the first app reads them as `settings.NAME` (`app/core/legacy_settings.py`)
-    at call time; tests change them with `monkeypatch.setattr(settings, "NAME", value)`.
+    Code reads them with `settings = get_settings()` inside the function that needs them, never
+    at import (`tests/test_layout.py` checks); tests change them with the `override_settings`
+    fixture (`override_settings(nautobot_url="")`) or `with overridden(...)` from
+    `tests/overrides.py`, or through the environment with `configure(NAUTOBOT_URL="")`.
     Add a new setting there and document it in `docs/configuration.md` and `.env.example`
     (tests check both). Compose passes nothing itself: every container reads `.env` (#739).
   - `app/db/`: `session.py`, SQLAlchemy's async engine (asyncpg) and the `AsyncDbSession`

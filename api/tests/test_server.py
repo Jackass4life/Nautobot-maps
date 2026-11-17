@@ -11,8 +11,9 @@ from unittest.mock import patch
 import pytest
 
 from app import server, startup
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.logs import config as logs
+from tests.overrides import overridden
 
 ACCESS = "app.access"
 
@@ -21,7 +22,7 @@ def test_one_access_log_line_with_the_same_fields(asgi_client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
         asgi_client.get(
             "/api/v1/app-status?x=1",
-            headers={settings.AUTH_HEADER_USER: "olga", "User-Agent": "probe/1"},
+            headers={get_settings().auth_header_user: "olga", "User-Agent": "probe/1"},
         )
     lines = [record for record in caplog.records if record.name == ACCESS]
     assert len(lines) == 1
@@ -58,8 +59,8 @@ def test_uvicorn_never_takes_the_client_from_a_header():
     assert server.Worker.CONFIG_KWARGS["access_log"] is False
 
 
-def test_json_lines_include_the_stack_trace(monkeypatch, capsys, configure_logs):
-    monkeypatch.setattr(settings, "LOG_FORMAT", "json")
+def test_json_lines_include_the_stack_trace(capsys, configure_logs, override_settings):
+    override_settings(log_format="json")
     configure_logs()
     try:
         raise KeyError("site")
@@ -102,13 +103,11 @@ def test_gunicorn_config_logs_access_and_keeps_a_root_logger(monkeypatch):
 class TestStartupLog:
     def test_it_reports_the_resolved_sets(self):
         with (
-            patch.object(
-                settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}
-            ),
-            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()),
-            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}),
-            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}),
-            patch.object(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned", "null"}),
+            overridden(alert_board_excluded_location_statuses={"staging", "decommissioning"}),
+            overridden(alert_board_excluded_location_names=set()),
+            overridden(alert_board_excluded_location_types={"warehouse"}),
+            overridden(alert_board_excluded_location_tags={"non-operational"}),
+            overridden(alert_board_excluded_device_statuses={"planned", "null"}),
             patch.object(startup.logger, "info") as info,
         ):
             startup.log_alert_board_exclusions()
@@ -128,17 +127,16 @@ class TestStartupLog:
         [("s3cr3t-value", "with the proxy secret"), ("", "no AUTH_PROXY_SECRET")],
     )
     def test_header_auth_names_the_proxies_never_the_secret(
-        self, monkeypatch, caplog, secret, says
+        self, caplog, secret, says, override_settings
     ):
-        monkeypatch.setattr(settings, "AUTH_MODE", "header")
-        monkeypatch.setattr(settings, "AUTH_PROXY_SECRET", secret)
+        override_settings(auth_mode="header", auth_proxy_secret=secret)
         with caplog.at_level("INFO", logger="app"):
             startup.log_alert_board_exclusions()
         assert "identity headers trusted from 127.0.0.1/32" in caplog.text and says in caplog.text
         assert "s3cr3t" not in caplog.text
 
-    def test_a_leftover_sqlite_setting(self, monkeypatch, caplog):
-        monkeypatch.setattr(settings, "LEGACY_SQLITE_DB", "/app/data/nautobot_maps.db")
+    def test_a_leftover_sqlite_setting(self, caplog, override_settings):
+        override_settings(legacy_sqlite_db="/app/data/nautobot_maps.db")
         with caplog.at_level("ERROR", logger="app"):
             startup.log_alert_board_exclusions()
         assert "SQLite support was removed" in caplog.text
@@ -206,29 +204,29 @@ class TestGunicornConfig:
 class TestDevelopmentServer:
     """``python run.py`` (the current app's ``python app.py``)."""
 
-    def test_header_auth_listens_on_loopback_only(self, monkeypatch):
+    def test_header_auth_listens_on_loopback_only(self, override_settings):
         import run as serve
 
-        monkeypatch.setattr(settings, "AUTH_MODE", "header")
+        override_settings(auth_mode="header")
         assert serve.host() == "127.0.0.1"
-        monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
+        override_settings(auth_mode="disabled")
         assert serve.host() == "0.0.0.0"
 
     @pytest.mark.parametrize(("value", "port"), [("", 5000), ("5055", 5055), ("x", 5000)])
-    def test_its_port(self, monkeypatch, value, port):
+    def test_its_port(self, value, port, override_settings):
         import run as serve
 
-        monkeypatch.setattr(settings, "FLASK_RUN_PORT", value)
+        override_settings(flask_run_port=value)
         assert serve.port() == port
 
-    def test_it_runs_the_app_with_the_image_options(self, monkeypatch):
+    def test_it_runs_the_app_with_the_image_options(self, monkeypatch, override_settings):
         import run as serve
 
         calls = []
         monkeypatch.setattr(serve.uvicorn, "run", lambda *a, **k: calls.append((a, k)))
         # Not the root logger's handlers: pytest's log capture is one of them.
         monkeypatch.setattr(serve.logs, "configure", lambda: None)
-        monkeypatch.setattr(settings, "FLASK_DEBUG", True)
+        override_settings(flask_debug=True)
         serve.main()
         ((args, kwargs),) = calls
         assert args == ("app.api:app",) and kwargs["reload"] is True

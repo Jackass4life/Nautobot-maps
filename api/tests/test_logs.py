@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from app.core.legacy_settings import settings
 from app.logs import parts
 
 APP = Path(__file__).resolve().parent.parent / "app"
@@ -130,28 +129,32 @@ class TestTheLines:
         # Milliseconds, no time zone: as before, with a dot.
         assert err[0][19] == "." and err[0][23] == " "
 
-    def test_upstream_requests_are_logged_only_at_debug(self, monkeypatch, capsys, configure_logs):
+    def test_upstream_requests_are_logged_only_at_debug(
+        self, capsys, configure_logs, override_settings
+    ):
         """httpx writes a line per request at INFO (#645): not at the default level."""
         configure_logs()
         logging.getLogger("httpx").info('HTTP Request: GET https://nautobot/api/ "HTTP/1.1 200 OK"')
         logging.getLogger("httpx").warning("pool closed")
         err = capsys.readouterr().err
         assert "HTTP Request" not in err and " WARNING [sync] httpx: pool closed" in err
-        monkeypatch.setattr(settings, "LOG_LEVEL", "DEBUG")
+        override_settings(log_level="DEBUG")
         configure_logs()
         logging.getLogger("httpx").info("HTTP Request: GET https://nautobot/api/")
         assert " INFO [sync] httpx: HTTP Request" in capsys.readouterr().err
 
-    def test_a_modules_own_lines_are_named_after_it(self, monkeypatch, capsys, configure_logs):
+    def test_a_modules_own_lines_are_named_after_it(
+        self, capsys, configure_logs, override_settings
+    ):
         from app import startup
 
-        monkeypatch.setattr(settings, "LEGACY_SQLITE_DB", "/app/data/nautobot_maps.db")
+        override_settings(legacy_sqlite_db="/app/data/nautobot_maps.db")
         configure_logs()
         startup.log_alert_board_exclusions()
         assert " ERROR [server] app.startup: NAUTOBOT_MAPS_DB is set" in capsys.readouterr().err
 
-    def test_json_carries_the_part(self, monkeypatch, capsys, configure_logs):
-        monkeypatch.setattr(settings, "LOG_FORMAT", "json")
+    def test_json_carries_the_part(self, capsys, configure_logs, override_settings):
+        override_settings(log_format="json")
         configure_logs()
         logging.getLogger("alembic.runtime.migration").info("Running upgrade")
         entry = json.loads(capsys.readouterr().err.strip())
@@ -163,9 +166,9 @@ class TestTheLines:
         )
 
     def test_the_access_log_goes_to_stdout_even_at_warning(
-        self, monkeypatch, capsys, configure_logs, asgi_client
+        self, capsys, configure_logs, asgi_client, override_settings
     ):
-        monkeypatch.setattr(settings, "LOG_LEVEL", "WARNING")
+        override_settings(log_level="WARNING")
         configure_logs()
         asgi_client.get("/alerts")
         asgi_client.get("/api/v1/app-status")

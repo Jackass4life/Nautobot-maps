@@ -5,18 +5,19 @@ import asyncio
 import pytest
 
 from app.clients import caching, nautobot
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from tests.test_app import auth_config
 from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
 
 @pytest.fixture
-def synced(flask_client, pg_database, monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+def synced(flask_client, pg_database, monkeypatch, override_settings):
+    override_settings(
+        nautobot_url="https://nautobot.example.com",
+        nautobot_token="token",
+        librenms_url="",
+        librenms_api_token="",
+    )
     circuits = [*CIRCUITS, _circuit("c-formula", "=HYPERLINK(1)", "@Roersvej 33, 5000 Odense")]
 
     def fetch(endpoint, params=None, **kwargs):
@@ -72,10 +73,9 @@ def test_csv_one_row_per_circuit_formula_safe(flask_client, synced):
     assert ',"\'@Roersvej 33, 5000 Odense",' in lines[2]
 
 
-def test_left_out_and_sorted(flask_client, monkeypatch, pg_database):
+def test_left_out_and_sorted(flask_client, monkeypatch, pg_database, override_settings):
     """Decommissioned circuits aren't work; an unnamed one sorts as "Unnamed circuit"."""
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+    override_settings(nautobot_url="https://nautobot.example.com", nautobot_token="token")
     circuits = [
         _circuit("c-old", "OLD-1", "", status={"label": "Decommissioned"}),
         _circuit("c-x", "", ""),
@@ -93,9 +93,10 @@ def test_left_out_and_sorted(flask_client, monkeypatch, pg_database):
     assert data["summary"]["total"] == 3
 
 
-def test_a_site_off_the_map_links_through_its_building(flask_client, monkeypatch, pg_database):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+def test_a_site_off_the_map_links_through_its_building(
+    flask_client, monkeypatch, pg_database, override_settings
+):
+    override_settings(nautobot_url="https://nautobot.example.com", nautobot_token="token")
     address = "Roersvej 33, 5000 Odense C"
     locations = [
         {**LOCATIONS[0], "latitude": None, "longitude": None},  # Odense: no coordinates
@@ -140,8 +141,8 @@ def test_page_and_nav(flask_client, synced, frontend_build):
     assert config["nautobot_url"] == "https://nautobot.example.com"
 
 
-def test_viewers_only_when_required(flask_client, monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+def test_viewers_only_when_required(flask_client, override_settings):
+    override_settings(auth_require_viewer=True)
     with auth_config(mode="header", viewer_groups={"noc"}):
         for path in ("/circuits", "/api/v1/circuit-mapping", "/api/v1/circuit-mapping.csv"):
             assert flask_client.get(path).status_code == 401, path

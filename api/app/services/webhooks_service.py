@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from loguru import logger
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import inventory_service as inventory
@@ -79,11 +79,12 @@ def parse_alertmanager(body) -> tuple[list[dict], int]:
     The device is the first of ALERTMANAGER_DEVICE_LABELS an alert has;
     with ALERTMANAGER_ALERTNAMES set, other alerts are skipped.
     """
+    settings = get_settings()
     if not isinstance(body, dict) or not isinstance(body.get("alerts"), list):
         raise WebhookError("Expected an Alertmanager webhook: a JSON object with an alerts list")
     if len(body["alerts"]) > MAX_ALERTS:
         raise WebhookError(f"At most {MAX_ALERTS} alerts per request")
-    names = settings.ALERTMANAGER_ALERTNAMES
+    names = settings.alertmanager_alertnames
     events, skipped = [], 0
     for alert in body["alerts"]:
         labels = alert.get("labels") if isinstance(alert, dict) else None
@@ -98,7 +99,7 @@ def parse_alertmanager(body) -> tuple[list[dict], int]:
             (
                 key
                 for key in (
-                    device_key(labels.get(label)) for label in settings.ALERTMANAGER_DEVICE_LABELS
+                    device_key(labels.get(label)) for label in settings.alertmanager_device_labels
                 )
                 if key
             ),
@@ -176,7 +177,7 @@ def parse_generic(body) -> list[dict]:
 
 def cutoff(now: datetime) -> datetime:
     """Alerts not refreshed since then no longer count (a lost "resolved")."""
-    return now - timedelta(hours=settings.WEBHOOK_ALERT_TTL_HOURS)
+    return now - timedelta(hours=get_settings().webhook_alert_ttl_hours)
 
 
 async def store(conn: aconnection.Connection, events: list[dict]) -> None:

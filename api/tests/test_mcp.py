@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import mcp_service as mcp
@@ -84,8 +83,8 @@ BOARD = {
 
 
 @pytest.fixture
-def flask_client(monkeypatch):
-    monkeypatch.setattr(settings, "MCP_ENABLED", True)
+def flask_client(monkeypatch, override_settings):
+    override_settings(mcp_enabled=True)
     # The rest of a real board's fields, empty (#449: the answer is checked against /api/docs).
     board = answers.complete(board_answers.Board, BOARD)
     monkeypatch.setattr(
@@ -133,8 +132,8 @@ def call(flask_client, name, arguments=None, **kwargs):
 
 
 class TestProtocol:
-    def test_off_by_default(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "MCP_ENABLED", False)
+    def test_off_by_default(self, flask_client, override_settings):
+        override_settings(mcp_enabled=False)
         assert modern(flask_client, "server/discover").status_code == 404
         assert (
             legacy(flask_client, "initialize", {"protocolVersion": "2025-11-25"}).status_code == 404
@@ -274,7 +273,7 @@ class TestProtocol:
     def test_get_is_not_allowed(self, flask_client):
         assert flask_client.get("/mcp").status_code == 405
 
-    def test_browser_origins_are_refused_unless_listed(self, flask_client, monkeypatch):
+    def test_browser_origins_are_refused_unless_listed(self, flask_client, override_settings):
         response = modern(flask_client, "tools/list", headers={"Origin": "https://evil.example"})
         assert response.status_code == 403
         # Matching the Host header is no defence against DNS rebinding:
@@ -284,7 +283,7 @@ class TestProtocol:
             == 403
         )
         assert modern(flask_client, "tools/list", headers={"Origin": "null"}).status_code == 403
-        monkeypatch.setattr(settings, "MCP_ALLOWED_ORIGINS", ["https://Assistant.example.com"])
+        override_settings(mcp_allowed_origins=["https://Assistant.example.com"])
         assert (
             modern(
                 flask_client, "tools/list", headers={"Origin": "https://assistant.example.com"}
@@ -546,8 +545,8 @@ class TestRoles:
             # Reads open to everyone stay open.
             assert not call(flask_client, "get_site", {"site": "Oslo"}, headers=viewer)["isError"]
 
-    def test_require_viewer_protects_the_endpoint(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+    def test_require_viewer_protects_the_endpoint(self, flask_client, override_settings):
+        override_settings(auth_require_viewer=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert modern(flask_client, "tools/list").status_code == 401
             signed_in = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
@@ -619,10 +618,10 @@ class TestAddCase:
         }
         assert cases == {"INC-77"}
 
-    def test_an_allowed_browser_client_can_add_a_case(self, flask_client, monkeypatch):
+    def test_an_allowed_browser_client_can_add_a_case(self, flask_client, override_settings):
         """A browser MCP flask_client from an allowed origin passes /mcp's own check;
         its tool's call must not be refused as a change from another site."""
-        monkeypatch.setattr(settings, "MCP_ALLOWED_ORIGINS", ["https://assistant.example"])
+        override_settings(mcp_allowed_origins=["https://assistant.example"])
         self._open_alerts()
         browser = {
             "Origin": "https://assistant.example",

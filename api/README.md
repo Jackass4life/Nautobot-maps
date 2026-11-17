@@ -29,7 +29,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `services/<resource>_service.py` | Business rules; ORM ↔ DTO conversion |
 | `repositories/<resource>_repository.py` | All queries; takes an `AsyncSession`, returns ORM objects (`AsyncBaseRepository` in `core/repository.py`) |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
-| `core/` | Settings (`settings.py`, `legacy_settings.py`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
+| `core/` | Settings (`settings.py`: `get_settings()`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
 | `db/` | `session.py` (async engine on asyncpg, sessionmaker, `AsyncDbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `aconnection.py` (the ported SQL on asyncpg, advisory locks), `connection.py` (row and key helpers) |
 | `auth/` | Sign-in and role dependencies (`dependencies.py`) |
 | `context/` | Per-request context (`request.py`, the request's database session in `db.py`) |
@@ -125,9 +125,9 @@ by many tests, they are ported close to verbatim, on two thin layers:
   connect and statement timeouts. The same advisory lock keys: the two apps exclude each
   other during the switchover. `app/db/connection.py` keeps its helpers (`db.row_to_dict()`,
   `db.placeholders()`, ...).
-- `app/core/legacy_settings.py`: `settings.NAUTOBOT_URL` reads `get_settings().nautobot_url`
-  at call time; a test's `monkeypatch.setattr(settings, "NAME", value)` changes it for every
-  module.
+- Settings: `get_settings().nautobot_url`, read inside the function (#745: the
+  `settings.NAUTOBOT_URL` proxy is gone); a test's `override_settings(nautobot_url=...)`
+  (`tests/overrides.py`) changes it for every module until the test ends.
 
 So far: `app/services/inventory_service.py` (the inventory sync into the snapshot tables, its
 reads), `app/services/scheduler.py` (one asyncio task per process, its sync work in a thread until it is async, the `background_scheduler` lock,

@@ -68,8 +68,7 @@ def test_errors_are_shown_as_the_app_sends_them(flask_client):
     }
 
 
-def test_a_refusal_is_checked_too(flask_client, monkeypatch):
-    from app.core.legacy_settings import settings
+def test_a_refusal_is_checked_too(flask_client, monkeypatch, override_settings):
 
     seen = []
     monkeypatch.setattr(
@@ -77,7 +76,7 @@ def test_a_refusal_is_checked_too(flask_client, monkeypatch):
         "ANSWER_CHECK",
         lambda route, response: seen.append((route.path, response.status_code)),
     )
-    monkeypatch.setattr(settings, "AUTH_MODE", "header")
+    override_settings(auth_mode="header")
     assert flask_client.get("/api/v1/tokens").status_code == 401
     # A route of the new stack's nested /api/v1 router names its path within it.
     assert seen == [("/tokens", 401)]

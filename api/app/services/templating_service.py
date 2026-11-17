@@ -2,7 +2,7 @@
 app's nautobot_maps/templating.py without its error page (the pages bring theirs,
 step 8 of #587), on #592's sign-in (``legacy_auth``)."""
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.services import legacy_auth as auth
 
 
@@ -20,8 +20,9 @@ def sign_out_url(user: dict) -> str:
     """Where Sign out goes (#546): AUTH_SIGN_OUT_URL for someone signed in through the
     proxy; the sign-in page, which ends the app's own sign-in, for someone signed in
     there (#717); "" for an API token, which has no session to end."""
-    if settings.AUTH_MODE != "header" or user.get("token"):
+    settings = get_settings()
+    if settings.auth_mode != "header" or user.get("token"):
         return ""
     if user.get("signed_in_with") == "app":
         return "/auth?signed_out=1"
-    return settings.AUTH_SIGN_OUT_URL
+    return settings.auth_sign_out_url

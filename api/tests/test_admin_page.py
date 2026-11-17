@@ -3,7 +3,6 @@ what page-config tells it, and the tenants for a status token."""
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from tests import db as adb
 from tests.test_app import auth_config
@@ -18,9 +17,10 @@ def page_admin(flask_client, **headers):
 
 
 class TestWhoSeesIt:
-    def test_only_admins_see_the_administration(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK, SE))
+    def test_only_admins_see_the_administration(self, flask_client, override_settings):
+        override_settings(
+            notify_webhook_url="https://hooks.example.com/x", wireless_controllers=(DK, SE)
+        )
         with auth_config(
             mode="header", viewer_groups={"noc"}, operator_groups={"ops"}, admin_groups={"admins"}
         ):
@@ -44,9 +44,9 @@ class TestWhoSeesIt:
 
     @pytest.mark.parametrize("writes", [False, True])
     def test_without_sign_in_only_with_unauthenticated_writes(
-        self, flask_client, monkeypatch, writes
+        self, flask_client, writes, override_settings
     ):
-        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", writes)
+        override_settings(allow_unauthenticated_writes=writes)
         assert (page_admin(flask_client) is not None) is writes
         # As the routes it would use.
         assert (flask_client.post("/api/v1/tokens/purge", json={}).status_code == 200) is writes

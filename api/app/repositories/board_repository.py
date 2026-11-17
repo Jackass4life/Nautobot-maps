@@ -11,7 +11,7 @@ from datetime import timedelta
 
 from loguru import logger
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import inventory_service as inventory
@@ -152,14 +152,15 @@ async def flapping_device_ids(conn: aconnection.Connection, now: str, window: ti
 
 async def pending_device_ids(conn: aconnection.Connection, now: str) -> set:
     """Devices down for less than ALERT_DELAY_SECONDS that haven't alarmed (#286)."""
-    if not settings.ALERT_DELAY_SECONDS:
+    settings = get_settings()
+    if not settings.alert_delay_seconds:
         return set()
     rows = (
         await conn.execute(
             "SELECT ds.device_id FROM device_states ds WHERE ds.state = 'down' "
             "AND ds.since > %s::text::timestamptz - make_interval(secs => %s) "
             "AND NOT EXISTS (SELECT 1 FROM alert_instances ai WHERE ai.device_id = ds.device_id AND ai.status = 'open')",
-            (now, float(settings.ALERT_DELAY_SECONDS)),
+            (now, float(settings.alert_delay_seconds)),
         )
     ).fetchall()
     return {db.row_to_dict(row)["device_id"] for row in rows}

@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.services import metrics_service as metrics
 from tests.test_app import auth_config
 
@@ -87,11 +86,11 @@ def test_no_database_answer_is_down():
     )
 
 
-def test_the_endpoint_never_calls_upstream(flask_client, monkeypatch):
+def test_the_endpoint_never_calls_upstream(flask_client, monkeypatch, override_settings):
     called = []
     monkeypatch.setattr("app.clients.nautobot.fetch_all_pages", lambda *a, **k: called.append(a))
     monkeypatch.setattr("app.clients.librenms.get", lambda *a, **k: called.append(a))
-    monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+    override_settings(nautobot_maps_database_url="")
     response = flask_client.get("/api/v1/app-status")
     assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
     assert response.get_json()["state"] in {"ok", "stale"}
@@ -107,8 +106,8 @@ class TestPageConfig:
         assert "pages" not in response.get_json()
         assert response.headers["Cache-Control"] == "no-store"
 
-    def test_no_one_signed_in_without_sign_in(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
+    def test_no_one_signed_in_without_sign_in(self, flask_client, override_settings):
+        override_settings(auth_mode="disabled")
         assert flask_client.get("/api/v1/page-config").get_json()["user"] is None
 
     def test_who_is_signed_in(self, flask_client):
@@ -119,9 +118,11 @@ class TestPageConfig:
             ).get_json()
         assert config["user"] == {"name": "olga", "role": "operator", "sign_out_url": ""}
 
-    def test_sign_out_for_someone_signed_in_through_the_proxy(self, flask_client, monkeypatch):
+    def test_sign_out_for_someone_signed_in_through_the_proxy(
+        self, flask_client, override_settings
+    ):
         """#546: AUTH_SIGN_OUT_URL is where the top bar's Sign out goes."""
-        monkeypatch.setattr(settings, "AUTH_SIGN_OUT_URL", "/oauth2/sign_out")
+        override_settings(auth_sign_out_url="/oauth2/sign_out")
         with auth_config(mode="header", viewer_groups={"noc"}):
             config = flask_client.get(
                 "/api/v1/page-config",
@@ -131,38 +132,39 @@ class TestPageConfig:
         assert config["user"]["sign_out_url"] == "/oauth2/sign_out"
         assert anonymous["user"] is None
 
-    def test_no_sign_out_for_a_token_or_without_sign_in(self, monkeypatch):
+    def test_no_sign_out_for_a_token_or_without_sign_in(self, override_settings):
         """A token has no session to end; with AUTH_MODE=disabled nobody is signed in."""
         from app.services import templating_service as templating
 
-        monkeypatch.setattr(settings, "AUTH_SIGN_OUT_URL", "/oauth2/sign_out")
-        monkeypatch.setattr(settings, "AUTH_MODE", "header")
+        override_settings(auth_sign_out_url="/oauth2/sign_out", auth_mode="header")
         assert templating.sign_out_url({"username": "olga"}) == "/oauth2/sign_out"
         assert templating.sign_out_url({"username": "token:librenms", "token": "librenms"}) == ""
-        monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
+        override_settings(auth_mode="disabled")
         assert templating.sign_out_url({"username": "token:librenms", "token": "librenms"}) == ""
 
-    def test_the_boards_case_links_and_levels(self, flask_client, monkeypatch):
+    def test_the_boards_case_links_and_levels(self, flask_client, override_settings):
         from app.services import alerts_service as alerts
 
-        monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", "https://itsm.example/t/{case}")
+        override_settings(case_url_template="https://itsm.example/t/{case}")
         board = flask_client.get("/api/v1/page-config").get_json()["board"]
         assert board == {
             "case_url_template": "https://itsm.example/t/{case}",
             "levels": alerts.alert_level_definitions(),
         }
 
-    def test_the_maps_tiles_and_first_view(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png")
-        monkeypatch.setattr(settings, "MAP_TILE_ATTRIBUTION", "Tiles")
-        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", None)
+    def test_the_maps_tiles_and_first_view(self, flask_client, override_settings):
+        override_settings(
+            map_tile_url="https://tiles.example/{z}/{x}/{y}.png",
+            map_tile_attribution="Tiles",
+            map_default_view=None,
+        )
         assert flask_client.get("/api/v1/page-config").get_json()["map"] == {
             "tile_url": "https://tiles.example/{z}/{x}/{y}.png",
             "tile_attribution": "Tiles",
             "view": None,
         }
         # MAP_DEFAULT_VIEW (#362): the map opens there instead of framing the sites.
-        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
+        override_settings(map_default_view=(55.7, 12.6, 6))
         view = flask_client.get("/api/v1/page-config").get_json()["map"]["view"]
         assert view == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
@@ -204,7 +206,7 @@ def test_the_web_menu_is_the_api_pages():
 )
 def test_the_sign_out_url_is_a_path_or_http(value, expected):
     """#546: anything else is ignored with a warning, never put in a link."""
-    code = "from app.core.legacy_settings import settings; print(settings.AUTH_SIGN_OUT_URL)"
+    code = "from app.core.settings import get_settings; print(get_settings().auth_sign_out_url)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=pathlib.Path(__file__).resolve().parent.parent,

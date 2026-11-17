@@ -20,7 +20,7 @@ Ported from nautobot_maps/neighbours.py (#602): only the imports changed.
 
 from loguru import logger
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import wireless_service as wireless
@@ -64,7 +64,7 @@ async def read_index(conn: aconnection.Connection, devices: list[dict] | None = 
                 index["serial"][row["serial_key"]] = neighbour
             if row["name_key"]:
                 index["name"][row["name_key"]] = neighbour
-    roles = list(settings.ACCESS_POINT_ROLES)
+    roles = list(get_settings().access_point_roles)
     rows = (
         await conn.execute(
             """

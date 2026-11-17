@@ -12,7 +12,7 @@ import yaml
 
 from app import __main__ as cli
 from app.clients import arubacentral, caching, catalyst
-from app.core.legacy_settings import settings
+from app.core import settings as config
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -71,14 +71,14 @@ catalyst_center:
     verify_ssl: false
 """,
         )
-        dk, se = settings._wireless_controllers(path)
+        dk, se = config._wireless_controllers(path)
         assert (dk["name"], dk["url"], dk["verify_ssl"]) == (
             "dk",
             "https://dnac-dk.example.com",
             True,
         )
         assert (se["kind"], se["password"], se["verify_ssl"]) == ("catalyst_center", "two", False)
-        assert settings._wireless_controllers("") == ()
+        assert config._wireless_controllers("") == ()
 
     @pytest.mark.parametrize(
         ("text", "message"),
@@ -116,7 +116,7 @@ catalyst_center:
     )
     def test_a_mistake_stops_startup_and_names_it(self, tmp_path, text, message):
         with pytest.raises(RuntimeError, match=None) as caught:
-            settings._wireless_controllers(self.write(tmp_path, text))
+            config._wireless_controllers(self.write(tmp_path, text))
         assert message in str(caught.value)
 
     def test_a_password_is_never_in_the_message(self, tmp_path):
@@ -124,7 +124,7 @@ catalyst_center:
             tmp_path, "catalyst_center: [{name: dk, url: 'nope', username: u, password: hunter2}]"
         )
         with pytest.raises(RuntimeError) as caught:
-            settings._wireless_controllers(path)
+            config._wireless_controllers(path)
         assert "hunter2" not in str(caught.value)
 
     def test_aruba_central_by_region_or_base_url(self, tmp_path):
@@ -140,7 +140,7 @@ catalyst_center:
   - {name: eu, url: "https://dnac.example.com", username: u, password: p}
 """,
         )
-        dnac, eu, cn, lab = settings._wireless_controllers(path)
+        dnac, eu, cn, lab = config._wireless_controllers(path)
         assert dnac["kind"] == "catalyst_center", "the same name in two kinds is two instances"
         assert (eu["url"], eu["token_url"]) == (
             "https://de1.api.central.arubanetworks.com",
@@ -180,7 +180,7 @@ catalyst_center:
     )
     def test_aruba_central_mistakes(self, tmp_path, entry, message):
         with pytest.raises(RuntimeError) as caught:
-            settings._wireless_controllers(self.write(tmp_path, f"aruba_central: [{entry}]"))
+            config._wireless_controllers(self.write(tmp_path, f"aruba_central: [{entry}]"))
         assert message in str(caught.value)
         assert "s}" not in str(caught.value)
 
@@ -189,7 +189,7 @@ catalyst_center:
             tmp_path,
             "catalyst_center: [{name: demo, url: 'http://127.0.0.1:8080', username: u, password: p}]",
         )
-        assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
+        assert config._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
 
 
 class FakeSession:
@@ -436,9 +436,9 @@ class TestArubaCentral:
 
 
 @pytest.fixture
-def controllers(pg_database, monkeypatch):
+def controllers(pg_database, monkeypatch, override_settings):
     """Two instances, dk and se; each test says what they list."""
-    monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK, SE))
+    override_settings(wireless_controllers=(DK, SE))
     answers = {"dk": [], "se": []}
 
     def fetch(controller):
@@ -506,12 +506,14 @@ class TestSync:
         # Not due again within the interval; nothing changed, so no rebuild.
         assert asyncio.run(wireless.sync_due()) is False
 
-    def test_one_unreachable_instance_wipes_nobody_else(self, controllers, monkeypatch):
+    def test_one_unreachable_instance_wipes_nobody_else(
+        self, controllers, monkeypatch, override_settings
+    ):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
         controllers["se"] = httpx.ConnectError("https://dnac-se.example.com: connection refused")
-        monkeypatch.setattr(settings, "WIRELESS_SYNC_INTERVAL_SECONDS", 60)
+        override_settings(wireless_sync_interval_seconds=60)
         monkeypatch.setattr(inventory, "state_due", lambda state, interval: True)
         asyncio.run(wireless.sync_due())
         states = sync_states()
@@ -531,7 +533,7 @@ class TestSync:
         assert sync_states()["dk"]["status"] == "error"
         assert ups(read_index()["serial"]) == {"FGL1": False}
 
-    def test_stale_kept_as_last_known_removed_ignored(self, controllers, monkeypatch):
+    def test_stale_kept_as_last_known_removed_ignored(self, controllers, override_settings):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
@@ -552,7 +554,7 @@ class TestSync:
             == "last known per Catalyst Center se, which can't be reached"
         )
         assert wireless.reason(index["serial"]["FGL1"]) == "per Catalyst Center dk"
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (SE,))
+        override_settings(wireless_controllers=(SE,))
         assert ups(read_index()["serial"]) == {"FGL9": False}, "dk is no longer configured"
 
     def test_the_same_ap_in_two_instances(self, controllers):
@@ -662,11 +664,11 @@ class TestSync:
         finally:
             conn.close()
 
-    def test_a_removed_instance_is_forgotten(self, controllers, monkeypatch):
+    def test_a_removed_instance_is_forgotten(self, controllers, override_settings):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
+        override_settings(wireless_controllers=(DK,))
         asyncio.run(wireless.sync_due())
         conn = adb.connect()
         try:
@@ -679,10 +681,12 @@ class TestSync:
             conn.close()
         assert 'source="wireless:catalyst_center:se"' not in adb.call(metrics.collect)
 
-    def test_instances_sync_side_by_side_a_few_at_a_time(self, pg_database, monkeypatch):
+    def test_instances_sync_side_by_side_a_few_at_a_time(
+        self, pg_database, monkeypatch, override_settings
+    ):
         """On the event loop (#657): at most MAX_PARALLEL instances at once, all of them."""
         controllers = tuple({**DK, "name": f"c{n}"} for n in range(5))
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", controllers)
+        override_settings(wireless_controllers=controllers)
         monkeypatch.setattr(wireless, "MAX_PARALLEL", 2)
         running, most, done = [0], [0], []
 
@@ -783,12 +787,10 @@ def one_site(**statuses) -> dict[str, dict[str, str]]:
 
 
 @pytest.fixture
-def board(pg_database, monkeypatch, clock):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+def board(pg_database, monkeypatch, clock, override_settings):
+    override_settings(nautobot_url="", nautobot_token="", librenms_url="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
-    monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
+    override_settings(wireless_controllers=(DK,))
     notified = []
     monkeypatch.setattr(
         notify,
@@ -847,8 +849,8 @@ class TestOnTheBoard:
             "All 6 monitored devices offline",
         )
 
-    def test_a_site_already_in_alarm_just_counts_them(self, board, monkeypatch):
-        monkeypatch.setattr(settings, "WIRELESS_AP_LEVEL", "critical")
+    def test_a_site_already_in_alarm_just_counts_them(self, board, monkeypatch, override_settings):
+        override_settings(wireless_ap_level="critical")
         write_sites(one_site(sw1="Offline"))
         controller_says(monkeypatch, {"cph": APS[:30]})
         (row,) = build_board()["alerts"]
@@ -873,7 +875,9 @@ class TestOnTheBoard:
         )
         assert "wireless_only" not in row, "set in Nautobot: an alarm"
 
-    def test_every_access_point_down_is_still_the_wireless_level(self, board, monkeypatch):
+    def test_every_access_point_down_is_still_the_wireless_level(
+        self, board, monkeypatch, override_settings
+    ):
         write_sites(one_site())
         controller_says(monkeypatch, {"cph": APS})
         (row,) = build_board()["alerts"]
@@ -882,7 +886,7 @@ class TestOnTheBoard:
             "40 access points offline",
             True,
         )
-        monkeypatch.setattr(settings, "WIRELESS_AP_LEVEL", "medium")
+        override_settings(wireless_ap_level="medium")
         (row,) = build_board()["alerts"]
         assert (row["alert_level"], row["wireless_only"]) == ("medium", True)
 
@@ -904,7 +908,9 @@ class TestOnTheBoard:
         assert row["alert_reason"] == "Critical device(s) offline: cph-ap05 (set in Nautobot)"
         assert payload["summary"]["non_ok"] == 1 and board == ["critical"]
 
-    def test_down_until_it_comes_back_or_its_status_changes(self, board, monkeypatch):
+    def test_down_until_it_comes_back_or_its_status_changes(
+        self, board, monkeypatch, override_settings
+    ):
         write_sites(one_site())
         controller_says(monkeypatch, {"cph": ["ap09"]})
         build_board()
@@ -918,7 +924,7 @@ class TestOnTheBoard:
         )
         assert test_maintenance.open_alerts() == {"cph-ap09": "open"}
         # Decommissioning in Nautobot, a status the board leaves out: no longer counted, its alert resolved.
-        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
+        override_settings(alert_board_excluded_device_statuses={"decommissioning"})
         write_sites(one_site(ap09="Decommissioning"))
         (row,) = build_board()["alerts"]
         assert row["alert_level"] == "ok" and row["device_count"] == 45
@@ -994,11 +1000,11 @@ class TestOnTheBoard:
             scoped["acme"]["down_access_point_count"],
         ) == (2, 1)
 
-    def test_an_access_point_no_controller_lists_says_so(self, board, monkeypatch):
+    def test_an_access_point_no_controller_lists_says_so(self, board, override_settings):
         device = {"role": "Access Point", "primary_ip": ""}
         assert alerts.not_monitored_reason(device) == "no primary IP, not in a wireless controller"
         assert alerts.not_monitored_reason({**device, "role": "Access Switch"}) == "no primary IP"
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", ())
+        override_settings(wireless_controllers=())
         assert alerts.not_monitored_reason(device) == "no primary IP"
 
     def test_the_map_and_the_site_panel(self, board, monkeypatch):
@@ -1162,7 +1168,7 @@ class TestCheck:
         assert se["matched"] == 1
         assert duplicates["duplicates"] == {"FGL7": ["Catalyst Center dk", "Catalyst Center se"]}
 
-    def test_the_command(self, controllers, monkeypatch, capsys):
+    def test_the_command(self, controllers, monkeypatch, capsys, override_settings):
         monkeypatch.setattr(inventory, "read_devices", adb.async_of(lambda: []))
         controllers["dk"] = [ap("dk-ap1", True, "FGL1")]
         controllers["se"] = httpx.ConnectError("refused")
@@ -1177,7 +1183,7 @@ class TestCheck:
             in out
         )
         assert "s3cret" not in out
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", ())
+        override_settings(wireless_controllers=())
         assert cli.main(["wireless-check"]) == 0
 
 
@@ -1264,7 +1270,7 @@ class TestPlugAndPlay:
         assert wireless.fetch_pnp({**DK, "kind": "aruba_central"}) is None
 
     def test_synced_with_the_access_points_and_a_failure_keeps_the_last_answer(
-        self, controllers, monkeypatch
+        self, controllers, override_settings
     ):
         controllers["dk"] = [ap("dk-ap1", True, "FGL1")]
         controllers["pnp"]["dk"] = [
@@ -1289,7 +1295,7 @@ class TestPlugAndPlay:
         # An instance no longer in the file is forgotten.
         store_pnp(SE, [pnp("FJC9")])
         assert "FJC9" in read_index()["pnp"]
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
+        override_settings(wireless_controllers=(DK,))
         adb.call(wireless.prune)
         conn = adb.connect()
         try:

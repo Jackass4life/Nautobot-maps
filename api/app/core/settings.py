@@ -9,8 +9,9 @@ passes unset variables as ""), except where "" deliberately means "none"
 (EMPTY_IS_A_VALUE). Invalid values that stop the current app at startup stop
 this one too (RuntimeError); those it warns about fall back the same way.
 
-Read settings with `get_settings().name` at call time; tests change them with
-the `configure` fixture (environment) or `Settings(name=...)`.
+Read settings with `get_settings().name` inside the function that needs them, never
+at import (#745); tests change them with the `configure` fixture (environment), the
+`override_settings` fixture or `overridden()` (in code), or `Settings(name=...)`.
 """
 
 import base64
@@ -771,8 +772,8 @@ SETTING_NAMES = tuple(
 )
 
 
-# Values set in code through app/core/legacy_settings.py (the current app's
-# ``settings.NAME = value``): kept across fresh settings, as its module globals were.
+# For tests only (tests/overrides.py: the override_settings fixture, overridden()):
+# values laid over the environment's, kept across fresh settings. App code never sets it.
 OVERRIDES: dict[str, object] = {}
 
 

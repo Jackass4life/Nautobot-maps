@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
@@ -26,12 +25,9 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def site(pg_database, monkeypatch, clock):
+def site(pg_database, monkeypatch, clock, override_settings):
     """London: a core router and two access switches, all up for long."""
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 300)
+    override_settings(nautobot_url="", nautobot_token="", librenms_url="", alert_delay_seconds=300)
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     set_devices(core=("Active", LONG_AGO), acc1=("Active", LONG_AGO), acc2=("Active", LONG_AGO))
     build()  # the site's first level is "ok"
@@ -130,19 +126,21 @@ class TestDelay:
         assert build()["down_device_count"] == 1
 
     def test_an_alarm_already_open_stays_when_the_delay_is_turned_on(
-        self, site, clock, monkeypatch
+        self, site, clock, override_settings
     ):
-        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 0)
+        override_settings(alert_delay_seconds=0)
         set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))
         assert build()["down_device_count"] == 1
-        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
+        override_settings(alert_delay_seconds=3600)
         clock["now"] = "2026-10-10T12:01:00Z"
         row = build()
         assert row["down_device_count"] == 1
         assert rows("SELECT status FROM alert_instances") == [{"status": "open"}]
 
-    def test_an_open_alarm_stays_also_when_the_bulk_read_fails(self, site, clock, monkeypatch):
-        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 0)
+    def test_an_open_alarm_stays_also_when_the_bulk_read_fails(
+        self, site, clock, monkeypatch, override_settings
+    ):
+        override_settings(alert_delay_seconds=0)
         set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))
         build()
 
@@ -150,13 +148,13 @@ class TestDelay:
             raise RuntimeError("bulk read failed")
 
         monkeypatch.setattr(board_store, "read_alert_board_data", adb.async_of(broken))
-        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
+        override_settings(alert_delay_seconds=3600)
         clock["now"] = "2026-10-10T12:01:00Z"
         assert build()["down_device_count"] == 1
         assert rows("SELECT status FROM alert_instances") == [{"status": "open"}]
 
-    def test_off_alarms_at_once(self, site, clock, monkeypatch):
-        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 0)
+    def test_off_alarms_at_once(self, site, clock, override_settings):
+        override_settings(alert_delay_seconds=0)
         set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))
         assert build()["down_device_count"] == 1
 

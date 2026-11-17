@@ -6,7 +6,6 @@ import asyncio
 import pytest
 
 from app.clients import nautobot
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from tests import db as adb
 
@@ -73,13 +72,14 @@ def test_stored_and_read_back(flask_client, pg_database, no_lookups):
     assert stored["m2"]["vc_master"] is False
 
 
-def test_a_changed_stack_makes_the_next_sync_full(flask_client, pg_database, monkeypatch):
+def test_a_changed_stack_makes_the_next_sync_full(
+    flask_client, pg_database, monkeypatch, override_settings
+):
     """Renaming a stack or moving its master saves the chassis, not its members (#400)."""
-    from app.core.legacy_settings import settings
 
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    override_settings(
+        nautobot_url="https://nautobot.example.com", nautobot_token="token", librenms_url=""
+    )
     changed = []
     calls = []
 
@@ -103,7 +103,7 @@ def test_a_changed_stack_makes_the_next_sync_full(flask_client, pg_database, mon
     assert "last_updated__gte" not in calls[-1], "so this one is full"
 
 
-def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
+def test_the_board_says_which_stack_a_down_device_is_in(board, override_settings):
     """The board and its Copy say a down stack is down with all its members (#402, #405)."""
     from tests.test_app import _snapshot_device
     from tests.test_criticality import NOW, build, write
@@ -131,7 +131,7 @@ def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
         # An excluded status: not one of the members down.
         {**member(6, "Decommissioning", "")},
     ]
-    monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
+    override_settings(alert_board_excluded_device_statuses={"decommissioning"})
     write({"a": "", "b": ""}, devices)
     row = build(board, NOW)["a"]
     # The whole stack wherever its members are (5 at b), without the Decommissioning one.
@@ -221,10 +221,10 @@ def test_when_a_stack_is_down_whole(device, counted, whole):
     assert ("members" in stack) is whole, "the names only when they are all down"
 
 
-def test_a_stack_of_one_left_after_exclusions_is_not_a_stack(monkeypatch):
+def test_a_stack_of_one_left_after_exclusions_is_not_a_stack(override_settings):
     from app.services import alerts_service as alerts
 
-    monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
+    override_settings(alert_board_excluded_device_statuses={"decommissioning"})
     stacks = alerts.board_stacks(
         {"vc-1": [{"name": "s", "status": "Active"}, {"name": "s:2", "status": "Decommissioning"}]}
     )

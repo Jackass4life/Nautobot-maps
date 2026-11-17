@@ -1,7 +1,7 @@
 """Access point status from the wireless controllers (#508): Cisco Catalyst
 Center and HPE Aruba Networking New Central.
 
-Each instance in ``settings.WIRELESS_CONTROLLERS`` is read on its own, in
+Each instance in the WIRELESS_CONTROLLERS setting is read on its own, in
 bulk, every ``WIRELESS_SYNC_INTERVAL_SECONDS``: its APs replace its rows in
 ``wireless_ap_status``, and its sync state (``wireless:<kind>:<name>``) says
 when it last answered.  One slow or unreachable instance holds up or wipes
@@ -29,7 +29,7 @@ import httpx
 from loguru import logger
 
 from app.clients import arubacentral, catalyst
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import contract_service as contract
@@ -60,13 +60,13 @@ def display_name(controller: dict) -> str:
 
 
 def configured() -> tuple[dict, ...]:
-    return tuple(settings.WIRELESS_CONTROLLERS or ())
+    return tuple(get_settings().wireless_controllers or ())
 
 
 def stale_seconds() -> int:
     """How long an instance's last answer counts: as the top bar's staleness (#419)."""
     return max(
-        metrics.STALE_INTERVALS * settings.WIRELESS_SYNC_INTERVAL_SECONDS,
+        metrics.STALE_INTERVALS * get_settings().wireless_sync_interval_seconds,
         metrics.STALE_FLOOR_SECONDS,
     )
 
@@ -329,7 +329,7 @@ async def due(conn: aconnection.Connection) -> list[dict]:
         controller
         for controller in configured()
         if inventory.state_due(
-            states.get(source(controller)), settings.WIRELESS_SYNC_INTERVAL_SECONDS
+            states.get(source(controller)), get_settings().wireless_sync_interval_seconds
         )
     ]
 
@@ -444,7 +444,7 @@ async def load_index(devices: list[dict] | None = None) -> dict:
 
 
 def is_access_point(device: dict) -> bool:
-    return (device.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES
+    return (device.get("role") or "").strip().casefold() in get_settings().access_point_roles
 
 
 def lookup(index: dict | None, device: dict) -> dict | None:

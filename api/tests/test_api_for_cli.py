@@ -6,7 +6,6 @@ import httpx
 import pytest
 
 from app import __main__ as cli
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
@@ -281,9 +280,9 @@ class TestWirelessCheck:
         running.join(5)
         assert first["status"].status_code == 200
 
-    def test_another_workers_check_is_running(self, flask_client, monkeypatch):
+    def test_another_workers_check_is_running(self, flask_client, override_settings):
         admin_token = make("admin", "admin")["token"]
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK, SE))
+        override_settings(wireless_controllers=(DK, SE))
         release = adb.hold_lock(admin.WIRELESS_CHECK_LOCK)
         try:
             assert (

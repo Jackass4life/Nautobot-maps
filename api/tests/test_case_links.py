@@ -7,7 +7,6 @@ import sys
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.services import itsm_service as itsm
 from app.services import notify_service as notify
 from tests import db as adb
@@ -17,11 +16,11 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = "https://itsm.example.com/ticket/{case}"
 
 
-def test_case_url(monkeypatch):
-    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+def test_case_url(override_settings):
+    override_settings(case_url_template=TEMPLATE)
     assert itsm.case_url("INC 1/2&x") == "https://itsm.example.com/ticket/INC%201%2F2%26x"
     assert itsm.case_url("") == ""
-    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", "")
+    override_settings(case_url_template="")
     assert itsm.case_url("INC-1") == ""
 
 
@@ -35,7 +34,7 @@ def test_case_url(monkeypatch):
     ],
 )
 def test_only_http_templates_with_a_placeholder(value, expected):
-    code = "from app.core.legacy_settings import settings; print(settings.CASE_URL_TEMPLATE)"
+    code = "from app.core.settings import get_settings; print(get_settings().case_url_template)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=REPO_ROOT / "api",  # where app/ is
@@ -49,21 +48,21 @@ def test_only_http_templates_with_a_placeholder(value, expected):
         assert "CASE_URL_TEMPLATE ignored" in completed.stderr
 
 
-def test_the_board_page_gets_the_template(monkeypatch):
+def test_the_board_page_gets_the_template(override_settings):
     # The board (Nuxt, #463) reads it from /api/page-config; empty when not set.
     with http_client.FlaskStyleClient() as flask_client:
         assert (
             flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"] == ""
         )
-        monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+        override_settings(case_url_template=TEMPLATE)
         assert (
             flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"]
             == TEMPLATE
         )
 
 
-def test_notifications_add_the_link(monkeypatch):
-    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+def test_notifications_add_the_link(override_settings):
+    override_settings(case_url_template=TEMPLATE)
     site = {
         "id": "s",
         "name": "S",
@@ -73,12 +72,12 @@ def test_notifications_add_the_link(monkeypatch):
     assert "Cases: INC-7 (https://itsm.example.com/ticket/INC-7)" in notify.detail_lines(event)
 
 
-def test_the_csv_has_the_links(monkeypatch):
+def test_the_csv_has_the_links(override_settings):
     from datetime import UTC, datetime
 
     from app.services import export_service as export
 
-    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+    override_settings(case_url_template=TEMPLATE)
     rows = [
         {
             "site_name": "S",
@@ -97,12 +96,12 @@ def test_the_csv_has_the_links(monkeypatch):
     )
 
 
-def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
+def test_the_csv_reads_the_numbers_as_a_list(pg_database, override_settings):
     from datetime import UTC, datetime
 
     from app.services import export_service as export
 
-    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+    override_settings(case_url_template=TEMPLATE)
     conn = adb.connect()
     try:
         with conn.transaction():

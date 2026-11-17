@@ -7,7 +7,6 @@ import os
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from tests import db as adb
@@ -19,11 +18,13 @@ pytestmark = pytest.mark.skipif(not LIVE_URL, reason="NAUTOBOT_LIVE_URL not set"
 
 
 @pytest.fixture
-def synced(monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", LIVE_URL.rstrip("/"))
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", LIVE_TOKEN)
-    monkeypatch.setattr(settings, "NAUTOBOT_VERIFY_SSL", False)
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+def synced(override_settings):
+    override_settings(
+        nautobot_url=LIVE_URL.rstrip("/"),
+        nautobot_token=LIVE_TOKEN,
+        nautobot_verify_ssl=False,
+        librenms_url="",
+    )
     asyncio.run(inventory.sync_nautobot(force=True))
     state = asyncio.run(inventory.sync_state("nautobot_inventory"))
     assert state["status"] == "idle", state.get("error_message")

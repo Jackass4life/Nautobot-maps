@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.auth import permissions
 from app.clients import caching
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
@@ -173,6 +173,7 @@ def geocode(query: str):
     Results are cached for a day, and the service is asked at most once per
     second across all workers: the public Nominatim allows no more.
     """
+    settings = get_settings()
     cache_key = f"geocode:{query.strip().lower()}"
     cached = caching.get(cache_key)
     if cached is not None:
@@ -180,11 +181,11 @@ def geocode(query: str):
     # cache.add is atomic (SET NX in Redis): only one caller per second wins.
     if not caching.cache.add("geocode-rate-limit", 1, timeout=GEOCODE_MIN_INTERVAL_SECONDS):
         raise GeocoderBusy()
-    parsed = urlsplit(settings.GEOCODER_URL)
+    parsed = urlsplit(settings.geocoder_url)
     try:
         geolocator = Nominatim(
-            user_agent=settings.GEOCODER_USER_AGENT,
-            domain=(parsed.netloc + parsed.path) or settings.GEOCODER_URL,
+            user_agent=settings.geocoder_user_agent,
+            domain=(parsed.netloc + parsed.path) or settings.geocoder_url,
             scheme=parsed.scheme or "https",
         )
         location = geolocator.geocode(query, timeout=10)
@@ -234,7 +235,7 @@ async def api_search(query: Annotated[dtos.SearchQuery, Query()]):
 
     # Fall back to geocoding
     if lat is None or lon is None:
-        if not settings.GEOCODER_ENABLED:
+        if not get_settings().geocoder_enabled:
             return deps.Json(
                 {"error": "Address search is turned off; enter coordinates as lat,lon"},
                 status_code=400,

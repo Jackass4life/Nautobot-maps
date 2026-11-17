@@ -2,7 +2,6 @@
 it.  Everything a browser, a script or a proxy relied on must be the same."""
 
 from app.auth.permissions import Permission
-from app.core.legacy_settings import settings
 from tests import db as adb
 
 
@@ -21,8 +20,8 @@ def test_security_headers_and_gzip_once(asgi_client):
     assert "uvicorn" not in response.headers.get("server", "")
 
 
-def test_a_change_from_another_site_is_still_refused(asgi_client, monkeypatch):
-    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+def test_a_change_from_another_site_is_still_refused(asgi_client, override_settings):
+    override_settings(allow_unauthenticated_writes=True)
     response = asgi_client.post(
         "/api/v1/notifications/test", headers={"Sec-Fetch-Site": "cross-site"}
     )
@@ -96,11 +95,11 @@ def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
     assert asgi_client.get("/api/v1/app-status").headers["cache-control"] == "no-store"
 
 
-def test_the_sign_in_check_applies_to_moved_routes(flask_client, monkeypatch):
+def test_the_sign_in_check_applies_to_moved_routes(flask_client, override_settings):
     """Through the whole stack from 127.0.0.1, as a proxy would send."""
     from tests.test_app import auth_config
 
-    monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+    override_settings(auth_require_viewer=True)
     with auth_config(mode="header", viewer_groups={"noc"}):
         anonymous = flask_client.get("/api/v1/app-status")
         assert anonymous.status_code == 401 and anonymous.get_json() == {
@@ -149,7 +148,7 @@ def _mini_app():
     return app, router
 
 
-def test_the_shared_pieces_refuse_like_flask(monkeypatch):
+def test_the_shared_pieces_refuse_like_flask(override_settings):
     from app.v1 import deps
     from tests.http_client import FlaskStyleClient
     from tests.test_app import auth_config
@@ -163,7 +162,7 @@ def test_the_shared_pieces_refuse_like_flask(monkeypatch):
         refused.status_code == 403
         and refused.get_json()["error"] == "Authentication required for this change"
     )
-    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    override_settings(allow_unauthenticated_writes=True)
     assert flask_client.post("/api/v1/x?count=3").get_json() == {"count": 3}
     # From another site: refused before the route.
     cross = flask_client.post("/api/v1/x", headers={"Sec-Fetch-Site": "cross-site"})
@@ -210,17 +209,18 @@ def test_the_status_page_is_fastapis_with_its_own_referrer_policy(flask_client, 
 # ---------------------------------------------------------------------------
 
 
-def test_a_window_id_that_is_not_a_number_is_still_a_404(flask_client, monkeypatch):
-    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+def test_a_window_id_that_is_not_a_number_is_still_a_404(flask_client, override_settings):
+    override_settings(allow_unauthenticated_writes=True)
     response = flask_client.post("/api/v1/maintenance/abc/end")
     assert response.status_code == 404 and response.get_json() == {"error": "Not found"}
 
 
-def test_a_body_is_json_only_when_it_says_so(flask_client, monkeypatch):
+def test_a_body_is_json_only_when_it_says_so(flask_client, override_settings):
     """As Flask's get_json(silent=True): a JSON body sent as text/plain (what a
     cross-site form could send) is no body at all."""
-    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
-    monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://unused/x")
+    override_settings(
+        allow_unauthenticated_writes=True, nautobot_maps_database_url="postgresql://unused/x"
+    )
     as_text = flask_client.post(
         "/api/v1/maintenance", data='{"site_id": "x"}', content_type="text/plain"
     )
@@ -263,10 +263,10 @@ def _form_app(seen: list):
     return app
 
 
-def test_forms_are_read_as_flask_read_them(monkeypatch):
+def test_forms_are_read_as_flask_read_them(override_settings):
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    override_settings(allow_unauthenticated_writes=True)
     flask_client = TestClient(_form_app([]), base_url="http://localhost", client=("127.0.0.1", 1))
     assert flask_client.post("/api/v1/form", data={"hostname": "sw1"}).json() == {"hostname": "sw1"}
     multipart = flask_client.post(

@@ -26,8 +26,6 @@ from sqlalchemy.pool import NullPool
 from app.context.db import db_session_ctx
 from app.core.settings import get_settings
 
-_settings = get_settings()
-
 
 def _server_settings(options: str) -> dict[str, str]:
     """libpq's ``options`` (``-c name=value``, ``--name=value``) as asyncpg's
@@ -77,26 +75,30 @@ def async_url(url: URL, connect_timeout: int, statement_timeout_seconds: int) ->
 
 def make_async_engine(**kwargs):  # type: ignore[no-untyped-def]
     """The app's async engine; *kwargs* for create_async_engine (tests: poolclass)."""
+    settings = get_settings()
     url, args = async_url(
-        _settings.sqlalchemy_url(),
-        _settings.db_connect_timeout_seconds,
-        _settings.db_statement_timeout_seconds,
+        settings.sqlalchemy_url(),
+        settings.db_connect_timeout_seconds,
+        settings.db_statement_timeout_seconds,
     )
     return create_async_engine(
-        url, echo=_settings.sql_echo, pool_pre_ping=True, connect_args=args, **kwargs
+        url, echo=settings.sql_echo, pool_pre_ping=True, connect_args=args, **kwargs
     )
+
+
+def make_probe_engine():  # type: ignore[no-untyped-def]
+    """The health check's own (#594): a new connection per probe (no stale pooled one, no
+    waiting for a pool slot), 2 s to connect and 2 s for the statement;
+    app/services/health_service.py cancels the whole probe after 2 s too (#655)."""
+    url, args = async_url(get_settings().sqlalchemy_url(), 2, 2)
+    return create_async_engine(url, poolclass=NullPool, connect_args=args)
 
 
 # Neither connects; importing this module never touches the DB. A pooled async
 # connection belongs to the event loop that opened it: the app has one per worker.
 async_engine = make_async_engine()
 AsyncSessionLocal = async_sessionmaker(async_engine, autoflush=False, expire_on_commit=False)
-
-# The health check's own (#594): a new connection per probe (no stale pooled one, no
-# waiting for a pool slot), 2 s to connect and 2 s for the statement;
-# app/services/health_service.py cancels the whole probe after 2 s too (#655).
-_probe_url, _probe_args = async_url(_settings.sqlalchemy_url(), 2, 2)
-probe_engine = create_async_engine(_probe_url, poolclass=NullPool, connect_args=_probe_args)
+probe_engine = make_probe_engine()
 
 
 def current() -> AsyncSession:

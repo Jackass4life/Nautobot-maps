@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from tests import db as adb
@@ -15,10 +14,10 @@ from tests.test_integration import mock_nautobot_server  # noqa: F401 - the fixt
 
 
 @pytest.fixture
-def synced(pg_database, mock_nautobot_server, monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", mock_nautobot_server)
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "demo-token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+def synced(pg_database, mock_nautobot_server, monkeypatch, override_settings):
+    override_settings(
+        nautobot_url=mock_nautobot_server, nautobot_token="demo-token", librenms_url=""
+    )
     asyncio.run(inventory.sync_nautobot(force=True))
     # The test reads the snapshot; no background sync against the mock.
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
@@ -74,8 +73,8 @@ def test_the_map_knows_when_a_site_went_into_alarm(synced):
     assert "since" not in levels[quiet], "nothing down: no time"
 
 
-def test_excluded_statuses_count_nowhere(synced, monkeypatch):
-    monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"offline"})
+def test_excluded_statuses_count_nowhere(synced, override_settings):
+    override_settings(alert_board_excluded_device_statuses={"offline"})
     board, levels = three_views()
     assert board["loc-lon"]["alert_level"] == "ok" and levels["loc-lon"]["level"] == "ok"
     detail = asyncio.run(alerts.get_location_detail("loc-lon", "Data Center"))
@@ -84,7 +83,7 @@ def test_excluded_statuses_count_nowhere(synced, monkeypatch):
     assert reasons["lon-acc-sw01"] == "status Offline is excluded"
 
 
-def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, monkeypatch):
+def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, override_settings):
     """With rows per Site, a floor below a site isn't a row: its own devices, by the board's rule."""
 
     conn = adb.connect()
@@ -96,7 +95,7 @@ def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, mon
             )
     finally:
         conn.close()
-    monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+    override_settings(alert_board_site_location_type="site")
     board, levels = three_views()
     assert "loc-aar-bld-a-f2" not in board and "loc-aar" in board  # rolled up into its site
     floor = levels["loc-aar-bld-a-f2"]
@@ -150,7 +149,7 @@ def test_a_site_in_maintenance_keeps_its_counts(synced):
     assert levels["loc-lon"]["level"] == "maintenance" and levels["loc-lon"]["monitored"] == 7
 
 
-def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, monkeypatch):
+def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, override_settings):
     from app.utils import timeutil
 
     conn = adb.connect()
@@ -167,14 +166,13 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
             )
     finally:
         conn.close()
-    monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
-    monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
+    override_settings(alert_board_site_location_type="site", alert_delay_seconds=3600)
     caching.cache.clear()
     _, levels = three_views()
     assert levels["loc-aar-bld-a-f2"] == {"level": "ok", "reason": "", "down": 0, "monitored": 1}
 
 
-def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypatch):
+def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, override_settings):
     """Its state row can outlive its IP; the board's rule still applies."""
     from app.utils import timeutil
 
@@ -191,8 +189,7 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypa
             )
     finally:
         conn.close()
-    monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
-    monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
+    override_settings(alert_board_site_location_type="site", alert_delay_seconds=3600)
     caching.cache.clear()
     three_views()  # the board records that dev-aar-2 is pending
     conn = adb.connect()

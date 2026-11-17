@@ -7,7 +7,6 @@ import httpx
 import pytest
 
 from app.clients import caching, librenms
-from app.core.legacy_settings import settings
 from app.db import aconnection, session
 from app.db import connection as db
 from app.services import alerts_service as alerts
@@ -44,12 +43,14 @@ class FakeLibreNMS:
 
 
 @pytest.fixture
-def lnms(pg_database, monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
-    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "lnms-secret")
-    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+def lnms(pg_database, monkeypatch, override_settings):
+    override_settings(
+        nautobot_url="",
+        nautobot_token="",
+        librenms_url="https://librenms.test",
+        librenms_api_token="lnms-secret",
+        allow_unauthenticated_writes=False,
+    )
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     fake = FakeLibreNMS()
     monkeypatch.setattr(librenms, "get", fake.get)
@@ -294,8 +295,8 @@ class TestPush:
             and "ConnectError" in caplog.text
         )
 
-    def test_not_configured(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    def test_not_configured(self, flask_client, override_settings):
+        override_settings(librenms_url="")
         response = flask_client.post(
             "/api/v1/librenms/alert", json={"device_id": 1000}, headers=operator_token()
         )

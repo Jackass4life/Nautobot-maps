@@ -12,7 +12,7 @@ from loguru import logger
 
 from app.auth import permissions
 from app.clients import caching
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
@@ -34,7 +34,7 @@ health_router = APIRouter(tags=sections.tag("monitoring"))
 @router.get("/metrics", dependencies=[deps.PUBLIC], name="ops.prometheus_metrics")
 async def prometheus_metrics():
     """Prometheus metrics: sync health, open alerts, sites by level (#200)."""
-    if not settings.METRICS_ENABLED:
+    if not get_settings().metrics_enabled:
         return deps.Json({"error": "Not found"}, status_code=404)
     try:
         if db.dialect():
@@ -73,7 +73,7 @@ def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUES
     matching API routes with the caller's sign-in and roles.
     """
     # A sync route: in a worker thread, where the tools' in-process calls run.
-    if not settings.MCP_ENABLED:
+    if not get_settings().mcp_enabled:
         return deps.Json({"error": "Not found"}, status_code=404)
     answer, status = mcp.handle(body)
     if answer is None:

@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import aconnection, session
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -27,11 +26,9 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def site(pg_database, monkeypatch, clock):
+def site(pg_database, monkeypatch, clock, override_settings):
     """London: a core router and two access switches, all up in Nautobot."""
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    override_settings(nautobot_url="", nautobot_token="", librenms_url="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     devices = [
         {
@@ -106,7 +103,7 @@ class TestParsing:
     def test_device_key(self, value, key):
         assert webhooks.device_key(value) == key
 
-    def test_alertmanager(self, monkeypatch):
+    def test_alertmanager(self, override_settings):
         body = {
             "version": "4",
             "alerts": [
@@ -133,10 +130,11 @@ class TestParsing:
             and events[0]["started_at"].isoformat() == "2026-10-09T11:50:00+00:00"
         )
         assert len(events[2]["key"]) == 64
-        monkeypatch.setattr(settings, "ALERTMANAGER_ALERTNAMES", {"hostdown"})
+        override_settings(alertmanager_alertnames={"hostdown"})
         assert webhooks.parse_alertmanager(body)[0] == []
-        monkeypatch.setattr(settings, "ALERTMANAGER_DEVICE_LABELS", ["hostname", "instance"])
-        monkeypatch.setattr(settings, "ALERTMANAGER_ALERTNAMES", set())
+        override_settings(
+            alertmanager_device_labels=["hostname", "instance"], alertmanager_alertnames=set()
+        )
         assert webhooks.parse_alertmanager(body)[0][1]["device"] == "sw9"
 
     @pytest.mark.parametrize("body", [None, [], {"alerts": "x"}, {"alerts": [{}] * 1001}])

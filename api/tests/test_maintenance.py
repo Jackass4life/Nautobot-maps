@@ -7,7 +7,6 @@ import json
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -30,11 +29,9 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def site(pg_database, monkeypatch, clock):
+def site(pg_database, monkeypatch, clock, override_settings):
     """London: a core router and two access switches; the core and one switch are down."""
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    override_settings(nautobot_url="", nautobot_token="", librenms_url="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     set_devices(core="Offline", acc1="Offline", acc2="Active")
     return "loc-lon"
@@ -246,7 +243,7 @@ class TestBoard:
             and core["status"] == "Active"
         )
 
-    def test_access_points_are_counted_by_role(self, site, monkeypatch):
+    def test_access_points_are_counted_by_role(self, site, override_settings):
         # Availability's "12 network · 40 APs" (#499): by role, capitals aside,
         # a device in maintenance too, and no AP role means none.
         build()
@@ -275,9 +272,9 @@ class TestBoard:
             )
 
         assert counts(build()) == (3, 0, 1, 0)
-        monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access switch"})
+        override_settings(access_point_roles={"access switch"})
         assert counts(build()) == (1, 2, 0, 1)
-        monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"core router"})
+        override_settings(access_point_roles={"core router"})
         assert counts(build()) == (2, 1, 1, 0), "the core, in maintenance: counted, not down"
 
     def test_in_a_site_window_nothing_is_down(self, site):
@@ -331,7 +328,7 @@ class TestBoard:
             and row["down_devices"][0]["maintenance_reason"] == "Swap"
         )
 
-    def test_unreadable_windows_write_nothing(self, site, monkeypatch):
+    def test_unreadable_windows_write_nothing(self, site, monkeypatch, override_settings):
         """Copilot on #303: don't treat "couldn't read" as "no windows"."""
         build()
         build()
@@ -340,7 +337,7 @@ class TestBoard:
             raise RuntimeError("permission denied")
 
         monkeypatch.setattr(maintenance, "read_active", adb.async_of(broken))
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+        override_settings(notify_webhook_url="https://hooks.example.com/x")
         set_devices(core="Active", acc1="Active", acc2="Active")  # everything recovered
         build()
         assert open_alerts() == {"core": "open", "acc1": "open"}, "nothing resolved"
@@ -390,8 +387,10 @@ class TestBoard:
 
 
 class TestNotifications:
-    def test_quiet_into_maintenance_alarm_if_still_critical_after(self, site, clock, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+    def test_quiet_into_maintenance_alarm_if_still_critical_after(
+        self, site, clock, override_settings
+    ):
+        override_settings(notify_webhook_url="https://hooks.example.com/x")
         build()
         build()  # the first build only recorded the level
         (created,) = window(duration_minutes=60)
@@ -407,9 +406,9 @@ class TestNotifications:
             "still Critical when it ends"
         )
 
-    def test_a_device_window_that_lowers_the_level_is_quiet(self, site, monkeypatch):
+    def test_a_device_window_that_lowers_the_level_is_quiet(self, site, override_settings):
         """Copilot on #303: the only failed devices going into maintenance is no "recovery"."""
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+        override_settings(notify_webhook_url="https://hooks.example.com/x")
         set_devices(core="Offline", acc1="Active", acc2="Active")
         build()
         build()
@@ -437,8 +436,8 @@ class TestNotifications:
         build()
         assert outbox_kinds() == [("alarm", "ok", "critical")], "still down when it ends"
 
-    def test_rule(self, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
+    def test_rule(self, override_settings):
+        override_settings(notify_min_level="critical")
         assert notify.event_kind("critical", "maintenance") is None
         assert notify.event_kind("maintenance", "critical") == "alarm"
         assert notify.event_kind("maintenance", "ok") is None
@@ -481,7 +480,7 @@ class TestCache:
 
 
 class TestSiteDevices:
-    def test_monitored_devices_of_a_site(self, site, monkeypatch):
+    def test_monitored_devices_of_a_site(self, site, override_settings):
         conn = adb.connect()
         try:
             with conn.transaction():
@@ -495,7 +494,7 @@ class TestSiteDevices:
                 )
         finally:
             conn.close()
-        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned"})
+        override_settings(alert_board_excluded_device_statuses={"planned"})
         devices = asyncio.run(alerts.site_monitored_devices("loc-lon"))
         assert [d["id"] for d in devices] == ["acc1", "acc2", "core"], (
             "no primary IP or excluded: not offered"
@@ -508,7 +507,7 @@ class TestSiteDevices:
             "location_path": "",
         }
 
-    def test_rolled_up_site_includes_devices_below_it(self, site, monkeypatch):
+    def test_rolled_up_site_includes_devices_below_it(self, site, override_settings):
         conn = adb.connect()
         try:
             with conn.transaction():
@@ -526,11 +525,13 @@ class TestSiteDevices:
                 )
         finally:
             conn.close()
-        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        override_settings(alert_board_site_location_type="site")
         devices = {d["id"]: d for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))}
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
 
-    def test_not_below_an_excluded_location_unless_shown_on_the_board(self, site, monkeypatch):
+    def test_not_below_an_excluded_location_unless_shown_on_the_board(
+        self, site, override_settings
+    ):
         conn = adb.connect()
         try:
             with conn.transaction():
@@ -548,8 +549,10 @@ class TestSiteDevices:
                 )
         finally:
             conn.close()
-        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
-        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", {"old building"})
+        override_settings(
+            alert_board_site_location_type="site",
+            alert_board_excluded_location_names={"old building"},
+        )
         assert "old-sw" not in {
             d["id"] for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))
         }
@@ -978,7 +981,7 @@ class TestApi:
                 == 400
             )
 
-    def test_history_and_its_export(self, flask_client, monkeypatch):
+    def test_history_and_its_export(self, flask_client, monkeypatch, override_settings):
         body = {"site_ids": ["loc-lon", "loc-x"], "reason": "Core", "duration_minutes": 60}
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
@@ -1065,12 +1068,12 @@ class TestApi:
                     == 400
                 ), bad
             # The viewer role when the board needs it (AUTH_REQUIRE_VIEWER).
-            monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+            override_settings(auth_require_viewer=True)
             assert flask_client.get("/api/v1/maintenance/history").status_code == 401
             assert flask_client.get("/api/v1/maintenance/history.csv").status_code == 401
 
-    def test_bad_requests(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    def test_bad_requests(self, flask_client, override_settings):
+        override_settings(allow_unauthenticated_writes=True)
         resp = flask_client.post(
             "/api/v1/maintenance", json={"site_id": "loc-lon", "duration_minutes": 60}
         )

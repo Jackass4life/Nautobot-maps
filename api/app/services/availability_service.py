@@ -20,7 +20,7 @@ import re
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
@@ -39,7 +39,7 @@ MAX_PERIOD_DAYS = 366
 def target_pct() -> float:
     """Below this a site or tenant is shown in red (#287) and counted as below
     target (#342): ``AVAILABILITY_TARGET_PCT`` (#525)."""
-    return settings.AVAILABILITY_TARGET_PCT
+    return get_settings().availability_target_pct
 
 
 Interval = tuple[datetime, datetime]
@@ -129,7 +129,7 @@ def resolve_period(
 
 def kept_from(at: datetime) -> datetime | None:
     """When the history kept starts (``ALERT_HISTORY_RETENTION_DAYS``), or None: all kept."""
-    days = settings.ALERT_HISTORY_RETENTION_DAYS
+    days = get_settings().alert_history_retention_days
     return at - timedelta(days=days) if days > 0 else None
 
 
@@ -354,8 +354,9 @@ async def report(
     so a monitored site with no downtime is listed at 100 %; sites only in
     the history are added, sites with no monitored devices left out.
     """
+    settings = get_settings()
     at = now()
-    basis = basis or settings.AVAILABILITY_BASIS
+    basis = basis or settings.availability_basis
     if basis not in BASES:
         raise ReportError(f"basis must be one of: {', '.join(BASES)}")
     asked = resolve_period(month, from_date, to_date, at)
@@ -365,7 +366,7 @@ async def report(
         # Deleted history would read as no downtime: refuse rather than guess.
         raise ReportError(
             f"History before {history_start:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
-            f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {asked['label']} can't be reported in full"
+            f"{settings.alert_history_retention_days}): {asked['label']} can't be reported in full"
         )
     period = int((end - start).total_seconds())
     site_windows, device_windows = await read_maintenance(conn, start, end)
