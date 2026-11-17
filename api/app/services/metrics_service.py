@@ -9,7 +9,7 @@ Ported from nautobot_maps/metrics.py (#602): only the imports changed.
 
 from datetime import UTC, datetime
 
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.services import contract_service as contract
 from app.utils import timeutil
@@ -66,6 +66,7 @@ async def sync_rows(conn: aconnection.Connection) -> dict:
 
 async def collect(conn: aconnection.Connection | None) -> str:
     """All metrics, from the database behind *conn* (``None``: no database)."""
+    settings = get_settings()
     out = Exposition()
     out.gauge("nautobot_maps_up", "The app answers.", [({}, 1)])
     out.gauge(
@@ -79,7 +80,7 @@ async def collect(conn: aconnection.Connection | None) -> str:
     syncs = await sync_rows(conn)
     success, attempt, duration, failing, running = [], [], [], [], []
     # Each wireless controller instance in the file too (#508): wireless:<kind>:<name>.
-    configured = [f"{c['kind']}:{c['name']}" for c in settings.WIRELESS_CONTROLLERS or ()]
+    configured = [f"{c['kind']}:{c['name']}" for c in settings.wireless_controllers or ()]
     wireless_sources = [
         f"wireless:{controller}" for controller in configured if f"wireless:{controller}" in syncs
     ]
@@ -132,7 +133,7 @@ async def collect(conn: aconnection.Connection | None) -> str:
         names = {
             str(d["name"] or "").strip().lower().split(".", 1)[0]
             for d in devices
-            if str(d["role"] or "").strip().casefold() in settings.ACCESS_POINT_ROLES
+            if str(d["role"] or "").strip().casefold() in settings.access_point_roles
         } - {""}
         aps = (
             await conn.execute(
