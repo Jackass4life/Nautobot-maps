@@ -37,7 +37,7 @@ import httpx
 from loguru import logger
 
 from app.clients import http
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import itsm_service as itsm
@@ -71,31 +71,33 @@ SUMMARY_MAX_EVENTS = 25
 
 
 def configured_channels() -> list[str]:
+    settings = get_settings()
     channels = []
-    if settings.NOTIFY_WEBHOOK_URL:
+    if settings.notify_webhook_url:
         channels.append("webhook")
-    if settings.NOTIFY_TEAMS_WEBHOOK_URL:
+    if settings.notify_teams_webhook_url:
         channels.append("teams")
-    if settings.NOTIFY_EMAIL_TO and settings.SMTP_HOST:
+    if settings.notify_email_to and settings.smtp_host:
         channels.append("email")
     return channels
 
 
 def customer_mail_on() -> bool:
     """Whether customers' addresses (status tokens', #707) can be mailed."""
-    return bool(settings.SMTP_HOST)
+    return bool(get_settings().smtp_host)
 
 
 def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
     """ "alarm" when a site reaches the minimum level or worse (or gets worse
     above it), "recovery" when it drops below it, otherwise None.  The
     minimum is NOTIFY_MIN_LEVEL, or the site's tier's (#293)."""
+    settings = get_settings()
     # Going into maintenance is planned (#283): no message.  Coming out of it
     # counts from "nothing": still Critical when it ends is an alarm.
     if to_level == "maintenance":
         return None
     minimum = LEVEL_RANK[
-        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
+        settings.notify_min_level_by_tier.get((tier or "").lower(), settings.notify_min_level)
     ]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     if after >= minimum and after > before:
@@ -107,10 +109,11 @@ def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
 
 def dropped_below_minimum(from_level: str, to_level: str, tier: str = "") -> bool:
     """The level went down and is below the site's minimum now, but was below it before too."""
+    settings = get_settings()
     if to_level == "maintenance":
         return False
     minimum = LEVEL_RANK[
-        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
+        settings.notify_min_level_by_tier.get((tier or "").lower(), settings.notify_min_level)
     ]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     return after < before and before < minimum
@@ -118,18 +121,20 @@ def dropped_below_minimum(from_level: str, to_level: str, tier: str = "") -> boo
 
 def in_alarm(level: str, tier: str = "") -> bool:
     """Whether *level* is at the site's minimum or worse (not maintenance)."""
+    settings = get_settings()
     if level == "maintenance":
         return False
     minimum = LEVEL_RANK[
-        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
+        settings.notify_min_level_by_tier.get((tier or "").lower(), settings.notify_min_level)
     ]
     return LEVEL_RANK.get(level, 0) >= minimum
 
 
 def tenant_matches(tenants: list[str]) -> bool:
-    if not settings.NOTIFY_TENANTS:
+    settings = get_settings()
+    if not settings.notify_tenants:
         return True
-    return any((tenant or "").strip().lower() in settings.NOTIFY_TENANTS for tenant in tenants)
+    return any((tenant or "").strip().lower() in settings.notify_tenants for tenant in tenants)
 
 
 def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_at: str) -> dict:
@@ -186,7 +191,8 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
 
 
 def board_url() -> str:
-    return f"{settings.NOTIFY_BOARD_URL}/alerts" if settings.NOTIFY_BOARD_URL else ""
+    settings = get_settings()
+    return f"{settings.notify_board_url}/alerts" if settings.notify_board_url else ""
 
 
 async def enqueue_change(
@@ -359,7 +365,8 @@ async def customer_events(
 async def _status_links(conn: aconnection.Connection, keys: list[str]) -> dict[str, str]:
     """Each case-folded tenant's status page address, when it has a link and
     NOTIFY_BOARD_URL says where the app is."""
-    if not settings.NOTIFY_BOARD_URL or not keys:
+    settings = get_settings()
+    if not settings.notify_board_url or not keys:
         return {}
     rows = (
         await conn.execute(
@@ -367,7 +374,7 @@ async def _status_links(conn: aconnection.Connection, keys: list[str]) -> dict[s
         )
     ).fetchall()
     return {
-        row["tenant_key"]: f"{settings.NOTIFY_BOARD_URL}/status/{row['link_id']}" for row in rows
+        row["tenant_key"]: f"{settings.notify_board_url}/status/{row['link_id']}" for row in rows
     }
 
 
@@ -603,14 +610,15 @@ def _post_json(url: str, body: bytes, headers: dict) -> None:
 
 
 def send_webhook(message: dict) -> None:
+    settings = get_settings()
     body = json.dumps(message, sort_keys=True).encode("utf-8")
     headers = {}
-    if settings.NOTIFY_WEBHOOK_SECRET:
+    if settings.notify_webhook_secret:
         digest = hmac.new(
-            settings.NOTIFY_WEBHOOK_SECRET.encode("utf-8"), body, hashlib.sha256
+            settings.notify_webhook_secret.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
         headers["X-Nautobot-Maps-Signature"] = f"sha256={digest}"
-    _post_json(settings.NOTIFY_WEBHOOK_URL, body, headers)
+    _post_json(settings.notify_webhook_url, body, headers)
 
 
 def teams_card(heading: str, lines: list[str], url: str, kind: str) -> dict:
@@ -651,15 +659,16 @@ def teams_card(heading: str, lines: list[str], url: str, kind: str) -> dict:
 
 def send_teams(heading: str, lines: list[str], url: str, kind: str) -> None:
     body = json.dumps(teams_card(heading, lines, url, kind)).encode("utf-8")
-    _post_json(settings.NOTIFY_TEAMS_WEBHOOK_URL, body, {})
+    _post_json(get_settings().notify_teams_webhook_url, body, {})
 
 
 def send_email(heading: str, lines: list[str], to: str = "") -> None:
     """To NOTIFY_EMAIL_TO, or to *to* alone (a customer, #707: never with others)."""
+    settings = get_settings()
     message = EmailMessage()
     message["Subject"] = heading
-    message["From"] = settings.SMTP_FROM or settings.SMTP_USERNAME or "nautobot-maps@localhost"
-    message["To"] = to or ", ".join(settings.NOTIFY_EMAIL_TO)
+    message["From"] = settings.smtp_from or settings.smtp_username or "nautobot-maps@localhost"
+    message["To"] = to or ", ".join(settings.notify_email_to)
     message.set_content("\n".join(lines))
     message.add_alternative(
         f"<h3>{html.escape(heading)}</h3>"
@@ -668,12 +677,12 @@ def send_email(heading: str, lines: list[str], to: str = "") -> None:
     )
     try:
         with smtplib.SMTP(
-            settings.SMTP_HOST, settings.SMTP_PORT, timeout=SEND_TIMEOUT_SECONDS
+            settings.smtp_host, settings.smtp_port, timeout=SEND_TIMEOUT_SECONDS
         ) as smtp:
-            if settings.SMTP_STARTTLS:
+            if settings.smtp_starttls:
                 smtp.starttls()
-            if settings.SMTP_USERNAME:
-                smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+            if settings.smtp_username:
+                smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(message)
     except (OSError, smtplib.SMTPException) as exc:
         raise SendError(type(exc).__name__) from None
@@ -759,7 +768,7 @@ async def _send_channel(conn: aconnection.Connection, channel: str) -> int:
         for recipient, its_rows in by_recipient.items():
             # A burst (e.g. a wide outage) goes out as summaries, not one message per
             # site, each small enough for the channel.
-            if len(its_rows) > settings.NOTIFY_SUMMARY_THRESHOLD:
+            if len(its_rows) > get_settings().notify_summary_threshold:
                 batches += [
                     (recipient, its_rows[start : start + SUMMARY_MAX_EVENTS])
                     for start in range(0, len(its_rows), SUMMARY_MAX_EVENTS)
