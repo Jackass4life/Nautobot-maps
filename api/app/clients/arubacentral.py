@@ -1,6 +1,6 @@
 """HPE Aruba Networking New Central REST API client, for access point status (#508).
 
-One controller is a dict from ``settings.WIRELESS_CONTROLLERS``.  A
+One controller is a dict from the WIRELESS_CONTROLLERS setting.  A
 Central-scoped API client (client id and secret from the GreenLake
 workspace) gets a token from HPE's sign-in service with the OAuth client
 credentials grant: no refresh token to store, a new one when it is about to
@@ -20,7 +20,7 @@ import time
 import httpx
 
 from app.clients import http
-from app.core.legacy_settings import settings
+from app.core.settings import ARUBA_CENTRAL_TOKEN_URL
 
 PAGE_SIZE = 1000
 # Safety net against a server whose cursor never ends: 200,000 APs.
@@ -39,7 +39,7 @@ _tokens_lock = threading.Lock()
 def _request(controller: dict, method: str, url: str, **kwargs) -> httpx.Response:
     # HPE's own sign-in service is always verified: verify_ssl is for a
     # Central behind a private CA or in a lab, never for sending the secret.
-    verify = True if url == settings.ARUBA_CENTRAL_TOKEN_URL else controller.get("verify_ssl", True)
+    verify = True if url == ARUBA_CENTRAL_TOKEN_URL else controller.get("verify_ssl", True)
     return http.request(method, url, verify=verify, timeout=TIMEOUT_SECONDS, **kwargs)
 
 

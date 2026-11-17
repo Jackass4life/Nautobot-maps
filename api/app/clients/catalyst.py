@@ -1,6 +1,6 @@
 """Cisco Catalyst Center REST API client, for access point status (#508).
 
-One controller is a dict from ``settings.WIRELESS_CONTROLLERS``.  A token
+One controller is a dict from the WIRELESS_CONTROLLERS setting.  A token
 from ``POST /dna/system/api/v1/auth/token`` (basic auth, a read-only user) is
 kept per instance until it is about to expire or is refused.  The access
 points are read in pages of 500 from ``/dna/intent/api/v1/network-device``,
