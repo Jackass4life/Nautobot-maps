@@ -1,12 +1,19 @@
 // `bun audit` for the frontend (#463, bun since #635), failing on high or
-// critical findings except the advisories below.  Only the built static files
-// reach production: no Nuxt server, dev server or build tool runs there.  Each
+// critical findings except the advisories below.  What reaches production is the
+// built pages and the web image's Nitro server (#672), which bundles only what it
+// runs (.output/server/node_modules): no dev server or build tool runs there.  Each
 // accepted advisory has no fixed release yet and says why it can't be reached
 // here; remove it when a fix lands (Dependabot proposes it).  bun.lock is enough:
 // no install needed.
 import { execFileSync } from "node:child_process";
 
-const ACCEPTED = {};
+const ACCEPTED = {
+  // #756: picomatch <= 4.0.7, ReDoS through repeated extglobs; no fixed release yet.
+  // Only the build and dev tools use it (tinyglobby, fdir, micromatch, anymatch),
+  // on glob patterns from our own config; the Nitro server bundles none of them.
+  "GHSA-fc5q-39xc-vjpf":
+    "picomatch is only in the build and dev tools, matching our own glob patterns",
+};
 
 let output;
 try {
