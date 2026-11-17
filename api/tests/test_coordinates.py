@@ -10,7 +10,6 @@ import pytest
 from starlette.datastructures import QueryParams
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
 from app.services import scope_service as scope
@@ -268,9 +267,11 @@ class TestApi:
         ).get_data(as_text=True)
         assert "nowhere" in scoped and "swapped" not in scoped
 
-    def test_metrics_read_the_stored_board_only(self, flask_client, monkeypatch, rows):
+    def test_metrics_read_the_stored_board_only(
+        self, flask_client, monkeypatch, rows, override_settings
+    ):
         """A scrape never builds the board (#368 review): no stored board, no gauge."""
-        monkeypatch.setattr(settings, "METRICS_ENABLED", True)
+        override_settings(metrics_enabled=True)
         monkeypatch.setattr(
             alerts,
             "board",

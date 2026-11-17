@@ -332,20 +332,21 @@ def pg_database():
 
 
 @pytest.fixture
-def board(pg_database, monkeypatch):
+def board(pg_database, monkeypatch, override_settings):
     """A board built from the database only (no Nautobot, no LibreNMS), at a clock the test
     sets: ``board["now"]`` (the current app's fixture)."""
-    from app.core.legacy_settings import settings
     from app.services import inventory_service
     from app.utils import timeutil
 
     clock = {"now": "2026-10-18T12:00:00Z"}
     monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
-    monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
+    override_settings(
+        nautobot_url="",
+        nautobot_token="",
+        librenms_url="",
+        notify_webhook_url="https://hooks.example.com/x",
+        notify_min_level="critical",
+    )
     monkeypatch.setattr(
         inventory_service, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
     )
@@ -388,10 +389,9 @@ def asgi_client():
 
 
 @pytest.fixture
-def frontend_build(tmp_path, monkeypatch):
+def frontend_build(tmp_path, override_settings):
     """A stand-in for web/'s build (``bun run generate``): its page and one asset, so the
     routes serving it are tested without Node (the current app's fixture, #604)."""
-    from app.core.legacy_settings import settings
 
     build = tmp_path / "public"
     (build / "_nuxt").mkdir(parents=True)
@@ -400,5 +400,5 @@ def frontend_build(tmp_path, monkeypatch):
         '</script></head><body><div id="__nuxt"></div></body></html>'
     )
     (build / "_nuxt" / "entry.abc123.js").write_text("console.log('nuxt');\n" * 200)
-    monkeypatch.setattr(settings, "WEB_BUILD_DIR", str(build))
+    override_settings(web_build_dir=str(build))
     return build

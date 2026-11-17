@@ -2,18 +2,17 @@
 
 import json
 
-from app.core.legacy_settings import settings
 from app.services import status_service as status
 from tests import db as adb
 from tests.test_app import _snapshot_device
 from tests.test_criticality import build, write
 
 
-def test_the_board_build_at_scale(board, monkeypatch):
+def test_the_board_build_at_scale(board, override_settings):
     """Acme on 40 sites, half scoped to its firewalls; a core outage at one
     of them (30 routers down) is not Acme's; a site without firewalls is
     hidden from Acme.  The board itself is unchanged."""
-    monkeypatch.setattr(settings, "TENANT_SCOPE_FIELD", "tenant_scope")
+    override_settings(tenant_scope_field="tenant_scope")
     sites, devices = {}, []
     for n in range(40):
         sites[f"s{n}"] = ""

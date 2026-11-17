@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from app.clients import caching, nautobot
-from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from tests import upstream
@@ -193,11 +192,13 @@ CIRCUITS = [
 
 class TestSitePanel:
     @pytest.fixture(autouse=True)
-    def _synced(self, flask_client, pg_database, monkeypatch):
-        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+    def _synced(self, flask_client, pg_database, monkeypatch, override_settings):
+        override_settings(
+            nautobot_url="https://nautobot.example.com",
+            nautobot_token="token",
+            librenms_url="",
+            librenms_api_token="",
+        )
         self.circuits = list(CIRCUITS)
         self.circuits_error = None
         self.calls = []

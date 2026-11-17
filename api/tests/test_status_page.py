@@ -7,7 +7,6 @@ import pytest
 
 from app import __main__ as cli
 from app.clients import nautobot
-from app.core.legacy_settings import settings
 from app.db import aconnection
 from app.db import session as db_session
 from app.services import alerts_service as alerts
@@ -629,8 +628,10 @@ class TestTenantScopes:
         }
         assert status.tenant_status(board, "Acme Corp")["sites"][0]["state"] == "maintenance"
 
-    def test_location_scope_parsing_and_one_warning_for_bad_fields(self, monkeypatch, caplog):
-        monkeypatch.setattr(settings, "TENANT_SCOPE_FIELD", "tenant_scope")
+    def test_location_scope_parsing_and_one_warning_for_bad_fields(
+        self, monkeypatch, caplog, override_settings
+    ):
+        override_settings(tenant_scope_field="tenant_scope")
         monkeypatch.setattr(nautobot, "id_name_map", lambda endpoint: {})
         monkeypatch.setattr(nautobot, "tenant_group_map", lambda: {})
         location = {
@@ -666,8 +667,8 @@ class TestTenantDevices:
     CHECKED_AT = "2026-10-09T12:00:00Z"
 
     @pytest.fixture(autouse=True)
-    def _on(self, monkeypatch):
-        monkeypatch.setattr(settings, "STATUS_PAGE_TENANT_DEVICES", True)
+    def _on(self, override_settings):
+        override_settings(status_page_tenant_devices=True)
 
     def named(
         self,
@@ -765,12 +766,12 @@ class TestTenantDevices:
         scoped = self.named([*stack, firewall], scopes={"acme corp": ["firewall"]})
         assert scoped == {"acme corp": [{"name": "fw1", "state": "up", "since": None}]}
 
-    def test_off_names_nothing(self, monkeypatch):
+    def test_off_names_nothing(self, override_settings):
         device = {"id": "a", "name": "acme-sw", "tenant": "Acme Corp", "status": "Offline"}
         board = {"alerts": [{"name": "Site", "tenant": "Acme Corp", "alert_level": "low"}]}
         board["alerts"][0]["tenant_devices"] = self.named([device])
         assert status.tenant_status(board, "Acme Corp")["sites"][0]["devices"]
-        monkeypatch.setattr(settings, "STATUS_PAGE_TENANT_DEVICES", False)
+        override_settings(status_page_tenant_devices=False)
         assert self.named([device]) == {}
         # Also from a board built while it was on.
         assert status.tenant_status(board, "Acme Corp")["sites"][0]["devices"] == []
@@ -882,9 +883,9 @@ class TestAccess:
         )
 
     def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
-        self, known_tenants, flask_client, board, monkeypatch, frontend_build
+        self, known_tenants, flask_client, board, frontend_build, override_settings
     ):
-        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        override_settings(auth_require_viewer=True)
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         viewer = make("staff", "viewer")["token"]
         anonymous = {"REMOTE_ADDR": "203.0.113.9"}
@@ -996,7 +997,7 @@ class TestLinks:
         assert cli.main(["status-link", " "]) == 1
 
     def test_without_the_database_it_says_so_and_still_asks_who_you_are(
-        self, flask_client, board, monkeypatch
+        self, flask_client, board, monkeypatch, override_settings
     ):
         acme = link("Acme Corp")
 
@@ -1006,7 +1007,7 @@ class TestLinks:
         monkeypatch.setattr(statuslinks, "tenant_for", unreachable)
         response = flask_client.get(f"/api/v1/status/{acme}")
         assert response.status_code == 503 and "unavailable" in response.get_json()["error"]
-        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        override_settings(auth_require_viewer=True)
         with auth_config(mode="header"):
             # Database trouble is no clue to one who may not look (#500).
             assert (

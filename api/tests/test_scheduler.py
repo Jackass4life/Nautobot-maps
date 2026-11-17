@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import scheduler
@@ -16,11 +15,13 @@ from tests import db as adb
 
 
 @pytest.fixture(autouse=True)
-def nautobot_set(monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+def nautobot_set(override_settings):
+    override_settings(
+        nautobot_url="https://nautobot.example.com",
+        nautobot_token="token",
+        librenms_url="",
+        librenms_api_token="",
+    )
 
 
 def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board(pg_database):
@@ -134,10 +135,10 @@ def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
     asyncio.run(run())
 
 
-def test_restart_does_not_clear_the_previous_workers_stop_event(monkeypatch):
+def test_restart_does_not_clear_the_previous_workers_stop_event(monkeypatch, override_settings):
     monkeypatch.setattr(scheduler, "_started", False)
     monkeypatch.setattr(scheduler, "loop", adb.async_of(_idle))
-    monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+    override_settings(background_sync_enabled=True)
 
     async def run():
         assert scheduler.start() is True
@@ -155,20 +156,22 @@ async def _idle(stop):
     await stop.wait()
 
 
-def test_not_started_without_nautobot(monkeypatch):
+def test_not_started_without_nautobot(monkeypatch, override_settings):
     monkeypatch.setattr(scheduler, "_started", False)
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+    override_settings(nautobot_url="")
     assert scheduler.start() is False
 
 
-def test_tick_seconds_follow_the_sooner_interval(monkeypatch):
-    monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+def test_tick_seconds_follow_the_sooner_interval(override_settings):
+    override_settings(inventory_sync_interval_seconds=300)
     assert scheduler.tick_seconds() == 30
-    monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 10)
+    override_settings(inventory_sync_interval_seconds=10)
     assert scheduler.tick_seconds() == 10
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")
-    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
-    monkeypatch.setattr(settings, "LIBRENMS_SYNC_INTERVAL_SECONDS", 5)
+    override_settings(
+        librenms_url="https://librenms.example.com",
+        librenms_api_token="tok",
+        librenms_sync_interval_seconds=5,
+    )
     assert scheduler.tick_seconds() == 5
 
 

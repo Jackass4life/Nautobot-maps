@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -165,11 +164,11 @@ class TestIntervals:
             period = availability.resolve_period(None, from_date, to_date, at)
             assert (period["month"], period["label"]) == expected, (from_date, to_date)
 
-    def test_oldest_day(self, monkeypatch):
+    def test_oldest_day(self, override_settings):
         # The calendar's first day is the first whole day report() accepts (#341).
-        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 0)
+        override_settings(alert_history_retention_days=0)
         assert availability.oldest_day(t(21, 9)) == ""
-        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
+        override_settings(alert_history_retention_days=10)
         assert availability.oldest_day(t(21, 9)) == "2026-10-12", "the 11th is partly deleted"
         # At midnight too: a moment later the 11th is partly deleted.
         assert availability.oldest_day(t(21)) == "2026-10-12"
@@ -306,11 +305,11 @@ class TestReport:
         (site,) = run(basis="critical")["sites"]
         assert site["downtime_seconds"] == 5 * 86400
 
-    def test_months_with_deleted_history_are_refused(self, pg_database, clock, monkeypatch):
-        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
+    def test_months_with_deleted_history_are_refused(self, pg_database, clock, override_settings):
+        override_settings(alert_history_retention_days=10)
         with pytest.raises(availability.ReportError, match="History before 2026-10-11 is deleted"):
             run()
-        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
+        override_settings(alert_history_retention_days=30)
         assert run()["period"]["seconds"] == PERIOD
 
     def test_every_board_site_is_listed_and_tenants_average(self, pg_database, clock):
@@ -355,7 +354,7 @@ class TestReport:
             "label": "2026-10",
         }
 
-    def test_a_from_to_period(self, pg_database, clock, monkeypatch):
+    def test_a_from_to_period(self, pg_database, clock, override_settings):
         write(lambda conn: incident(conn, "s1", "d1", t(2, 12), t(4, 12)))
         sites = [{"id": "s1", "name": "Oslo", "tenants": ["Acme"], "device_count": 1}]
         # 3–4 October: the 2nd's half day is outside, 36 of 48 hours down.
@@ -380,7 +379,7 @@ class TestReport:
             "2026-10",
         )
         assert run("2026-02", sites=sites)["period"]["to"] == "2026-02-28"
-        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
+        override_settings(alert_history_retention_days=10)
         with pytest.raises(
             availability.ReportError, match="2026-10-03 to 2026-10-04 can't be reported"
         ):
@@ -644,9 +643,9 @@ class TestPages:
         )
         assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
 
-    def test_the_target_follows_the_setting(self, flask_client, monkeypatch):
+    def test_the_target_follows_the_setting(self, flask_client, override_settings):
         # #525: the 90 % site is below the default 99.9 %, not below an 85 % target.
-        monkeypatch.setattr(settings, "AVAILABILITY_TARGET_PCT", 85.0)
+        override_settings(availability_target_pct=85.0)
         summary = flask_client.get("/api/v1/availability?month=2026-10").get_json()["summary"]
         assert summary["target"] == 85.0 and summary["below_target"] == 0
         assert flask_client.get("/api/v1/page-config").get_json()["availability"]["target"] == 85.0

@@ -9,7 +9,6 @@ import asyncio
 import pytest
 
 from app.clients import caching, nautobot
-from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from tests import db as adb
@@ -49,9 +48,8 @@ class TestReason:
 
 class TestEnrichment:
     @pytest.fixture(autouse=True)
-    def configured(self, monkeypatch):
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
+    def configured(self, override_settings):
+        override_settings(librenms_url="https://librenms.test", librenms_api_token="tok")
 
     def enrich(self, record: dict) -> dict:
         lnms_devices = [{"device_id": 1, "hostname": "router01", **record}]

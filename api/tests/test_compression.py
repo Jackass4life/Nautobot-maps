@@ -8,7 +8,6 @@ import pytest
 from fastapi.responses import Response, StreamingResponse
 from starlette.requests import Request
 
-from app.core.legacy_settings import settings
 from app.frontend import compression
 from app.services import token_service as tokens
 from app.v1 import deps
@@ -101,8 +100,8 @@ class TestRules:
     def test_head_and_large_files(self):
         assert "content-encoding" not in run(self._json(), method="HEAD").headers
 
-    def test_the_setting_turns_it_off(self, monkeypatch):
-        monkeypatch.setattr(settings, "COMPRESS_RESPONSES", False)
+    def test_the_setting_turns_it_off(self, override_settings):
+        override_settings(compress_responses=False)
         assert "content-encoding" not in run(self._json()).headers
 
 

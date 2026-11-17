@@ -4,7 +4,6 @@ import subprocess
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
@@ -39,9 +38,8 @@ class TestThresholds:
         definitions = alerts.alert_level_definitions()
         assert "More than 25%" in definitions["medium"] and "25% or fewer" in definitions["low"]
 
-    def test_configured(self, monkeypatch):
-        monkeypatch.setattr(settings, "ALERT_MEDIUM_PERCENT", 50)
-        monkeypatch.setattr(settings, "ALERT_CRITICAL_PERCENT", 75)
+    def test_configured(self, override_settings):
+        override_settings(alert_medium_percent=50, alert_critical_percent=75)
         assert (
             alerts.compute_alert_level(devices(2, 4), override_map={})["level"] == "low"
         )  # 50 %: not more than 50
@@ -71,8 +69,8 @@ class TestThresholds:
 
 
 class TestTier:
-    def test_read_from_the_custom_field(self, monkeypatch):
-        monkeypatch.setattr(settings, "SITE_TIER_FIELD", "tier")
+    def test_read_from_the_custom_field(self, override_settings):
+        override_settings(site_tier_field="tier")
         assert inventory.location_tier({"custom_fields": {"tier": "Gold"}}) == "gold"
         assert (
             inventory.location_tier(
@@ -82,14 +80,14 @@ class TestTier:
         )
         assert inventory.location_tier({"custom_fields": {"tier": None}}) == ""
         assert inventory.location_tier({"custom_fields": None}) == ""
-        monkeypatch.setattr(settings, "SITE_TIER_FIELD", "")
+        override_settings(site_tier_field="")
         assert inventory.location_tier({"custom_fields": {"tier": "gold"}}) == ""
 
-    def test_rank(self, monkeypatch):
-        monkeypatch.setattr(settings, "SITE_TIERS", ["gold", "silver"])
+    def test_rank(self, override_settings):
+        override_settings(site_tiers=["gold", "silver"])
         assert [alerts.tier_rank(t) for t in ("gold", "Silver", "bronze", "")] == [0, 1, 99, 99]
 
-    def test_on_the_board_and_sorting(self, site, monkeypatch):
+    def test_on_the_board_and_sorting(self, site, override_settings):
         from tests.test_app import _snapshot_location
 
         conn = adb.connect()
@@ -103,15 +101,14 @@ class TestTier:
             conn.close()
         row = build()
         assert (row["tier"], row["tier_rank"]) == ("gold", 0)
-        monkeypatch.setattr(settings, "SITE_TIERS", ["platinum"])
+        override_settings(site_tiers=["platinum"])
         row = build()
         assert (row["tier"], row["tier_rank"]) == ("", 99), "not a configured tier: none"
 
 
 class TestNotifications:
-    def test_a_gold_site_notifies_sooner(self, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL_BY_TIER", {"gold": "low"})
+    def test_a_gold_site_notifies_sooner(self, override_settings):
+        override_settings(notify_min_level="critical", notify_min_level_by_tier={"gold": "low"})
         assert notify.event_kind("ok", "low", "gold") == "alarm"
         assert notify.event_kind("ok", "low", "silver") is None
         assert notify.event_kind("low", "ok", "gold") == "recovery"
@@ -151,10 +148,12 @@ class TestTierChangesDuringAnAlarm:
         )
 
     @pytest.fixture
-    def hook(self, pg_database, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL_BY_TIER", {"gold": "low"})
+    def hook(self, pg_database, override_settings):
+        override_settings(
+            notify_webhook_url="https://hooks.example.com/x",
+            notify_min_level="critical",
+            notify_min_level_by_tier={"gold": "low"},
+        )
 
     def kinds(self):
         from tests.test_notify import outbox

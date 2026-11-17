@@ -8,7 +8,6 @@ import sys
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -35,8 +34,8 @@ def level(devices, tier="", override_map=None, location_type=None):
 
 
 @pytest.fixture
-def tiers(monkeypatch):
-    monkeypatch.setattr(settings, "TIER_DEVICE_LEVEL", {"gold": "critical", "silver": "medium"})
+def tiers(override_settings):
+    override_settings(tier_device_level={"gold": "critical", "silver": "medium"})
 
 
 class TestDeviceLevel:
@@ -72,8 +71,8 @@ class TestDeviceLevel:
             "a tier not listed"
         )
 
-    def test_a_low_tier_keeps_core_devices_critical(self, monkeypatch):
-        monkeypatch.setattr(settings, "TIER_DEVICE_LEVEL", {"bronze": "low"})
+    def test_a_low_tier_keeps_core_devices_critical(self, override_settings):
+        override_settings(tier_device_level={"bronze": "low"})
         devices = [device("core01", "Offline", role="Core Router")] + [
             device(f"sw{n}") for n in range(9)
         ]
@@ -82,14 +81,14 @@ class TestDeviceLevel:
             "reason": "Core device(s) offline: core01",
         }
 
-    def test_read_from_the_custom_field(self, monkeypatch):
-        monkeypatch.setattr(settings, "DEVICE_CRITICALITY_FIELD", "criticality")
+    def test_read_from_the_custom_field(self, override_settings):
+        override_settings(device_criticality_field="criticality")
         read = inventory.device_criticality
         assert read({"custom_fields": {"criticality": "Critical"}}) == "critical"
         assert read({"custom_fields": {"criticality": {"value": "low", "label": "Low"}}}) == "low"
         assert read({"custom_fields": {"criticality": "urgent"}}) == "", "not a level: ignored"
         assert read({"custom_fields": None}) == ""
-        monkeypatch.setattr(settings, "DEVICE_CRITICALITY_FIELD", "")
+        override_settings(device_criticality_field="")
         assert read({"custom_fields": {"criticality": "critical"}}) == ""
 
     def test_the_tier_setting_keeps_known_levels(self):
@@ -103,11 +102,11 @@ class TestDeviceLevel:
             "a typo is logged"
         )
 
-    def test_setting_a_field_forces_a_full_resync(self, monkeypatch):
+    def test_setting_a_field_forces_a_full_resync(self, override_settings):
         """Not a wait for the daily reconcile: the stored devices don't have the field yet."""
         state = {"cache_version": inventory.cache_version()}
         assert not inventory.cache_version_mismatch(state)
-        monkeypatch.setattr(settings, "DEVICE_CRITICALITY_FIELD", "criticality")
+        override_settings(device_criticality_field="criticality")
         assert inventory.cache_version_mismatch(state)
         assert not inventory.cache_version_mismatch({"cache_version": inventory.cache_version()})
 

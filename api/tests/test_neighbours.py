@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 import pytest
 
 from app.clients import caching, catalyst, nautobot
-from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
@@ -314,5 +313,5 @@ def test_behind_needs_two_down_on_one_switch():
 
 
 @pytest.fixture(autouse=True)
-def _ap_role(monkeypatch):
-    monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access point"})
+def _ap_role(override_settings):
+    override_settings(access_point_roles={"access point"})

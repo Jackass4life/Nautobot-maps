@@ -10,7 +10,6 @@ import httpx
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.db import session
 from app.services import alerts_service as alerts
@@ -51,19 +50,19 @@ def site(site_id="loc-1", name="Aarhus HQ", tenants=("Acme",), **extra):
 
 
 @pytest.fixture
-def channels(monkeypatch):
+def channels(monkeypatch, override_settings):
     """Webhook + Teams + email configured; their sends recorded instead of made."""
     monkeypatch.setattr(timeutil, "iso_utc_now", lambda: NOW)
-    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", HOOK)
-    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_SECRET", "s3cret")
-    monkeypatch.setattr(
-        settings, "NOTIFY_TEAMS_WEBHOOK_URL", "https://teams.example.com/workflow?sig=abc"
+    override_settings(
+        notify_webhook_url=HOOK,
+        notify_webhook_secret="s3cret",
+        notify_teams_webhook_url="https://teams.example.com/workflow?sig=abc",
+        notify_email_to=["noc@example.com", "oncall@example.com"],
+        smtp_host="smtp.example.com",
+        smtp_username="maps",
+        smtp_password="pw",
+        notify_board_url="https://maps.example.com",
     )
-    monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", ["noc@example.com", "oncall@example.com"])
-    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(settings, "SMTP_USERNAME", "maps")
-    monkeypatch.setattr(settings, "SMTP_PASSWORD", "pw")
-    monkeypatch.setattr(settings, "NOTIFY_BOARD_URL", "https://maps.example.com")
     sent = {"posts": [], "mails": [], "smtp": []}
 
     class Response:
@@ -136,13 +135,13 @@ class TestRules:
             ("medium", "medium", "low", "recovery"),
         ],
     )
-    def test_event_kind(self, monkeypatch, minimum, before, after, kind):
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", minimum)
+    def test_event_kind(self, minimum, before, after, kind, override_settings):
+        override_settings(notify_min_level=minimum)
         assert notify.event_kind(before, after) == kind
 
-    def test_tenant_filter(self, monkeypatch):
+    def test_tenant_filter(self, override_settings):
         assert notify.tenant_matches(["Anyone"])
-        monkeypatch.setattr(settings, "NOTIFY_TENANTS", {"acme"})
+        override_settings(notify_tenants={"acme"})
         assert notify.tenant_matches(["Other", "ACME"])
         assert not notify.tenant_matches(["Other"]) and not notify.tenant_matches([])
 
@@ -190,10 +189,12 @@ class TestOutbox:
             and payload["down_devices"][0]["ip"] == "10.0.0.1"
         )
 
-    def test_tenant_filter_and_non_crossing_changes_queue_nothing(self, channels, monkeypatch):
+    def test_tenant_filter_and_non_crossing_changes_queue_nothing(
+        self, channels, override_settings
+    ):
         change({"loc-1": "low"}, {"loc-1": "medium"}, {"loc-1": site()})
         assert outbox() == []
-        monkeypatch.setattr(settings, "NOTIFY_TENANTS", {"other"})
+        override_settings(notify_tenants={"other"})
         change({"loc-2": "ok"}, {"loc-2": "critical"}, {"loc-2": site("loc-2")})
         assert outbox() == []
 
@@ -244,8 +245,8 @@ class TestOutbox:
             holder.close()
         assert asyncio.run(notify.send_pending()) == 3
 
-    def test_a_burst_is_one_summary(self, channels, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 2)
+    def test_a_burst_is_one_summary(self, channels, override_settings):
+        override_settings(notify_summary_threshold=2)
         sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(3)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
         assert asyncio.run(notify.send_pending()) == 9
@@ -255,12 +256,11 @@ class TestOutbox:
         )
         assert channels["mails"][0]["Subject"] == "Nautobot Maps: 3 sites in alarm"
 
-    def test_summaries_are_bounded(self, channels, monkeypatch):
+    def test_summaries_are_bounded(self, channels, monkeypatch, override_settings):
         """A backlog becomes several summaries of at most SUMMARY_MAX_EVENTS (Copilot on #302)."""
-        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 2)
+        override_settings(notify_summary_threshold=2)
         monkeypatch.setattr(notify, "SUMMARY_MAX_EVENTS", 3)
-        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        override_settings(notify_teams_webhook_url="", notify_email_to=[])
         sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(7)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
         assert asyncio.run(notify.send_pending()) == 7
@@ -273,11 +273,11 @@ class TestOutbox:
         ]
         assert [body["type"] for body in bodies] == ["summary", "summary", "alarm"]
 
-    def test_each_row_counts_its_own_attempts(self, channels, monkeypatch):
+    def test_each_row_counts_its_own_attempts(self, channels, monkeypatch, override_settings):
         """A fresh row in a summary with an old one keeps its retries (Copilot on #302)."""
-        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 1)
-        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        override_settings(
+            notify_summary_threshold=1, notify_teams_webhook_url="", notify_email_to=[]
+        )
         sites = {f"loc-{n}": site(f"loc-{n}") for n in range(2)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
         conn = adb.connect()
@@ -311,10 +311,9 @@ class TestOutbox:
         assert notify.build_event("recovery", "critical", "ok", site(), NOW)["id"] != same
 
     def test_failures_retry_then_give_up_without_leaking_secrets(
-        self, channels, monkeypatch, caplog
+        self, channels, monkeypatch, caplog, override_settings
     ):
-        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        override_settings(notify_teams_webhook_url="", notify_email_to=[])
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
 
         def broken(url, **kwargs):
@@ -347,12 +346,12 @@ class TestOutbox:
         text = adb.call(metrics.collect)
         assert 'nautobot_maps_notifications_failed{channel="webhook"} 1' in text
 
-    def test_http_error_status(self, channels, monkeypatch):
+    def test_http_error_status(self, channels, monkeypatch, override_settings):
         class Bad:
             status_code = 500
 
         monkeypatch.setattr(notify, "_post", lambda url, **kwargs: Bad())
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        override_settings(notify_email_to=[])
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
         asyncio.run(notify.send_pending())
         assert {row["last_error"] for row in outbox()} == {"HTTP 500"}
@@ -461,8 +460,10 @@ class TestTestEndpoint:
         assert resp.get_json() == {"results": {"webhook": "ok", "teams": "ok", "email": "ok"}}
         assert json.loads(channels["posts"][0]["body"])["type"] == "test"
 
-    def test_reports_errors_without_secrets(self, flask_client, channels, monkeypatch):
-        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    def test_reports_errors_without_secrets(
+        self, flask_client, channels, monkeypatch, override_settings
+    ):
+        override_settings(allow_unauthenticated_writes=True)
 
         def broken(url, **kwargs):
             raise httpx.ConnectError(f"cannot reach {url}")
@@ -474,8 +475,8 @@ class TestTestEndpoint:
         assert results["webhook"] == "error: ConnectError" and results["email"] == "ok"
         assert "secret-token" not in resp.get_data(as_text=True)
 
-    def test_no_channel(self, flask_client, monkeypatch):
-        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    def test_no_channel(self, flask_client, monkeypatch, override_settings):
+        override_settings(allow_unauthenticated_writes=True)
         for name in ("NOTIFY_WEBHOOK_URL", "NOTIFY_TEAMS_WEBHOOK_URL", "SMTP_HOST"):
             monkeypatch.setattr(settings, name, "")
         resp = flask_client.post("/api/v1/notifications/test")
@@ -483,7 +484,7 @@ class TestTestEndpoint:
             resp.status_code == 400
             and "NOTIFY_EMAIL_TO together with SMTP_HOST" in resp.get_json()["error"]
         )
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", ["noc@example.com"])
+        override_settings(notify_email_to=["noc@example.com"])
         resp = flask_client.post("/api/v1/notifications/test")
         assert (
             resp.get_json()["error"]
@@ -495,11 +496,9 @@ class TestCustomerMail:
     """A status token's addresses get a customer-safe mail about its tenant's sites (#707)."""
 
     @pytest.fixture
-    def smtp_only(self, channels, monkeypatch):
+    def smtp_only(self, channels, override_settings):
         """Mail on, no NOC channel: customers' mails need SMTP_HOST alone."""
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        override_settings(notify_webhook_url="", notify_teams_webhook_url="", notify_email_to=[])
         return channels
 
     @staticmethod
@@ -523,8 +522,8 @@ class TestCustomerMail:
         assert {row["channel"] for row in rows} == {"customer_email"}
         assert sorted(row["recipient"] for row in rows) == ["it@acme.example", "ops@acme.example"]
 
-    def test_noc_tenant_filter_is_not_the_customers(self, channels, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_TENANTS", {"other"})
+    def test_noc_tenant_filter_is_not_the_customers(self, channels, override_settings):
+        override_settings(notify_tenants={"other"})
         self.token("acme", "Acme", "it@acme.example")
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
         assert [row["channel"] for row in outbox()] == ["customer_email"]
@@ -552,10 +551,10 @@ class TestCustomerMail:
         payload = outbox()[0]["payload_json"]
         assert "10.0.0.1" not in payload and "core01" not in payload
 
-    def test_the_recovery_and_a_burst_per_address(self, smtp_only, monkeypatch):
+    def test_the_recovery_and_a_burst_per_address(self, smtp_only, override_settings):
         self.token("acme", "Acme", "it@acme.example")
         self.token("globex", "Globex", "it@globex.example")
-        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 2)
+        override_settings(notify_summary_threshold=2)
         sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(3)}
         sites["loc-g"] = site("loc-g", "Globex HQ", tenants=("Globex",))
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
@@ -573,10 +572,8 @@ class TestCustomerMailWait:
     token = staticmethod(TestCustomerMail.token)
 
     @pytest.fixture
-    def mail(self, channels, monkeypatch):
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
-        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+    def mail(self, channels, monkeypatch, override_settings):
+        override_settings(notify_webhook_url="", notify_teams_webhook_url="", notify_email_to=[])
         self.monkeypatch = monkeypatch
         self.level("ok", "2026-10-09T11:00:00Z")
         return channels
@@ -609,8 +606,8 @@ class TestCustomerMailWait:
         assert self.send_at("2026-10-09T13:00:00Z") == 0
         assert self.mails() == [("it@acme.example", "alarm", "cancelled")]
 
-    def test_down_longer_one_alarm_then_the_recovery(self, mail):
-        self.monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
+    def test_down_longer_one_alarm_then_the_recovery(self, mail, override_settings):
+        override_settings(notify_min_level="medium")
         self.token("acme", "Acme", "it@acme.example", after=15)
         self.level("medium", "2026-10-09T12:00:00Z")
         assert self.send_at("2026-10-09T12:14:59Z") == 0
@@ -629,9 +626,9 @@ class TestCustomerMailWait:
         assert self.mails()[-1] == ("it@acme.example", "alarm", "pending")
         assert outbox()[-1]["next_attempt_at"] == "2026-10-09T14:15:00Z"
 
-    def test_still_waiting_when_it_gets_worse(self, mail):
+    def test_still_waiting_when_it_gets_worse(self, mail, override_settings):
         """A worse level while the alarm waits: still the one alarm, at its time."""
-        self.monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
+        override_settings(notify_min_level="medium")
         self.token("acme", "Acme", "it@acme.example", after=30)
         self.level("medium", "2026-10-09T12:00:00Z")
         self.level("critical", "2026-10-09T12:10:00Z")
@@ -672,8 +669,8 @@ class TestCustomerMailWait:
         assert self.send_at("2026-10-09T12:01:00Z") == 0
         assert self.mails() == [("it@acme.example", "alarm", "cancelled")]
 
-    def test_staff_channels_dont_wait(self, mail):
-        self.monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", HOOK)
+    def test_staff_channels_dont_wait(self, mail, override_settings):
+        override_settings(notify_webhook_url=HOOK)
         self.token("acme", "Acme", "it@acme.example", after=15)
         self.level("critical", "2026-10-09T12:00:00Z")
         self.level("ok", "2026-10-09T12:05:00Z")

@@ -6,19 +6,20 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from tests import db as adb
 
 
 @pytest.fixture
 def sources(
-    flask_client, pg_database, monkeypatch
+    flask_client, pg_database, monkeypatch, override_settings
 ):  # flask_client: the app, so the schema's cache can be cleared
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")
-    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "token")
+    override_settings(
+        nautobot_url="https://nautobot.example.com",
+        nautobot_token="token",
+        librenms_url="https://librenms.example.com",
+        librenms_api_token="token",
+    )
     ran = []
 
     async def sync_nautobot(force=False):

@@ -21,7 +21,6 @@ import pytest
 import uvicorn
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from tests import db as adb
 from tests import http_client
@@ -385,10 +384,9 @@ class TestEndToEndScenario:
 # 6. Alert board backed by the persisted inventory snapshot
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def persisted_integration_client(integration_client, pg_database, monkeypatch):
+def persisted_integration_client(integration_client, pg_database, override_settings):
     """Integration flask_client with PostgreSQL persistence and a synced inventory snapshot."""
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+    override_settings(librenms_url="", librenms_api_token="")
     assert asyncio.run(inventory.ensure_snapshot(force=True, wait=True))
     return integration_client
 
@@ -422,9 +420,9 @@ class TestAlertBoardWithPersistence:
         ]
         assert london["device_count"] == len(with_ip)
 
-    def test_site_rollup_through_a_real_sync(self, persisted_integration_client, monkeypatch):
+    def test_site_rollup_through_a_real_sync(self, persisted_integration_client, override_settings):
         """Parents come from the Nautobot API, are cached, and the board rolls up to Sites (#158)."""
-        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        override_settings(alert_board_site_location_type="site")
         caching.cache.clear()
         alerts = self._alerts_by_site(persisted_integration_client)
         for hidden in ("loc-emea", "loc-dnk", "loc-aar-bld-a", "loc-aar-bld-a-f2"):
@@ -480,10 +478,9 @@ class TestAlertBoardWithPersistence:
         assert locations["loc-cph"]["ancestor_path"] == ""
 
     def test_a_level_change_notifies_through_a_real_board_build(
-        self, persisted_integration_client, monkeypatch
+        self, persisted_integration_client, monkeypatch, override_settings
     ):
         """End to end (#282): a real sync and board build queue and send a notification."""
-        from app.core.legacy_settings import settings
         from app.services import alerts_service as alerts
         from app.services import notify_service as notify
 
@@ -492,8 +489,9 @@ class TestAlertBoardWithPersistence:
         class Accepted:
             status_code = 202
 
-        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
-        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
+        override_settings(
+            notify_webhook_url="https://hooks.example.com/x", notify_min_level="medium"
+        )
         monkeypatch.setattr(
             notify, "_post", lambda url, content=None, **kw: posts.append(content) or Accepted()
         )
@@ -530,12 +528,11 @@ class TestAlertBoardWithPersistence:
 # ---------------------------------------------------------------------------
 class TestAlertBoardColdStart:
     def test_first_request_starts_sync_and_board_fills_in(
-        self, integration_client, pg_database, monkeypatch
+        self, integration_client, pg_database, override_settings
     ):
         import time
 
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+        override_settings(librenms_url="", librenms_api_token="")
 
         # Fresh database, and /alerts is the first page anyone opens.
         first = integration_client.get("/api/v1/alerts").get_json()

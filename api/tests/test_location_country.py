@@ -7,7 +7,6 @@ import asyncio
 import pytest
 
 from app.clients import nautobot
-from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 
 
@@ -62,10 +61,10 @@ def test_hierarchy_country(location_id, country):
     assert inventory.hierarchy_country(location_id, TREE) == country
 
 
-def test_the_country_type_is_a_setting(monkeypatch):
+def test_the_country_type_is_a_setting(override_settings):
     tree = {**TREE, "dk": {**TREE["dk"], "location_type": "Land"}}
     assert inventory.hierarchy_country("odense", tree) == ""
-    monkeypatch.setattr(settings, "COUNTRY_LOCATION_TYPE", "land")
+    override_settings(country_location_type="land")
     assert inventory.hierarchy_country("odense", tree) == "Denmark"
     assert inventory.cache_version().endswith(",land"), "changing it makes the next sync a full one"
 
@@ -129,10 +128,10 @@ def test_an_incremental_sync_finds_it_in_the_stored_tree(no_lookups):
     assert _countries([ODENSE], existing_location_tree=stored) == {"odense": "Denmark"}
 
 
-def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch, override_settings):
+    override_settings(
+        nautobot_url="https://nautobot.example.com", nautobot_token="token", librenms_url=""
+    )
     calls = []
 
     def fetch(endpoint, params=None, **kwargs):
@@ -153,10 +152,12 @@ def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch):
     assert by_id["odense"]["country"] == "Denmark"
 
 
-def test_a_renamed_country_reaches_its_sites_at_the_next_sync(client, pg_database, monkeypatch):
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+def test_a_renamed_country_reaches_its_sites_at_the_next_sync(
+    client, pg_database, monkeypatch, override_settings
+):
+    override_settings(
+        nautobot_url="https://nautobot.example.com", nautobot_token="token", librenms_url=""
+    )
     country = dict(DENMARK)
     calls = []
 

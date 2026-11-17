@@ -15,11 +15,12 @@ import pytest
 
 from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.services import inventory_service as inventory
 from app.utils import timeutil
 from tests import db as adb
 from tests import upstream
+from tests.overrides import overridden
 
 OFF = {"disabled": False, "disable_notify": False, "ignore": False}
 
@@ -130,12 +131,11 @@ class TestPrimaryIpExtraction:
 
 class TestInventoryCacheSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, monkeypatch):
+    def _database(self, pg_database, override_settings):
         self.db = pg_database
-        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+        override_settings(
+            nautobot_url="", nautobot_token="", librenms_url="", librenms_api_token=""
+        )
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
         conn = adb.connect()
@@ -378,9 +378,9 @@ class TestInventoryCacheSync:
             refresh_called.set()
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
+            overridden(inventory_sync_interval_seconds=0),
             patch.object(inventory, "sync_nautobot", side_effect=fake_sync),
         ):
             locations = asyncio.run(inventory.get_locations())
@@ -433,8 +433,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
@@ -519,8 +519,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
@@ -590,8 +590,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=False),
@@ -633,8 +633,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
             patch.object(inventory, "sync_due", return_value=False),
             patch.object(inventory, "sync_nautobot") as sync_nautobot,
         ):
@@ -703,8 +703,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=True),
@@ -819,8 +819,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            overridden(nautobot_url="https://nautobot.example.com"),
+            overridden(nautobot_token="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
@@ -840,28 +840,29 @@ class TestInventoryCacheSync:
 
 class TestLibreNMSEnrichment:
     def setup_method(self):
-        self._orig_url = settings.LIBRENMS_URL
-        self._orig_token = settings.LIBRENMS_API_TOKEN
-        self._orig_verify = settings.LIBRENMS_VERIFY_SSL
+        self._orig_url = get_settings().librenms_url
+        self._orig_token = get_settings().librenms_api_token
+        self._orig_verify = get_settings().librenms_verify_ssl
 
     def teardown_method(self):
         settings.LIBRENMS_URL = self._orig_url
         settings.LIBRENMS_API_TOKEN = self._orig_token
         settings.LIBRENMS_VERIFY_SSL = self._orig_verify
 
-    def test_fetch_inventory_skips_when_config_is_blank(self):
+    def test_fetch_inventory_skips_when_config_is_blank(self, override_settings):
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
-        settings.LIBRENMS_URL = "   "
-        settings.LIBRENMS_API_TOKEN = "   "
+        override_settings(librenms_url="   ", librenms_api_token="   ")
         with patch.object(upstream_http, "request") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
 
-    def test_librenms_get_uses_verify_setting(self):
-        settings.LIBRENMS_URL = "https://librenms.test"
-        settings.LIBRENMS_API_TOKEN = "tok"
-        settings.LIBRENMS_VERIFY_SSL = False
+    def test_librenms_get_uses_verify_setting(self, override_settings):
+        override_settings(
+            librenms_url="https://librenms.test",
+            librenms_api_token="tok",
+            librenms_verify_ssl=False,
+        )
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
@@ -889,9 +890,8 @@ class TestLibreNMSPolledIp:
     def test_polled_ip_selection(self, record, expected):
         assert inventory.librenms_polled_ip(record) == expected
 
-    def test_sync_caches_polled_ip(self, monkeypatch, pg_database):
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
+    def test_sync_caches_polled_ip(self, pg_database, override_settings):
+        override_settings(librenms_url="https://librenms.test", librenms_api_token="tok")
         with patch.object(
             librenms,
             "fetch_inventory",
@@ -920,11 +920,13 @@ class TestLibreNMSPolledIp:
 
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
-    def _database_and_nautobot(self, pg_database, monkeypatch):
-        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+    def _database_and_nautobot(self, pg_database, override_settings):
+        override_settings(
+            nautobot_url="https://nautobot.example.com",
+            nautobot_token="token",
+            librenms_url="",
+            librenms_api_token="",
+        )
 
     def _location_queries(self, **ensure_kwargs):
         """Run a synchronous sync and return the params sent to dcim/locations/."""
@@ -987,17 +989,17 @@ class TestLocationTenantRelationships:
         )
 
     @pytest.mark.parametrize("wanted", ["site_customers", "site customers"])
-    def test_setting_narrows_by_key_or_label(self, monkeypatch, wanted):
+    def test_setting_narrows_by_key_or_label(self, monkeypatch, wanted, override_settings):
         fetch, _ = _relationship_fetch()
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-        monkeypatch.setattr(settings, "SITE_TENANT_RELATIONSHIPS", {wanted})
+        override_settings(site_tenant_relationships={wanted})
         links = inventory.fetch_location_tenant_links()
         assert {link["relationship"] for link in links} == {"Site customers"}
 
-    def test_no_relationship_is_an_empty_list(self, monkeypatch):
+    def test_no_relationship_is_an_empty_list(self, monkeypatch, override_settings):
         fetch, _ = _relationship_fetch()
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-        monkeypatch.setattr(settings, "SITE_TENANT_RELATIONSHIPS", {"nothing-matches"})
+        override_settings(site_tenant_relationships={"nothing-matches"})
         assert inventory.fetch_location_tenant_links() == []
 
     def test_a_failed_read_is_none(self, monkeypatch):
@@ -1017,11 +1019,13 @@ class TestLocationTenantRelationships:
 
 class TestLocationTenantSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, monkeypatch):
-        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+    def _database(self, pg_database, override_settings):
+        override_settings(
+            nautobot_url="https://nautobot.example.com",
+            nautobot_token="token",
+            librenms_url="",
+            librenms_api_token="",
+        )
 
     def _sync(self, monkeypatch, error_on=None):
         fetch, _ = _relationship_fetch(error_on)
@@ -1062,11 +1066,13 @@ class TestTenantDescriptions:
     """The tenant (i) shows the Nautobot description (#263)."""
 
     @pytest.fixture(autouse=True)
-    def _sync_setup(self, pg_database, monkeypatch):
-        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+    def _sync_setup(self, pg_database, override_settings):
+        override_settings(
+            nautobot_url="https://nautobot.example.com",
+            nautobot_token="token",
+            librenms_url="",
+            librenms_api_token="",
+        )
 
     _sync = TestLocationTenantSync._sync
 

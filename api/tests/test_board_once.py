@@ -6,7 +6,6 @@ import threading
 import pytest
 
 from app.clients import caching
-from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.db import session
 from app.services import alerts_service as alerts
@@ -71,8 +70,8 @@ def test_after_the_wait_it_builds_anyway(site, monkeypatch):
         release()
 
 
-def test_the_stored_board_outlives_the_sync_interval(site, monkeypatch):
-    monkeypatch.setattr(settings, "CACHE_TTL", 300)
+def test_the_stored_board_outlives_the_sync_interval(site, override_settings):
+    override_settings(cache_ttl=300)
     assert alerts.board_cache_seconds({}) == 300 + alerts.BOARD_TTL_SLACK_SECONDS
 
 
@@ -211,13 +210,14 @@ def test_a_build_across_a_sync_commit_is_not_served_after_it(site, monkeypatch):
     assert london_down(asyncio.run(alerts.board())) == 0
 
 
-def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(pg_database, monkeypatch):
+def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(
+    pg_database, monkeypatch, override_settings
+):
     """The first sync commits while a request builds the (empty) board: that
     board must not be stored as the finished one (#523)."""
     from app.services import inventory_service as inventory
 
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    override_settings(nautobot_url="", librenms_url="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     caching.cache.clear()
     real_build = alerts.build_alert_board_payload
