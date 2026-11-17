@@ -130,6 +130,9 @@ const scopeNoMatch = computed(() => everyCount.value > 0 && !all.value.length);
 
 const mapElement = useTemplateRef<HTMLElement>("map");
 let siteMap: SiteMap | null = null;
+// Left before the start below finished (#743): the menu switches pages in place
+// (#737), so that start goes on after the page is gone and must stop there.
+let gone = false;
 
 // Draw the sites the filters let through, unless a place search is shown.
 function draw() {
@@ -478,6 +481,7 @@ onMounted(async () => {
   document.addEventListener("keydown", onKey);
   try {
     await Promise.all([loadLeaflet(), pageConfig]);
+    if (gone) return;
     // Drawn anyway, with the default tiles and no fixed view: said, not silent.
     if (pageConfig.error.value)
       showError(`The map's settings could not be loaded: ${errorMessage(pageConfig.error.value)}`);
@@ -504,6 +508,7 @@ onMounted(async () => {
     const data = (await unwrap(useNuxtApp().$api.GET("/api/v1/locations"))) as {
       locations: MapLocation[];
     };
+    if (gone) return;
     const every = data.locations || [];
     // Only the sites the link asks for: everything follows from here (#367).
     all.value = every.filter((loc) => inScope(loc, scope));
@@ -515,22 +520,27 @@ onMounted(async () => {
     }
     loadingText.value = `Processing ${all.value.length.toLocaleString("en")} locations…`;
     await levelsLoad;
+    if (gone || !siteMap) return;
     // Every site, not only the filtered ones; a link to a site flies on from here.
     if (!config.value.map.view) siteMap.fit(all.value);
     draw();
   } catch (err) {
-    showError(`Failed to load locations: ${errorMessage(err)}`);
+    if (!gone) showError(`Failed to load locations: ${errorMessage(err)}`);
   } finally {
     loading.value = false;
   }
+  if (gone) return;
   timer = setInterval(onVisible, ALERT_REFRESH_MS);
   document.addEventListener("visibilitychange", onVisible);
 });
 onBeforeUnmount(() => {
+  gone = true;
   clearInterval(timer);
   document.removeEventListener("keydown", onKey);
   document.removeEventListener("visibilitychange", onVisible);
   siteMap?.map.remove();
+  // A level refresh still on its way finds no map (loadLevels checks).
+  siteMap = null;
 });
 </script>
 
