@@ -616,7 +616,7 @@ jobs:
       - name: An identity, signed in
         run: |
           docker compose exec -T api python -m app identity create olga --role operator
-          session=$(docker compose exec -T api python -c "import asyncio; from app.core.settings import get_settings; from app.services import identity_service, login_service; print(login_service.issue(asyncio.run(identity_service.lookup('olga')), get_settings())[0])" 2>/dev/null)
+          session=$(docker compose exec -T api python -c "import asyncio; from app.core.settings import settings; from app.services import identity_service, login_service; print(login_service.issue(asyncio.run(identity_service.lookup('olga')), settings)[0])" 2>/dev/null)
           echo "::add-mask::$session"
           echo "SESSION=$session" >> "$GITHUB_ENV"
 
