@@ -76,9 +76,7 @@ Everything below is in `api/app/`.
 
 ### `core/`: settings, errors, version
 
-- `core/settings.py` is **the only place that reads environment variables.** Each setting is a field on `Settings` with its type, default and checks. Code reads them in one of two ways:
-  - `get_settings().nautobot_url`, the newer style.
-  - `settings.NAUTOBOT_URL` from `core/legacy_settings.py`, the older style that most services use. It reads the value **when called**, so tests can change a setting with `monkeypatch.setattr(settings, "X", value)`.
+- `core/settings.py` is **the only place that reads environment variables.** Each setting is a field on `Settings` with its type, default and checks. Code reads them with `get_settings().nautobot_url`, or `settings = get_settings()` once at the top of a function that reads several. Always **inside the function**, never at import, so a test that changes a setting reaches the code: the `override_settings` fixture (`override_settings(nautobot_url="")`), `with overridden(...)` from `api/tests/overrides.py`, or `configure(NAUTOBOT_URL="")` through the environment.
 - `core/exceptions.py` turns errors into answers. Every refusal is `{"error": "<one plain sentence>"}` with a status code.
 - `core/version.py` reads the version from `api/pyproject.toml`.
 
@@ -250,7 +248,7 @@ After changing the API, regenerate the types: `uv run python scripts/generate_op
 A few rules the code follows, which the tests rely on:
 
 - **Call across modules as `module.function()`,** never `from module import function`. Tests replace a function on its module (`monkeypatch.setattr(inventory, "fetch_tenants", fake)`), and that only works if callers look it up there.
-- **Read settings when needed,** not once at import.
+- **Read settings when needed** (`get_settings()` in the function), not once at import. `tests/test_layout.py` fails on a read at import.
 - **Get the time from `timeutil`,** so tests can set it.
 - **Importing a module must not touch the database.**
 - Helpers for database tests are in `api/tests/db.py`. For example, `adb.run(fn, …)` runs an async function with a session and commits.
@@ -259,10 +257,9 @@ A few rules the code follows, which the tests rely on:
 
 **…add a setting.**
 1. Add a field to `Settings` in `api/app/core/settings.py`, with a comment.
-2. Pass it through in the root `docker-compose.yml` (under the `api` service).
-3. Document it in `docs/configuration.md` and `.env.example`.
+2. Document it in `docs/configuration.md` and `.env.example`. The compose files pass nothing themselves: every container reads `.env`.
 
-`api/tests/test_settings.py` fails until all three are done.
+`api/tests/test_settings.py` fails until both are done.
 
 **…add an API route.**
 1. Pick the section folder in `api/app/v1/`.
