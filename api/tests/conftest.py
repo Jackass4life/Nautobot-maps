@@ -239,6 +239,22 @@ def fresh_settings():
 
 
 @pytest.fixture
+def override_settings():
+    """Set settings in code until the test ends, e.g. override_settings(auth_mode="header");
+    a later call wins, and all are undone (the last first) after the test."""
+    from tests import overrides
+
+    undos = []
+
+    def apply(**fields: object) -> None:
+        undos.append(overrides.override(**fields))
+
+    yield apply
+    for undo in reversed(undos):
+        undo()
+
+
+@pytest.fixture
 def configure(monkeypatch):
     """Set settings through the environment, e.g. configure(AUTH_MODE="header")."""
 
