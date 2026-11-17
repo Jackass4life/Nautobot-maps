@@ -84,6 +84,16 @@ def test_no_environment_in_the_compose_files(name):
         assert "environment" not in (definition or {}), f"{name}: {service}"
 
 
+def test_the_development_stacks_app_reads_its_env_file():
+    """development/docker-compose.yml (#747): Nautobot's containers keep their own settings
+    there; the app's read maps.env."""
+    compose = yaml.safe_load((REPO_ROOT / "development/docker-compose.yml").read_text("utf-8"))
+    for service in ("maps-postgres", "web", "api"):
+        definition = compose["services"][service]
+        assert definition["env_file"] == "maps.env", service
+        assert "environment" not in definition, service
+
+
 def test_the_api_and_web_read_dot_env():
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
     for service in ("postgres", "web", "api"):

@@ -287,7 +287,7 @@ The schema is versioned with Alembic: each change is applied once, before the ap
 docker compose exec api python -m app schema-version
 ```
 
-Rolling back to an older release after a newer one migrated the database stops at startup (it doesn't know the newer revision): run the release the database was migrated with, or restore a backup taken before the upgrade. The release before the new stack (#613) can still start on a database this one took over, until a later release changes the schema.
+Rolling back to an older release after a newer one migrated the database stops at startup (it doesn't know the newer revision): run the release the database was migrated with, or restore a backup taken before the upgrade. Releases before 0.3.0 (before the new stack, #613) can't start on it any more: 0.5.2 changed the schema (#707). Going back that far needs the backup you took before 0.3.0.
 
 ### Upgrading from a release before the new stack (#613)
 

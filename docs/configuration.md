@@ -32,7 +32,7 @@ Every container gets the whole `.env` (`env_file: .env` in each compose file, #7
 - **JSON settings** (`WIRELESS_CONTROLLERS`, `CRITICALITY_RULES`): on one line, in single quotes, e.g. `CRITICALITY_RULES='{"office": ["core", "router"]}'`. A mistake stops the app at startup and says where (never a password).
 - **A certificate** (`EXTRA_CA_PEM`): the PEM text on one line with `\n` for each line break, or base64 of the file (`base64 -w0 company-ca.pem`).
 - **Outside Docker** (`uv run python run.py` in `api/`): the app reads `api/.env`; copy `.env.example` there and use `localhost` instead of the service names (`postgres`, `redis`).
-- **Upgrading from a version with `config/`:** `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE` stop the app at startup and say what replaces them; a `*_VERIFY_SSL` with a file's path does too. The [changelog](../CHANGELOG.md) has the steps.
+- **Upgrading from a version with `config/`:** `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE` stop the app at startup and say what replaces them; a `*_VERIFY_SSL` with a file's path does too. [Operations](operations.md#every-setting-in-env-no-config-folder-739) has the steps.
 
 ## Nautobot
 
