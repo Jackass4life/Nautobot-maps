@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from loguru import logger
 
 from app.auth import permissions
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
@@ -41,14 +41,15 @@ def api_page_config():
     caller's access (the menu's pages are the web's own since #737), the Maintenance page's
     and Availability's limits, the map's tiles and first view, and the
     board's case links and level definitions."""
+    settings = get_settings()
     at = availability.now()
-    view = settings.MAP_DEFAULT_VIEW
+    view = settings.map_default_view
     access = auth.access()
     return deps.Json(
         {
             "user": templating.bar_user(),
             "access": access,
-            "nautobot_url": settings.NAUTOBOT_URL or "",
+            "nautobot_url": settings.nautobot_url or "",
             "maintenance": {
                 "recent_days": maintenance.PAGE_RECENT_DAYS,
                 "history_days": maintenance.HISTORY_DEFAULT_DAYS,
@@ -57,18 +58,18 @@ def api_page_config():
             "availability": {
                 "today": f"{at:%Y-%m-%d}",
                 "oldest_day": availability.oldest_day(at),
-                "basis": settings.AVAILABILITY_BASIS,
+                "basis": settings.availability_basis,
                 "target": availability.target_pct(),
             },
             "map": {
-                "tile_url": settings.MAP_TILE_URL,
-                "tile_attribution": settings.MAP_TILE_ATTRIBUTION,
+                "tile_url": settings.map_tile_url,
+                "tile_attribution": settings.map_tile_attribution,
                 "view": {"latitude": view[0], "longitude": view[1], "zoom": view[2]}
                 if view
                 else None,
             },
             "board": {
-                "case_url_template": settings.CASE_URL_TEMPLATE or "",
+                "case_url_template": settings.case_url_template or "",
                 "levels": alerts.alert_level_definitions(),
             },
             "admin": {
@@ -97,6 +98,7 @@ async def api_app_status():
     oldest source's last good sync) and ``sources`` (``name``, ``state``,
     ``message``, ``last_success``).
     """
+    settings = get_settings()
     # No database configured: nothing synced, not an outage.
     rows = {} if not db.dialect() else None
     if db.dialect():
@@ -108,11 +110,11 @@ async def api_app_status():
             logger.warning("App status: database unavailable: {}", str(exc) or type(exc).__name__)
     body = metrics.app_status(
         rows,
-        librenms=bool(settings.LIBRENMS_URL and settings.LIBRENMS_API_TOKEN),
+        librenms=bool(settings.librenms_url and settings.librenms_api_token),
         intervals={
-            "INVENTORY_SYNC_INTERVAL_SECONDS": settings.INVENTORY_SYNC_INTERVAL_SECONDS,
-            "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
-            "WIRELESS_SYNC_INTERVAL_SECONDS": settings.WIRELESS_SYNC_INTERVAL_SECONDS,
+            "INVENTORY_SYNC_INTERVAL_SECONDS": settings.inventory_sync_interval_seconds,
+            "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.librenms_sync_interval_seconds,
+            "WIRELESS_SYNC_INTERVAL_SECONDS": settings.wireless_sync_interval_seconds,
         },
         now=time.time(),
         wireless=tuple(
