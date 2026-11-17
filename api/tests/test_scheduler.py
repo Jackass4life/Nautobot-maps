@@ -116,14 +116,14 @@ def test_the_tick_awaits_its_work_and_leaves_the_loop_free(monkeypatch):
     assert answered < 0.4, answered
 
 
-def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
+def test_start_is_idempotent_and_respects_the_setting(monkeypatch, override_settings):
     monkeypatch.setattr(scheduler, "_started", False)
     monkeypatch.setattr(scheduler, "loop", adb.async_of(_idle))
 
     async def run():
-        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
+        override_settings(background_sync_enabled=False)
         assert scheduler.start() is False
-        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+        override_settings(background_sync_enabled=True)
         assert scheduler.start() is True
         first = scheduler._task
         assert scheduler.start() is True

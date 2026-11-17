@@ -15,7 +15,6 @@ import pytest
 
 from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
-from app.core.settings import get_settings
 from app.services import inventory_service as inventory
 from app.utils import timeutil
 from tests import db as adb
@@ -839,16 +838,6 @@ class TestInventoryCacheSync:
 
 
 class TestLibreNMSEnrichment:
-    def setup_method(self):
-        self._orig_url = get_settings().librenms_url
-        self._orig_token = get_settings().librenms_api_token
-        self._orig_verify = get_settings().librenms_verify_ssl
-
-    def teardown_method(self):
-        settings.LIBRENMS_URL = self._orig_url
-        settings.LIBRENMS_API_TOKEN = self._orig_token
-        settings.LIBRENMS_VERIFY_SSL = self._orig_verify
-
     def test_fetch_inventory_skips_when_config_is_blank(self, override_settings):
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
         override_settings(librenms_url="   ", librenms_api_token="   ")

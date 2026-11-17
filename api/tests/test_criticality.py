@@ -92,7 +92,7 @@ class TestDeviceLevel:
         assert read({"custom_fields": {"criticality": "critical"}}) == ""
 
     def test_the_tier_setting_keeps_known_levels(self):
-        code = "from app.core.legacy_settings import settings as s; print(s.TIER_DEVICE_LEVEL)"
+        code = "from app.core.settings import get_settings; s = get_settings(); print(s.tier_device_level)"
         env = {**os.environ, "TIER_DEVICE_LEVEL": "Gold:Critical, silver:medium,bronze:urgent,:low"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True

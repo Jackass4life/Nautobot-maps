@@ -24,6 +24,7 @@ from app.clients import caching
 from app.services import inventory_service as inventory
 from tests import db as adb
 from tests import http_client
+from tests.overrides import overridden
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -59,17 +60,13 @@ def integration_client(mock_nautobot_server):
     Return a Flask test flask_client for nautobot-maps, configured to talk to the
     real mock-Nautobot server started in the fixture above.
     """
-    # Patch the module-level config variables so all calls go to the mock server
-    settings.NAUTOBOT_URL = mock_nautobot_server
-    settings.NAUTOBOT_TOKEN = "demo-token"
+    # Every call goes to the mock server, until the module's tests are done.
     caching.cache.clear()
-
-    with http_client.FlaskStyleClient() as flask_client:
+    with (
+        overridden(nautobot_url=mock_nautobot_server, nautobot_token="demo-token"),
+        http_client.FlaskStyleClient() as flask_client,
+    ):
         yield flask_client
-
-    # Restore to blank so other test modules don't accidentally hit the server
-    settings.NAUTOBOT_URL = ""
-    settings.NAUTOBOT_TOKEN = ""
 
 
 # ---------------------------------------------------------------------------

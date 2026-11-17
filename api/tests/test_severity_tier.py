@@ -55,7 +55,7 @@ class TestThresholds:
         import os
         import sys
 
-        code = "from app.core.legacy_settings import settings as s; print(s.ALERT_MEDIUM_PERCENT, s.ALERT_CRITICAL_PERCENT)"
+        code = "from app.core.settings import get_settings; s = get_settings(); print(s.alert_medium_percent, s.alert_critical_percent)"
         env = {**os.environ, "ALERT_MEDIUM_PERCENT": "0", "ALERT_CRITICAL_PERCENT": "500"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
@@ -124,9 +124,7 @@ class TestNotifications:
         import os
         import sys
 
-        code = (
-            "from app.core.legacy_settings import settings as s; print(s.NOTIFY_MIN_LEVEL_BY_TIER)"
-        )
+        code = "from app.core.settings import get_settings; s = get_settings(); print(s.notify_min_level_by_tier)"
         env = {**os.environ, "NOTIFY_MIN_LEVEL_BY_TIER": ":low, gold:low,silver:bogus"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True

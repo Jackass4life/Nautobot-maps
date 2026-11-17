@@ -16,6 +16,7 @@ import pytest
 
 from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
+from app.core import settings as config
 from app.core.settings import get_settings
 from app.db import aconnection
 from app.db import connection as db
@@ -53,33 +54,17 @@ def auth_config(
     admin_groups=None,
     default_role="",
 ):
-    saved = {
-        "AUTH_MODE": get_settings().auth_mode,
-        "AUTH_HEADER_USER": get_settings().auth_header_user,
-        "AUTH_HEADER_GROUPS": get_settings().auth_header_groups,
-        "AUTH_VIEWER_GROUPS": set(get_settings().auth_viewer_groups),
-        "AUTH_OPERATOR_GROUPS": set(get_settings().auth_operator_groups),
-        "AUTH_ADMIN_GROUPS": set(get_settings().auth_admin_groups),
-        "AUTH_DEFAULT_ROLE": get_settings().auth_default_role,
-    }
-    settings.AUTH_MODE = mode
-    settings.AUTH_HEADER_USER = user_header
-    settings.AUTH_HEADER_GROUPS = groups_header
-    settings.AUTH_VIEWER_GROUPS = set(viewer_groups or set())
-    settings.AUTH_OPERATOR_GROUPS = set(operator_groups or set())
-    settings.AUTH_ADMIN_GROUPS = set(admin_groups or set())
     role = (default_role or "").strip().lower()
-    settings.AUTH_DEFAULT_ROLE = role if role in ("viewer", "operator", "admin") else ""
-    try:
+    with overridden(
+        auth_mode=mode,
+        auth_header_user=user_header,
+        auth_header_groups=groups_header,
+        auth_viewer_groups=set(viewer_groups or set()),
+        auth_operator_groups=set(operator_groups or set()),
+        auth_admin_groups=set(admin_groups or set()),
+        auth_default_role=role if role in ("viewer", "operator", "admin") else "",
+    ):
         yield
-    finally:
-        settings.AUTH_MODE = saved["AUTH_MODE"]
-        settings.AUTH_HEADER_USER = saved["AUTH_HEADER_USER"]
-        settings.AUTH_HEADER_GROUPS = saved["AUTH_HEADER_GROUPS"]
-        settings.AUTH_VIEWER_GROUPS = saved["AUTH_VIEWER_GROUPS"]
-        settings.AUTH_OPERATOR_GROUPS = saved["AUTH_OPERATOR_GROUPS"]
-        settings.AUTH_ADMIN_GROUPS = saved["AUTH_ADMIN_GROUPS"]
-        settings.AUTH_DEFAULT_ROLE = saved["AUTH_DEFAULT_ROLE"]
 
 
 @pytest.fixture
@@ -540,15 +525,10 @@ class TestApiLocations:
         assert locs[0]["parent"] == "Denmark"
 
     def test_missing_env_vars_returns_503(self, flask_client, override_settings):
-        original_url = get_settings().nautobot_url
-        original_token = get_settings().nautobot_token
         override_settings(nautobot_url="", nautobot_token="")
-        try:
-            resp = flask_client.get("/api/v1/locations")
-            assert resp.status_code == 503
-            assert resp.get_json()["error"] == "Nautobot service unavailable"
-        finally:
-            override_settings(nautobot_url=original_url, nautobot_token=original_token)
+        resp = flask_client.get("/api/v1/locations")
+        assert resp.status_code == 503
+        assert resp.get_json()["error"] == "Nautobot service unavailable"
 
     def test_nautobot_http_error_returns_502(self, flask_client):
 
@@ -838,7 +818,7 @@ class TestAlertBoard:
             )
 
     def test_status_exclusion_null_keyword_matches_missing_status(self):
-        excluded = settings.parse_csv_set("null, Decommissioning")
+        excluded = config.parse_csv_set("null, Decommissioning")
         assert alerts.status_is_excluded(None, excluded)
         assert alerts.status_is_excluded("", excluded)
         assert alerts.status_is_excluded("  ", excluded)
@@ -899,7 +879,7 @@ class TestAlertBoard:
         assert unfiltered_alert["level"] == "critical"
 
     def test_parse_csv_set_normalizes_case_and_whitespace(self):
-        assert settings.parse_csv_set(" Decommissioning ; Core Site, POP ") == {
+        assert config.parse_csv_set(" Decommissioning ; Core Site, POP ") == {
             "decommissioning",
             "core site",
             "pop",
@@ -907,14 +887,12 @@ class TestAlertBoard:
 
     def test_location_exclusion_matches_mixed_case_configured_values(self):
         with (
-            overridden(alert_board_excluded_location_names=settings.parse_csv_set("Warehouse")),
+            overridden(alert_board_excluded_location_names=config.parse_csv_set("Warehouse")),
             overridden(
-                alert_board_excluded_location_statuses=settings.parse_csv_set("Decommissioning")
+                alert_board_excluded_location_statuses=config.parse_csv_set("Decommissioning")
             ),
-            overridden(alert_board_excluded_location_types=settings.parse_csv_set("Branch Office")),
-            overridden(
-                alert_board_excluded_location_tags=settings.parse_csv_set("Non-Operational")
-            ),
+            overridden(alert_board_excluded_location_types=config.parse_csv_set("Branch Office")),
+            overridden(alert_board_excluded_location_tags=config.parse_csv_set("Non-Operational")),
         ):
             assert alerts.location_is_excluded_from_alert_board(
                 {
@@ -1556,7 +1534,7 @@ class TestIndex:
         ],
     )
     def test_default_view_is_checked(self, raw, expected, caplog):
-        assert settings._map_view(raw) == expected
+        assert config._map_view(raw) == expected
         assert ("MAP_DEFAULT_VIEW ignored" in caplog.text) == (bool(raw) and expected is None)
 
 
@@ -3497,16 +3475,6 @@ class TestCriticalityRules:
 # Tests: LibreNMS enrichment
 # ---------------------------------------------------------------------------
 class TestLibreNMSEnrichment:
-    def setup_method(self):
-        self._orig_url = get_settings().librenms_url
-        self._orig_token = get_settings().librenms_api_token
-        self._orig_verify = get_settings().librenms_verify_ssl
-
-    def teardown_method(self):
-        settings.LIBRENMS_URL = self._orig_url
-        settings.LIBRENMS_API_TOKEN = self._orig_token
-        settings.LIBRENMS_VERIFY_SSL = self._orig_verify
-
     def test_no_enrichment_when_unconfigured(self, override_settings):
         """_enrich_with_librenms is a no-op when LIBRENMS_URL is empty."""
         override_settings(librenms_url="", librenms_api_token="")
@@ -3640,12 +3608,12 @@ class TestAuthConfiguration:
         return importlib.reload(gunicorn_config)
 
     def test_default_trusts_only_localhost(self):
-        assert [str(n) for n in settings._networks("t", "127.0.0.1/32,::1/128")] == [
+        assert [str(n) for n in config._networks("t", "127.0.0.1/32,::1/128")] == [
             "127.0.0.1/32",
             "::1/128",
         ]
         with pytest.raises(RuntimeError, match="AUTH_TRUSTED_PROXIES"):
-            settings._networks("AUTH_TRUSTED_PROXIES", "10.0.0.0/33")
+            config._networks("AUTH_TRUSTED_PROXIES", "10.0.0.0/33")
 
     def test_auth_disabled_refuses_admin_writes_by_default(self, flask_client, override_settings):
         """Anyone who can reach the app must not change Nautobot with its token (#188)."""
@@ -4542,9 +4510,9 @@ class TestSiteRollup:
         conn.close()
 
     def _board(self, monkeypatch, site_type="site"):
-        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
         caching.cache.clear()
-        return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
+        with overridden(alert_board_site_location_type=site_type):
+            return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
 
     def test_only_sites_are_rows_and_regions_are_hidden(self, monkeypatch):
         rows = self._board(monkeypatch)
@@ -4693,7 +4661,7 @@ class TestBackgroundScheduler:
         asyncio.run(run())
         assert len(calls) == 2
 
-    def test_start_is_idempotent_and_respects_the_setting(self, monkeypatch):
+    def test_start_is_idempotent_and_respects_the_setting(self, monkeypatch, override_settings):
         monkeypatch.setattr(scheduler, "_started", False)
 
         async def idle(stop):
@@ -4702,9 +4670,9 @@ class TestBackgroundScheduler:
         monkeypatch.setattr(scheduler, "loop", adb.async_of(idle))
 
         async def run():
-            monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
+            override_settings(background_sync_enabled=False)
             assert scheduler.start() is False
-            monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+            override_settings(background_sync_enabled=True)
             assert scheduler.start() is True
             first = scheduler._task
             assert scheduler.start() is True

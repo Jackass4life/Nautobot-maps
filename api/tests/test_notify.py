@@ -475,10 +475,9 @@ class TestTestEndpoint:
         assert results["webhook"] == "error: ConnectError" and results["email"] == "ok"
         assert "secret-token" not in resp.get_data(as_text=True)
 
-    def test_no_channel(self, flask_client, monkeypatch, override_settings):
+    def test_no_channel(self, flask_client, override_settings):
         override_settings(allow_unauthenticated_writes=True)
-        for name in ("NOTIFY_WEBHOOK_URL", "NOTIFY_TEAMS_WEBHOOK_URL", "SMTP_HOST"):
-            monkeypatch.setattr(settings, name, "")
+        override_settings(notify_webhook_url="", notify_teams_webhook_url="", smtp_host="")
         resp = flask_client.post("/api/v1/notifications/test")
         assert (
             resp.status_code == 400

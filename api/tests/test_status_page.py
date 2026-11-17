@@ -799,12 +799,13 @@ class TestTenantDevices:
         devices = status.tenant_status(board, "ACME CORP")["sites"][0]["devices"]
         assert [d["name"] for d in devices] == ["z-down", "m", "A-up", "b-up"]
 
-    def test_from_the_board_build_to_the_page(self, flask_client, pg_database, monkeypatch):
+    def test_from_the_board_build_to_the_page(
+        self, flask_client, pg_database, monkeypatch, override_settings
+    ):
         """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
         from tests.test_app import _snapshot_device, _snapshot_location
 
-        for name, value in (("NAUTOBOT_URL", ""), ("NAUTOBOT_TOKEN", ""), ("LIBRENMS_URL", "")):
-            monkeypatch.setattr(settings, name, value)
+        override_settings(nautobot_url="", nautobot_token="", librenms_url="")
         monkeypatch.setattr(
             inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
         )

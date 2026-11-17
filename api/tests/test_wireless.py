@@ -12,6 +12,7 @@ import yaml
 
 from app import __main__ as cli
 from app.clients import arubacentral, caching, catalyst
+from app.core import settings as config
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -70,14 +71,14 @@ catalyst_center:
     verify_ssl: false
 """,
         )
-        dk, se = settings._wireless_controllers(path)
+        dk, se = config._wireless_controllers(path)
         assert (dk["name"], dk["url"], dk["verify_ssl"]) == (
             "dk",
             "https://dnac-dk.example.com",
             True,
         )
         assert (se["kind"], se["password"], se["verify_ssl"]) == ("catalyst_center", "two", False)
-        assert settings._wireless_controllers("") == ()
+        assert config._wireless_controllers("") == ()
 
     @pytest.mark.parametrize(
         ("text", "message"),
@@ -115,7 +116,7 @@ catalyst_center:
     )
     def test_a_mistake_stops_startup_and_names_it(self, tmp_path, text, message):
         with pytest.raises(RuntimeError, match=None) as caught:
-            settings._wireless_controllers(self.write(tmp_path, text))
+            config._wireless_controllers(self.write(tmp_path, text))
         assert message in str(caught.value)
 
     def test_a_password_is_never_in_the_message(self, tmp_path):
@@ -123,7 +124,7 @@ catalyst_center:
             tmp_path, "catalyst_center: [{name: dk, url: 'nope', username: u, password: hunter2}]"
         )
         with pytest.raises(RuntimeError) as caught:
-            settings._wireless_controllers(path)
+            config._wireless_controllers(path)
         assert "hunter2" not in str(caught.value)
 
     def test_aruba_central_by_region_or_base_url(self, tmp_path):
@@ -139,7 +140,7 @@ catalyst_center:
   - {name: eu, url: "https://dnac.example.com", username: u, password: p}
 """,
         )
-        dnac, eu, cn, lab = settings._wireless_controllers(path)
+        dnac, eu, cn, lab = config._wireless_controllers(path)
         assert dnac["kind"] == "catalyst_center", "the same name in two kinds is two instances"
         assert (eu["url"], eu["token_url"]) == (
             "https://de1.api.central.arubanetworks.com",
@@ -179,7 +180,7 @@ catalyst_center:
     )
     def test_aruba_central_mistakes(self, tmp_path, entry, message):
         with pytest.raises(RuntimeError) as caught:
-            settings._wireless_controllers(self.write(tmp_path, f"aruba_central: [{entry}]"))
+            config._wireless_controllers(self.write(tmp_path, f"aruba_central: [{entry}]"))
         assert message in str(caught.value)
         assert "s}" not in str(caught.value)
 
@@ -188,7 +189,7 @@ catalyst_center:
             tmp_path,
             "catalyst_center: [{name: demo, url: 'http://127.0.0.1:8080', username: u, password: p}]",
         )
-        assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
+        assert config._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
 
 
 class FakeSession:
