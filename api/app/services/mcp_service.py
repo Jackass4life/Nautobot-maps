@@ -26,7 +26,7 @@ from loguru import logger
 
 from app.clients import caching
 from app.context import request as requestctx
-from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.services import alerts_service as alerts
 from app.services import legacy_auth as auth
 from app.services import scope_service as scope
@@ -681,7 +681,7 @@ def _origin_allowed() -> bool:
     origin = request.headers.get("Origin")
     if origin is None:
         return True
-    allowed = {_normalize_origin(item) for item in settings.MCP_ALLOWED_ORIGINS}
+    allowed = {_normalize_origin(item) for item in get_settings().mcp_allowed_origins}
     normalized = _normalize_origin(origin)
     return bool(normalized) and normalized in allowed
 
