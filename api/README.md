@@ -24,9 +24,15 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 |---|---|
 | `api.py` | App, middleware, routers under `/api/v1`, spec at `/api/openapi.json` (`app.api:app`) |
 | `lifespan.py` | Startup and shutdown: response cache, Nautobot's SSL warnings, the background scheduler |
+| `__main__.py` | The command line, `python -m app …` (below) |
+| `migrate.py` | `python -m app migrate`: adopts a schema-33 database, upgrades to head |
+| `startup.py` | The startup log: what the board leaves out, settings that would quietly break something |
+| `server.py` | uvicorn's options (no proxy headers, no server header) for `run.py` and gunicorn |
 | `v1/<section>/controller.py` | One folder per section of `v1/sections.py` (`map/`, `alert_board/`, …): its `APIRouter`s, HTTP only; DTOs in, DTOs out |
 | `v1/<section>/dtos.py` | Its Pydantic request/response models; shared ones in `v1/common/dtos.py` |
 | `services/<resource>_service.py` | Business rules; ORM ↔ DTO conversion |
+| `clients/` | Upstream systems: Nautobot (read-only), LibreNMS, Catalyst Center, Aruba Central, the shared HTTP client (`http.py`), the response cache (`caching.py`) |
+| `frontend/` | `web/`'s built pages in development (`WEB_BUILD_DIR`), the security headers and gzip on every answer |
 | `repositories/<resource>_repository.py` | All queries; takes an `AsyncSession`, returns ORM objects (`AsyncBaseRepository` in `core/repository.py`) |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
 | `core/` | Settings (`settings.py`: `get_settings()`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
@@ -36,7 +42,8 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `logs/` | Log setup through loguru (`config.py`), each line's part (`parts.py`), the access log (`middleware.py`) |
 | `utils/` | Small helpers: `timeutil`, `body`, `locks`, `inprocess` |
 
-Outside `app/`: `run.py` (development server), `scripts/generate_openapi.py`.
+Outside `app/`: `run.py` (development server), `gunicorn_config.py` and
+`docker-entrypoint.sh` (the container: migrate, then gunicorn), `scripts/generate_openapi.py`.
 
 Layering is strict: `controller → service → repository → model`, no skipping.
 
@@ -55,7 +62,7 @@ response status is < 400, otherwise rolls back, and always closes it. Routes tak
 
 ## Settings (#588)
 
-Every setting of the first app, same names and meaning: see
+Every setting is described in
 [docs/configuration.md](../docs/configuration.md). Read with `get_settings().name`
 (`app/core/settings.py`, the only module that reads the environment); an empty value means
 the default. Only the new stack's own:
@@ -77,19 +84,17 @@ its 27 tables as they are, and the first Alembic revision creates exactly that
 `python -m app.migrate` (the container runs it at start) brings any database to the newest schema:
 
 - **The first app's database** (`schema_migrations` at version 33): stamped at the baseline
-  revision, its data kept, then upgraded. The first app can still start on it until the
-  schema changes.
+  revision, its data kept, then upgraded. The schema has changed since (#707 on), so the
+  first app can no longer start on it.
 - **Empty, or Alembic's already:** upgraded.
 - **Refused, with what to do:** the first app's schema below or above 33, or its tables
   without a migration record. Below 33: start the first app's last release (an image before
   #613) once on it, then this one.
 
-Both apps take the same PostgreSQL lock while migrating.
-
 ## Command line (#611)
 
-The first app's commands, as `python -m app …` (in the container: `docker compose exec
-app python -m app …`); same options, output and exit status:
+The first app's commands and more, as `python -m app …` (in the container: `docker compose
+exec api python -m app …`):
 
 | Command | What it does |
 |---|---|
@@ -116,24 +121,23 @@ app python -m app …`); same options, output and exit status:
 
 ## Ported code (#600)
 
-The first app's modules (`nautobot_maps/`) moved here area by area (#587). Where their behaviour is pinned
-by many tests, they are ported close to verbatim, on two thin layers:
+The first app's modules (`nautobot_maps/`) moved here area by area (#587, done in #613). Where
+their behaviour is pinned by many tests, they were ported close to verbatim, on two thin layers:
 
 - `app/db/aconnection.py`: the first app's SQL on asyncpg (`await conn.execute(sql, params)`
   with its `%s` placeholders, `conn.transaction()`, `try_advisory_lock()`), each statement
   committed at once outside a transaction, as its autocommit connections were; with the
-  connect and statement timeouts. The same advisory lock keys: the two apps exclude each
-  other during the switchover. `app/db/connection.py` keeps its helpers (`db.row_to_dict()`,
+  connect and statement timeouts. `app/db/connection.py` keeps its helpers (`db.row_to_dict()`,
   `db.placeholders()`, ...).
 - Settings: `get_settings().nautobot_url`, read inside the function (#745: the
   `settings.NAUTOBOT_URL` proxy is gone); a test's `override_settings(nautobot_url=...)`
   (`tests/overrides.py`) changes it for every module until the test ends.
 
-So far: `app/services/inventory_service.py` (the inventory sync into the snapshot tables, its
-reads), `app/services/scheduler.py` (one asyncio task per process, its sync work in a thread until it is async, the `background_scheduler` lock,
-the due syncs every tick; `BACKGROUND_SYNC_ENABLED=false` turns it off). Their tests are
-ported from the first app's `tests/`, and `tests/test_nautobot_live.py` runs the sync
-against CI's real Nautobot 3.x.
+The background work is `app/services/scheduler.py`: one asyncio task per process, the
+`background_scheduler` advisory lock so one process works at a time, the due syncs every
+tick (`BACKGROUND_SYNC_ENABLED=false` turns it off). The ported tests are in `tests/`
+(`test_app.py` and others), and `tests/test_nautobot_live.py` runs the inventory sync against
+CI's real Nautobot 3.x.
 
 ## The first app's routes (#604)
 

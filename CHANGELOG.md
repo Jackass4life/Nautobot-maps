@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - the demo's settings are `demo/demo.env` (`MOCK_SCALE` too), its controllers `demo/wireless.env`.
 
 ### Fixed
+- **Operations: rolling back before 0.3.0 needs your backup** (#747): the guide said a release from before the new stack could still start on the upgraded database; 0.5.2 changed the schema, so it can't. Also: the `config/` upgrade steps are linked from *Configuration*, and `api/README.md`'s command example names the `api` service
 - **No "Failed to load locations" error after leaving the map early** (#743): opening another page from the menu before the map had loaded its sites showed a Leaflet error (`_leaflet_pos`) on that page and left the map's refresh running in the background. The map, and Maintenance's refresh, now stop once you leave them
 - **The upgrade step that turns `config/wireless.yml` into `WIRELESS_CONTROLLERS` works** (#741): it runs Python directly (`--entrypoint python`); through the image's entrypoint it stopped on the old `WIRELESS_CONTROLLERS_FILE` and wrote an empty setting (`docs/operations.md`, `docs/sources.md`)
 - **The ☰ menu works from the first moment** (#737): the menu's pages are part of the web pages, not fetched from the API, so the menu is never empty (before it was, until the API had answered, or for good if that call failed). Its links open pages inside the app without reloading it, and the top bar stays put. `GET /api/v1/page-config` no longer has `pages` (the menu); `access.pages` still says which pages the caller may open
