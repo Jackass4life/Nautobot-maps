@@ -223,7 +223,7 @@ Never edit a revision that may already have been applied. The container runs `py
 
 `api/`: `uv add <package>` (or `uv add --dev`, `--group e2e`), never pip; `uv.lock` pins every package, transitive ones included, with hashes, so the image and CI install exactly what was tested (#186). `web/`: `bun add --exact <package>` (`--dev` for a build tool); `bun.lock` pins every package with its hash.
 
-CI fails when a lock file doesn't match, or when `pip-audit`, `bun audit` or the Trivy image scan finds a known vulnerability. Dependabot proposes updates weekly.
+CI fails when a lock file doesn't match, or when `pip-audit` (any known vulnerability), `bun audit` or the Trivy image scan (high or critical; Trivy only those with a fix released) finds one. `web/scripts/audit.mjs` lists the few `bun audit` advisories accepted until a fix is released, each with why it can't be reached (#756). Dependabot proposes updates weekly.
 
 ### Tests
 
