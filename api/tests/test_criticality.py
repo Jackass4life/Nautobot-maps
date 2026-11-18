@@ -35,7 +35,7 @@ def level(devices, tier="", override_map=None, location_type=None):
 
 @pytest.fixture
 def tiers(override_settings):
-    override_settings(tier_device_level={"gold": "critical", "silver": "medium"})
+    override_settings(TIER_DEVICE_LEVEL={"gold": "critical", "silver": "medium"})
 
 
 class TestDeviceLevel:
@@ -72,7 +72,7 @@ class TestDeviceLevel:
         )
 
     def test_a_low_tier_keeps_core_devices_critical(self, override_settings):
-        override_settings(tier_device_level={"bronze": "low"})
+        override_settings(TIER_DEVICE_LEVEL={"bronze": "low"})
         devices = [device("core01", "Offline", role="Core Router")] + [
             device(f"sw{n}") for n in range(9)
         ]
@@ -82,17 +82,17 @@ class TestDeviceLevel:
         }
 
     def test_read_from_the_custom_field(self, override_settings):
-        override_settings(device_criticality_field="criticality")
+        override_settings(DEVICE_CRITICALITY_FIELD="criticality")
         read = inventory.device_criticality
         assert read({"custom_fields": {"criticality": "Critical"}}) == "critical"
         assert read({"custom_fields": {"criticality": {"value": "low", "label": "Low"}}}) == "low"
         assert read({"custom_fields": {"criticality": "urgent"}}) == "", "not a level: ignored"
         assert read({"custom_fields": None}) == ""
-        override_settings(device_criticality_field="")
+        override_settings(DEVICE_CRITICALITY_FIELD="")
         assert read({"custom_fields": {"criticality": "critical"}}) == ""
 
     def test_the_tier_setting_keeps_known_levels(self):
-        code = "from app.core.settings import settings; s = settings; print(s.tier_device_level)"
+        code = "from app.core.settings import settings; s = settings; print(s.TIER_DEVICE_LEVEL)"
         env = {**os.environ, "TIER_DEVICE_LEVEL": "Gold:Critical, silver:medium,bronze:urgent,:low"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
@@ -106,7 +106,7 @@ class TestDeviceLevel:
         """Not a wait for the daily reconcile: the stored devices don't have the field yet."""
         state = {"cache_version": inventory.cache_version()}
         assert not inventory.cache_version_mismatch(state)
-        override_settings(device_criticality_field="criticality")
+        override_settings(DEVICE_CRITICALITY_FIELD="criticality")
         assert inventory.cache_version_mismatch(state)
         assert not inventory.cache_version_mismatch({"cache_version": inventory.cache_version()})
 

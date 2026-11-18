@@ -248,7 +248,7 @@ def fresh_settings():
 
 @pytest.fixture
 def override_settings():
-    """Set settings in code until the test ends, e.g. override_settings(auth_mode="header");
+    """Set settings in code until the test ends, e.g. override_settings(AUTH_MODE="header");
     a later call wins, and all are undone (the last first) after the test."""
     from tests import overrides
 
@@ -349,11 +349,11 @@ def board(pg_database, monkeypatch, override_settings):
     clock = {"now": "2026-10-18T12:00:00Z"}
     monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
     override_settings(
-        nautobot_url="",
-        nautobot_token="",
-        librenms_url="",
-        notify_webhook_url="https://hooks.example.com/x",
-        notify_min_level="critical",
+        NAUTOBOT_URL="",
+        NAUTOBOT_TOKEN="",
+        LIBRENMS_URL="",
+        NOTIFY_WEBHOOK_URL="https://hooks.example.com/x",
+        NOTIFY_MIN_LEVEL="critical",
     )
     monkeypatch.setattr(
         inventory_service, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
@@ -408,5 +408,5 @@ def frontend_build(tmp_path, override_settings):
         '</script></head><body><div id="__nuxt"></div></body></html>'
     )
     (build / "_nuxt" / "entry.abc123.js").write_text("console.log('nuxt');\n" * 200)
-    override_settings(web_build_dir=str(build))
+    override_settings(WEB_BUILD_DIR=str(build))
     return build

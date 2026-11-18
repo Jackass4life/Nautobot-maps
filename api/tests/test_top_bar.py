@@ -90,7 +90,7 @@ def test_the_endpoint_never_calls_upstream(flask_client, monkeypatch, override_s
     called = []
     monkeypatch.setattr("app.clients.nautobot.fetch_all_pages", lambda *a, **k: called.append(a))
     monkeypatch.setattr("app.clients.librenms.get", lambda *a, **k: called.append(a))
-    override_settings(nautobot_maps_database_url="")
+    override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
     response = flask_client.get("/api/v1/app-status")
     assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
     assert response.get_json()["state"] in {"ok", "stale"}
@@ -107,7 +107,7 @@ class TestPageConfig:
         assert response.headers["Cache-Control"] == "no-store"
 
     def test_no_one_signed_in_without_sign_in(self, flask_client, override_settings):
-        override_settings(auth_mode="disabled")
+        override_settings(AUTH_MODE="disabled")
         assert flask_client.get("/api/v1/page-config").get_json()["user"] is None
 
     def test_who_is_signed_in(self, flask_client):
@@ -122,7 +122,7 @@ class TestPageConfig:
         self, flask_client, override_settings
     ):
         """#546: AUTH_SIGN_OUT_URL is where the top bar's Sign out goes."""
-        override_settings(auth_sign_out_url="/oauth2/sign_out")
+        override_settings(AUTH_SIGN_OUT_URL="/oauth2/sign_out")
         with auth_config(mode="header", viewer_groups={"noc"}):
             config = flask_client.get(
                 "/api/v1/page-config",
@@ -136,16 +136,16 @@ class TestPageConfig:
         """A token has no session to end; with AUTH_MODE=disabled nobody is signed in."""
         from app.services import templating_service as templating
 
-        override_settings(auth_sign_out_url="/oauth2/sign_out", auth_mode="header")
+        override_settings(AUTH_SIGN_OUT_URL="/oauth2/sign_out", AUTH_MODE="header")
         assert templating.sign_out_url({"username": "olga"}) == "/oauth2/sign_out"
         assert templating.sign_out_url({"username": "token:librenms", "token": "librenms"}) == ""
-        override_settings(auth_mode="disabled")
+        override_settings(AUTH_MODE="disabled")
         assert templating.sign_out_url({"username": "token:librenms", "token": "librenms"}) == ""
 
     def test_the_boards_case_links_and_levels(self, flask_client, override_settings):
         from app.services import alerts_service as alerts
 
-        override_settings(case_url_template="https://itsm.example/t/{case}")
+        override_settings(CASE_URL_TEMPLATE="https://itsm.example/t/{case}")
         board = flask_client.get("/api/v1/page-config").get_json()["board"]
         assert board == {
             "case_url_template": "https://itsm.example/t/{case}",
@@ -154,9 +154,9 @@ class TestPageConfig:
 
     def test_the_maps_tiles_and_first_view(self, flask_client, override_settings):
         override_settings(
-            map_tile_url="https://tiles.example/{z}/{x}/{y}.png",
-            map_tile_attribution="Tiles",
-            map_default_view=None,
+            MAP_TILE_URL="https://tiles.example/{z}/{x}/{y}.png",
+            MAP_TILE_ATTRIBUTION="Tiles",
+            MAP_DEFAULT_VIEW=None,
         )
         assert flask_client.get("/api/v1/page-config").get_json()["map"] == {
             "tile_url": "https://tiles.example/{z}/{x}/{y}.png",
@@ -164,7 +164,7 @@ class TestPageConfig:
             "view": None,
         }
         # MAP_DEFAULT_VIEW (#362): the map opens there instead of framing the sites.
-        override_settings(map_default_view=(55.7, 12.6, 6))
+        override_settings(MAP_DEFAULT_VIEW=(55.7, 12.6, 6))
         view = flask_client.get("/api/v1/page-config").get_json()["map"]["view"]
         assert view == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
@@ -206,7 +206,7 @@ def test_the_web_menu_is_the_api_pages():
 )
 def test_the_sign_out_url_is_a_path_or_http(value, expected):
     """#546: anything else is ignored with a warning, never put in a link."""
-    code = "from app.core.settings import settings; print(settings.auth_sign_out_url)"
+    code = "from app.core.settings import settings; print(settings.AUTH_SIGN_OUT_URL)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=pathlib.Path(__file__).resolve().parent.parent,

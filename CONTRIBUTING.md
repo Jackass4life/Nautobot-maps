@@ -113,10 +113,11 @@ the details.
     `board_store.function()`.
   - `app/models/` and `alembic/`: the schema (SQLAlchemy models, Alembic revisions).
   - `app/core/settings.py`: every setting, the only module that reads the environment.
-    They are read once into one shared object: `from app.core.settings import settings`, then
-    `settings.name` inside the function that needs it, never at import (`tests/test_layout.py`
+    Each field is named like its environment variable (`NAUTOBOT_URL: str`, #760). They are
+    read once into one shared object: `from app.core.settings import settings`, then
+    `settings.NAUTOBOT_URL` inside the function that needs it, never at import (`tests/test_layout.py`
     checks); tests change them with the `override_settings`
-    fixture (`override_settings(nautobot_url="")`) or `with overridden(...)` from
+    fixture (`override_settings(NAUTOBOT_URL="")`) or `with overridden(...)` from
     `tests/overrides.py`, or through the environment with `configure(NAUTOBOT_URL="")`.
     Add a new setting there and document it in `docs/configuration.md` (with its **Read by**:
     `api`) and `.env.example` (tests check both). Compose passes nothing itself: every

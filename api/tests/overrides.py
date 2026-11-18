@@ -1,4 +1,4 @@
-"""Settings set in code for one test (#745, #754): ``overridden(nautobot_url="http://x")``,
+"""Settings set in code for one test (#745, #754): ``overridden(NAUTOBOT_URL="http://x")``,
 or the ``override_settings`` fixture. Each override is set on the shared settings object
 (``from app.core.settings import settings``) and kept in ``ACTIVE``, so it survives the settings
 being read again from the environment (``reload()``, the ``configure`` fixture); undone,
@@ -22,12 +22,12 @@ def reload(**kwargs: object) -> None:
 
 
 def override(**fields: object) -> Callable[[], None]:
-    """Set *fields* (a field name, any case) until the returned function is called."""
+    """Set *fields* (by their environment names, #760) until the returned function is
+    called."""
     saved: dict[str, tuple[bool, object]] = {}
-    for name, value in fields.items():
-        field = name.lower()
+    for field, value in fields.items():
         if field not in Settings.model_fields:
-            raise AttributeError(f"no setting {name}")
+            raise AttributeError(f"no setting {field}")
         saved.setdefault(field, (field in ACTIVE, ACTIVE.get(field)))
         ACTIVE[field] = value
         setattr(settings, field, value)
