@@ -176,7 +176,7 @@ def _reads(reader: str, name: str) -> bool:
     """Whether *reader* (a Read by entry) really reads *name*, by its source (#749)."""
     base = reader.split(" (")[0]
     if base in {"api", "dev server"}:
-        return name in SETTING_NAMES or name in _text("api/docker-entrypoint.sh")
+        return name in SETTING_NAMES or name in _text("api/docker-entrypoint.sh", "api/Dockerfile")
     if base == "gunicorn":
         return f'"{name}"' in _text("api/gunicorn_config.py")
     if base == "web":

@@ -29,6 +29,7 @@ def port() -> int:
 def main() -> None:
     logs.configure()
     startup.log_alert_board_exclusions()
+    startup.log_unknown_settings()
     uvicorn.run(
         "app.api:app",
         host=host(),

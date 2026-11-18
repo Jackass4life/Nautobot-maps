@@ -4,6 +4,8 @@ out and the settings that would quietly break something, once per server
 
 from loguru import logger
 
+from app.core import env_names
+from app.core import settings as config
 from app.core.settings import settings
 
 
@@ -59,3 +61,13 @@ def log_alert_board_exclusions() -> None:
     )
     if settings.criticality_rules:
         logger.info("Criticality rules for {}", list(settings.criticality_rules))
+
+
+def log_unknown_settings() -> None:
+    """Warn about names in the environment that look like settings but that nothing
+    reads (#758): a typo, or a leftover; never their values."""
+    for name, meant in env_names.unknown(config.environment_names()):
+        if meant:
+            logger.warning("Unknown setting {} (did you mean {}?): ignored", name, meant)
+        else:
+            logger.warning("Unknown setting {}: nothing reads it, ignored", name)
