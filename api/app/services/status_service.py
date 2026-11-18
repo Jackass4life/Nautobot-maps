@@ -164,6 +164,43 @@ def site_circuits(
     return placed
 
 
+def tenant_site(row: dict, tenant: str, checked_at: str) -> dict | None:
+    """*tenant*'s entry for one board row, as its status page shows it (the page's and
+    the customer mail's, #763); None when the row isn't the tenant's or has nothing
+    monitored for it. Without circuits: ``site_circuits`` adds them."""
+    wanted = tenant.strip().casefold()
+    match = next((t for t in site_tenants(row) if t.casefold() == wanted), None)
+    if match is None:
+        return None
+    # Nothing monitored there (a region, a building), or no role matched this tenant.
+    scoped = (row.get("tenant_alerts") or {}).get(match.casefold())
+    if scoped is not None and not scoped.get("device_count"):
+        return None
+    if scoped is None and row.get("alert_level") == "no_data" and not row.get("device_count"):
+        return None
+    state = STATES.get((scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown")
+    if (scoped if scoped is not None else row).get("wireless_only"):
+        # Only access points down (#521): operational, with them counted, as before.
+        state = "operational"
+    site = {
+        "name": row.get("name") or "",
+        # The location's description in Nautobot, when it has one (#558).
+        "description": (row.get("description") or "").strip() or None,
+        "state": state,
+        "since": None,
+        "until": None,
+        **_place(row),
+        **_devices(scoped if scoped is not None else row),
+        "devices": _named(row, match.casefold()),
+        "circuits": [],
+    }
+    if state in ("outage", "degraded"):
+        site["since"] = _since({**row, **(scoped or {})}, checked_at)
+    elif state == "maintenance":
+        site["until"] = (row.get("maintenance") or {}).get("until")
+    return site
+
+
 def tenant_status(
     board: dict,
     tenant: str,
@@ -180,16 +217,10 @@ def tenant_status(
     rows = []
     checked_at = board.get("checked_at") or ""
     for row in board.get("alerts") or []:
-        match = next((t for t in site_tenants(row) if t.casefold() == wanted), None)
-        if match is None:
+        site = tenant_site(row, tenant, checked_at)
+        if site is None:
             continue
-        # Nothing monitored there (a region, a building), or no role matched this tenant.
-        scoped = (row.get("tenant_alerts") or {}).get(match.casefold())
-        if scoped is not None and not scoped.get("device_count"):
-            continue
-        if scoped is None and row.get("alert_level") == "no_data" and not row.get("device_count"):
-            continue
-        name = name or match
+        name = name or next(t for t in site_tenants(row) if t.casefold() == wanted)
         # Only this tenant's, never a shared site's other tenants' (#482).
         description = description or next(
             (
@@ -199,28 +230,6 @@ def tenant_status(
             ),
             "",
         )
-        state = STATES.get(
-            (scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown"
-        )
-        if (scoped if scoped is not None else row).get("wireless_only"):
-            # Only access points down (#521): operational, with them counted, as before.
-            state = "operational"
-        site = {
-            "name": row.get("name") or "",
-            # The location's description in Nautobot, when it has one (#558).
-            "description": (row.get("description") or "").strip() or None,
-            "state": state,
-            "since": None,
-            "until": None,
-            **_place(row),
-            **_devices(scoped if scoped is not None else row),
-            "devices": _named(row, match.casefold()),
-            "circuits": [],
-        }
-        if state in ("outage", "degraded"):
-            site["since"] = _since({**row, **(scoped or {})}, checked_at)
-        elif state == "maintenance":
-            site["until"] = (row.get("maintenance") or {}).get("until")
         sites.append(site)
         rows.append(row)
     if not sites:

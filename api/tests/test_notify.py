@@ -13,9 +13,11 @@ from app.clients import caching
 from app.db import connection as db
 from app.db import session
 from app.services import alerts_service as alerts
+from app.services import inventory_service as inventory
 from app.services import metrics_service as metrics
 from app.services import notify_service as notify
 from app.services import scheduler
+from app.services import status_service as status
 from app.utils import timeutil
 from tests import db as adb
 from tests import http_client
@@ -541,9 +543,9 @@ class TestCustomerMail:
         mails = sorted(smtp_only["mails"], key=lambda mail: mail["To"])
         assert [mail["To"] for mail in mails] == ["it@acme.example", "ops@acme.example"]
         mail = mails[0]
-        assert mail["Subject"] == "🔴 Aarhus HQ is Critical"
+        assert mail["Subject"] == "🔴 Aarhus HQ: Outage"
         body = mail.get_body(("plain",)).get_content()
-        assert "Havnegade 1" in body and "Customer: Acme" in body and "OK → Critical" in body
+        assert "Havnegade 1" in body and "Customer: Acme" in body and "Status: Outage" in body
         assert "https://maps.example.com/status/lnk123" in body
         for internal in ("core01", "10.0.0.1", "INC-7", "/alerts", "Core device", "EMEA"):
             assert internal not in body, internal
@@ -560,8 +562,137 @@ class TestCustomerMail:
         assert asyncio.run(notify.send_pending()) == 4
         by_to = {mail["To"]: mail for mail in smtp_only["mails"]}
         assert by_to["it@acme.example"]["Subject"] == "Your sites: 3 sites in alarm"
-        assert by_to["it@globex.example"]["Subject"] == "🔴 Globex HQ is Critical"
+        assert by_to["it@globex.example"]["Subject"] == "🔴 Globex HQ: Outage"
         assert "Site 0" not in by_to["it@globex.example"].get_body(("plain",)).get_content()
+
+
+class TestCustomerMailIsTheStatusPage:
+    """A customer's mail says what their status page says about the site (#763)."""
+
+    token = staticmethod(TestCustomerMail.token)
+
+    @pytest.fixture
+    def mail(self, channels, override_settings):
+        override_settings(
+            NOTIFY_WEBHOOK_URL="",
+            NOTIFY_TEAMS_WEBHOOK_URL="",
+            NOTIFY_EMAIL_TO=[],
+            # The page names the tenant's devices (#555): so does the mail.
+            STATUS_PAGE_TENANT_DEVICES=True,
+        )
+        return channels
+
+    @staticmethod
+    def shared_site():
+        """Acme's and Globex's site: each with its own devices and counts."""
+        return site(
+            tenants=("Acme", "Globex"),
+            description="Main office",
+            network_device_count=10,
+            down_network_device_count=2,
+            access_point_count=4,
+            tenant_alerts={
+                "acme": {
+                    "alert_level": "critical",
+                    "device_count": 3,
+                    "network_device_count": 3,
+                    "down_network_device_count": 1,
+                    "current_downtime_seconds": 300,
+                },
+                "globex": {"alert_level": "ok", "device_count": 7, "network_device_count": 7},
+            },
+            tenant_devices={
+                "acme": [{"name": "acme-rtr", "state": "down", "since": "2026-10-09T11:55:00Z"}],
+                "globex": [{"name": "globex-sw", "state": "up", "since": None}],
+            },
+        )
+
+    @staticmethod
+    def body(mails, to):
+        mail = next(mail for mail in mails if mail["To"] == to)
+        return mail["Subject"], mail.get_body(("plain",)).get_content()
+
+    def test_the_entry_is_the_pages(self, mail):
+        self.token("acme", "Acme", "it@acme.example")
+        row = self.shared_site()
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": row})
+        event = json.loads(outbox()[0]["payload_json"])
+        page = status.tenant_site({**row, "alert_level": "critical"}, "Acme", NOW)
+        assert event["status"] == [{"tenant": "Acme", **page}]
+        assert page["state"] == "outage" and page["devices"][0]["name"] == "acme-rtr"
+
+    def test_the_tenants_devices_by_name_never_anothers(self, mail):
+        self.token("acme", "Acme", "it@acme.example")
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": self.shared_site()})
+        assert asyncio.run(notify.send_pending()) == 1
+        subject, body = self.body(mail["mails"], "it@acme.example")
+        assert subject == "🔴 Aarhus HQ: Outage"
+        assert "Status: Outage since 2026-10-09 11:55 UTC" in body
+        assert "About: Main office" in body
+        assert "Devices: 1 of 3 network devices down" in body
+        assert "acme-rtr: down since 2026-10-09 11:55 UTC" in body
+        for other in ("globex-sw", "Globex", "10 network devices", "core01", "10.0.0.1", "INC-7"):
+            assert other not in body, other
+
+    def test_no_names_where_the_page_shows_none(self, mail, override_settings):
+        override_settings(STATUS_PAGE_TENANT_DEVICES=False)
+        self.token("acme", "Acme", "it@acme.example")
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": self.shared_site()})
+        assert asyncio.run(notify.send_pending()) == 1
+        _, body = self.body(mail["mails"], "it@acme.example")
+        assert "Devices: 1 of 3 network devices down" in body and "acme-rtr" not in body
+
+    def test_the_sites_circuits(self, mail):
+        self.token("acme", "Acme", "it@acme.example")
+        circuit = {
+            "circuit_id": "c1",
+            "cid": "DK-TEL-1",
+            "provider": "Telia Carrier",
+            "circuit_type": "Internet Transit",
+            "status": "Active",
+            "tenant": "Acme",
+            "commit_rate": 1_000_000,
+            "description": "",
+            "address_key": "",
+            "terminated": True,
+            "location_ids": ["loc-1"],
+        }
+        elsewhere = {**circuit, "circuit_id": "c2", "cid": "DK-TEL-2", "location_ids": ["loc-9"]}
+        adb.call(inventory.write_circuits, [circuit, elsewhere])
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": self.shared_site()})
+        assert asyncio.run(notify.send_pending()) == 1
+        _, body = self.body(mail["mails"], "it@acme.example")
+        assert "Circuit: DK-TEL-1 · Internet Transit · 1 Gbps" in body
+        assert "DK-TEL-2" not in body and "Telia" not in body
+
+    def test_the_summary_has_the_counts(self, mail, override_settings):
+        override_settings(NOTIFY_SUMMARY_THRESHOLD=2)
+        self.token("acme", "Acme", "it@acme.example")
+        sites = {
+            f"loc-{n}": site(
+                f"loc-{n}", f"Site {n}", network_device_count=4, down_network_device_count=4
+            )
+            for n in range(3)
+        }
+        change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
+        assert asyncio.run(notify.send_pending()) == 3  # rows, in one mail
+        assert len(mail["mails"]) == 1
+        _, body = self.body(mail["mails"], "it@acme.example")
+        assert "🔴 Site 0: Outage (2026-10-09 12:00 UTC) · 4 of 4 network devices down" in body
+
+    def test_a_mail_queued_before_still_reads(self):
+        """No "status" in its payload (#763): the board's level, in the page's words."""
+        event = {
+            "type": "alarm",
+            "level": "medium",
+            "previous_level": "ok",
+            "changed_at": NOW,
+            "site": {"id": "loc-1", "name": "Aarhus HQ", "address": ""},
+            "tenants": ["Acme"],
+            "status_pages": [],
+        }
+        assert notify.customer_title(event) == "🔴 Aarhus HQ: Degraded"
+        assert "Status: Degraded" in notify.customer_lines(event)
 
 
 class TestCustomerMailWait:
@@ -611,7 +742,7 @@ class TestCustomerMailWait:
         self.level("medium", "2026-10-09T12:00:00Z")
         assert self.send_at("2026-10-09T12:14:59Z") == 0
         assert self.send_at("2026-10-09T12:15:00Z") == 1
-        assert mail["mails"][0]["Subject"].endswith("Aarhus HQ is Medium")
+        assert mail["mails"][0]["Subject"].endswith("Aarhus HQ: Degraded")
         # Worse while down: no second alarm.
         self.level("critical", "2026-10-09T12:20:00Z")
         self.level("ok", "2026-10-09T13:00:00Z")

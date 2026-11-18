@@ -189,7 +189,7 @@ When someone acknowledges an alarm, adds a case or starts maintenance, the route
 ### Notifications
 
 1. While building the board, `alerts_service` notices when a site's level changes. In the same database transaction, `notify_service.enqueue_change()` writes one row per channel to the `notification_outbox` table. Writing the row together with the change means a crash can't lose a notification.
-2. Customer mails (`customer_email`) are queued for each address on the tenant's status tokens. Each one waits its token's `notify_after_minutes`, and is cancelled if the site comes back first.
+2. Customer mails (`customer_email`) are queued for each address on the tenant's status tokens. Their content is the tenant's status page entry for the site (`status_service.tenant_site()`, the page's own function, #763), so a mail never says more than the page. Each one waits its token's `notify_after_minutes`, and is cancelled if the site comes back first.
 3. On each tick, `scheduler.send_notifications()` calls `notify_service.send_pending()`. It takes the due rows (`FOR UPDATE SKIP LOCKED`, so two senders never take the same row), sends them, and marks them sent, or retries later with a growing delay.
 
 ### Sign-in and permissions
