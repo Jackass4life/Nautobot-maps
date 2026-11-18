@@ -28,7 +28,7 @@ def clock(monkeypatch):
 @pytest.fixture
 def site(pg_database, monkeypatch, clock, override_settings):
     """London: a core router and two access switches, all up in Nautobot."""
-    override_settings(nautobot_url="", nautobot_token="", librenms_url="")
+    override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     devices = [
         {
@@ -130,10 +130,10 @@ class TestParsing:
             and events[0]["started_at"].isoformat() == "2026-10-09T11:50:00+00:00"
         )
         assert len(events[2]["key"]) == 64
-        override_settings(alertmanager_alertnames={"hostdown"})
+        override_settings(ALERTMANAGER_ALERTNAMES={"hostdown"})
         assert webhooks.parse_alertmanager(body)[0] == []
         override_settings(
-            alertmanager_device_labels=["hostname", "instance"], alertmanager_alertnames=set()
+            ALERTMANAGER_DEVICE_LABELS=["hostname", "instance"], ALERTMANAGER_ALERTNAMES=set()
         )
         assert webhooks.parse_alertmanager(body)[0][1]["device"] == "sw9"
 

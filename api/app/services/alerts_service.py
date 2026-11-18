@@ -56,8 +56,8 @@ DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning", "f
 def alert_level_definitions() -> dict:
     """What each level means, from the configured thresholds (#293); shown on
     the board.  They describe compute_alert_level() and must match it."""
-    medium = settings.alert_medium_percent
-    critical = settings.alert_critical_percent
+    medium = settings.ALERT_MEDIUM_PERCENT
+    critical = settings.ALERT_CRITICAL_PERCENT
     critical_share = (
         "every monitored device is down"
         if critical >= 100
@@ -82,7 +82,7 @@ def alert_level_definitions() -> dict:
         "maintenance": "Sites in a maintenance window: planned work, not an alarm. Nothing is notified until it ends.",
         "wireless": (
             f"Sites with only access points down, as a wireless controller reports them, at "
-            f"{settings.wireless_ap_level.capitalize()}: not an alarm, never notified."
+            f"{settings.WIRELESS_AP_LEVEL.capitalize()}: not an alarm, never notified."
         ),
     }
 
@@ -148,7 +148,7 @@ def board_stacks(stacks: dict[str, list[dict]], muted: Collection[str] = ()) -> 
     those of an excluded status, such as Decommissioning, left out, and those
     whose id is in *muted* (LibreNMS doesn't alert for them, #570); and their
     ``names``.  Only stacks of two or more."""
-    excluded = settings.alert_board_excluded_device_statuses
+    excluded = settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES
     result = {}
     for vc_id, all_members in stacks.items():
         members = [
@@ -188,7 +188,7 @@ def board_device_rules() -> dict:
     The board, the map's marker colours and the site panel all use this."""
     return {
         "require_primary_ip": True,
-        "excluded_device_statuses": settings.alert_board_excluded_device_statuses,
+        "excluded_device_statuses": settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
     }
 
 
@@ -205,7 +205,7 @@ def not_monitored_reason(device: dict) -> str:
             return "no primary IP, not in a wireless controller"
         return "no primary IP"
     status = (device.get("status") or "").strip()
-    if status_is_excluded(status, settings.alert_board_excluded_device_statuses):
+    if status_is_excluded(status, settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES):
         return f"status {status or 'empty'} is excluded"
     return device.get("librenms_muted") or ""
 
@@ -274,12 +274,12 @@ def location_is_excluded_from_alert_board(location: dict) -> bool:
         if tag_name:
             tags.add(tag_name.strip().lower())
     return bool(
-        (name and name in settings.alert_board_excluded_location_names)
+        (name and name in settings.ALERT_BOARD_EXCLUDED_LOCATION_NAMES)
         or status_is_excluded(
-            location.get("status"), settings.alert_board_excluded_location_statuses
+            location.get("status"), settings.ALERT_BOARD_EXCLUDED_LOCATION_STATUSES
         )
-        or (location_type and location_type in settings.alert_board_excluded_location_types)
-        or (tags & settings.alert_board_excluded_location_tags)
+        or (location_type and location_type in settings.ALERT_BOARD_EXCLUDED_LOCATION_TYPES)
+        or (tags & settings.ALERT_BOARD_EXCLUDED_LOCATION_TAGS)
     )
 
 
@@ -293,7 +293,7 @@ DEFAULT_CORE_ROLE_KEYWORDS: tuple = ("core", "spine", "distribution", "router", 
 def env_core_role_keywords() -> tuple:
     """CRITICAL_ROLE_KEYWORDS (comma-separated): replaces the built-in defaults for every
     location type that has no rule of its own in CRITICALITY_RULES."""
-    raw = settings.critical_role_keywords
+    raw = settings.CRITICAL_ROLE_KEYWORDS
     keywords = tuple(kw.strip().lower() for kw in raw.split(",") if kw.strip())
     return keywords or DEFAULT_CORE_ROLE_KEYWORDS
 
@@ -307,7 +307,7 @@ def get_critical_keywords(location_type: str | None = None) -> tuple:
     2. Its ``"default"`` entry.
     3. ``env_core_role_keywords()`` (CRITICAL_ROLE_KEYWORDS, or the built-in defaults).
     """
-    rules = settings.criticality_rules
+    rules = settings.CRITICALITY_RULES
     if location_type and rules:
         lt_key = location_type.lower()
         if lt_key in rules:
@@ -380,7 +380,7 @@ def device_level(
     if device.get("wireless"):
         if override_map.get(device_id):
             return "critical", "override"
-        return settings.wireless_ap_level, "wireless"
+        return settings.WIRELESS_AP_LEVEL, "wireless"
     if device_id in override_map:
         own = ("critical", "override") if override_map[device_id] else ("", "")
     else:
@@ -485,7 +485,7 @@ def compute_alert_level(
         return alert
     count = len(down_aps)
     return {
-        "level": settings.wireless_ap_level,
+        "level": settings.WIRELESS_AP_LEVEL,
         "reason": f"{count} access point{'s' if count != 1 else ''} offline",
         "wireless_only": True,
     }
@@ -528,9 +528,9 @@ def _wired_level(devices: list, core_keywords, override_map: dict, tier: str) ->
     pct = round(down_count / total * 100)
     share = f"{down_count}/{total} devices offline ({pct}%)"
     # Thresholds from the settings (#293), read now so a test or a reload sees them.
-    if down_count * 100 >= total * settings.alert_critical_percent:
+    if down_count * 100 >= total * settings.ALERT_CRITICAL_PERCENT:
         share_level = "critical"
-    elif down_count * 100 > total * settings.alert_medium_percent:
+    elif down_count * 100 > total * settings.ALERT_MEDIUM_PERCENT:
         share_level = "medium"
     else:
         share_level = "low"
@@ -653,7 +653,7 @@ def tenant_devices(
     counts are: down only when counted (not still within the delay, not in a
     device or site window); a stack once, by its name, as its lead's.  Never
     more than name and state: the page shows nothing else of a device."""
-    if not settings.status_page_tenant_devices:
+    if not settings.STATUS_PAGE_TENANT_DEVICES:
         return {}
     tenant_names = {tenant.strip().casefold() for tenant in tenants if tenant}
     in_maintenance = {id(device) for device in maintenance_devices}
@@ -741,7 +741,7 @@ async def enrich_with_librenms(
     A device LibreNMS doesn't alert for (#570) gets ``librenms_muted``, the
     reason, and is not marked offline: the board leaves it out.
     """
-    if not (settings.librenms_url or "").strip() or not (settings.librenms_api_token or "").strip():
+    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         return devices
 
     if lnms_index is None:
@@ -982,13 +982,13 @@ async def get_location_devices_and_alert(
 
 def tier_device_level(tier: str | None) -> str:
     """The TIER_DEVICE_LEVEL default for this site tier, or "" (#377)."""
-    return settings.tier_device_level.get((tier or "").strip().lower(), "")
+    return settings.TIER_DEVICE_LEVEL.get((tier or "").strip().lower(), "")
 
 
 def tier_rank(tier: str) -> int:
     """0 for the most important tier in SITE_TIERS (#293); 99 without a known tier."""
     tier = (tier or "").strip().lower()
-    return settings.site_tiers.index(tier) if tier in settings.site_tiers else 99
+    return settings.SITE_TIERS.index(tier) if tier in settings.SITE_TIERS else 99
 
 
 def site_behind(devices: list[dict], down_devices: list[dict], index: dict) -> dict | None:
@@ -1180,11 +1180,11 @@ def next_device_state(
         since = stored["since"] if stored and previous == "up" else (since or now)
     changes = list(stored.get("changes") or []) if stored else []
     flapping_since = stored.get("flapping_since") if stored else None
-    if settings.flap_changes:
+    if settings.FLAP_CHANGES:
         if state != previous:
             changes.append(since)
         changes = _recent(changes, now)
-        if len(changes) >= settings.flap_changes:
+        if len(changes) >= settings.FLAP_CHANGES:
             flapping_since = flapping_since or now
         elif not changes:
             flapping_since = None
@@ -1557,10 +1557,10 @@ async def inventory_update_schedule() -> tuple[bool, int | None]:
     board counts down to it (#152).
     """
     sources = []
-    if settings.nautobot_url and settings.nautobot_token:
-        sources.append(("nautobot_inventory", settings.inventory_sync_interval_seconds))
-    if (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip():
-        sources.append(("librenms_inventory", settings.librenms_sync_interval_seconds))
+    if settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN:
+        sources.append(("nautobot_inventory", settings.INVENTORY_SYNC_INTERVAL_SECONDS))
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
+        sources.append(("librenms_inventory", settings.LIBRENMS_SYNC_INTERVAL_SECONDS))
     if not sources or not db.dialect():
         return False, None
     try:
@@ -1615,7 +1615,7 @@ async def apply_alert_board_freshness(
             age_seconds = 0
     result = dict(payload)
     result.pop(BOARD_SNAPSHOT_KEY, None)
-    stale_after_seconds = int(result.get("stale_after_seconds", settings.cache_ttl))
+    stale_after_seconds = int(result.get("stale_after_seconds", settings.CACHE_TTL))
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
     result["sync_pending"] = bool(sync_enqueued) or await nautobot_sync_in_progress(nautobot_state)
@@ -1792,7 +1792,7 @@ HISTORY_RETENTION_SOURCE = "alert_history_retention"
 
 async def maybe_prune_alert_history(conn: aconnection.Connection) -> dict | None:
     """Prune once a day when ALERT_HISTORY_RETENTION_DAYS is set (scheduler, #194)."""
-    days = settings.alert_history_retention_days
+    days = settings.ALERT_HISTORY_RETENTION_DAYS
     if days <= 0 or not await inventory.sync_due(HISTORY_RETENTION_SOURCE, 24 * 3600, conn=conn):
         return None
     started_at = timeutil.iso_utc_now()
@@ -1845,7 +1845,7 @@ async def build_alert_board_payload(
     lnms_index = None
     # Device mappings found by hostname/IP, written once after the build (#240).
     new_librenms_maps: dict = {}
-    if (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip():
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         try:
             lnms_devices = await inventory.read_librenms_devices()
             if not lnms_devices and not snapshot_only:
@@ -1956,7 +1956,7 @@ async def build_alert_board_payload(
 
     # One row per site, with the devices of its whole subtree (#158).
     devices_by_row = None
-    if settings.alert_board_site_location_type:
+    if settings.ALERT_BOARD_SITE_LOCATION_TYPE:
         if board_data is not None:
             devices_by_location = board_data["devices_by_location"]
         else:
@@ -1966,7 +1966,7 @@ async def build_alert_board_payload(
         locations, devices_by_row = roll_up_to_site_locations(
             all_locations,
             devices_by_location,
-            settings.alert_board_site_location_type,
+            settings.ALERT_BOARD_SITE_LOCATION_TYPE,
             include_non_operational=include_non_operational,
         )
     else:
@@ -2112,7 +2112,7 @@ async def build_alert_board_payload(
             # Down for less than ALERT_DELAY_SECONDS and not alarmed yet: not
             # shown, counted or recorded; if it comes back, it never happened.
             pending_devices = []
-            if settings.alert_delay_seconds and device_states is not None:
+            if settings.ALERT_DELAY_SECONDS and device_states is not None:
                 pending_devices = [
                     d
                     for d in devices
@@ -2121,7 +2121,7 @@ async def build_alert_board_payload(
                     and not d.get("flapping")
                     and (d.get("id") or "") not in alarmed_device_ids
                     and seconds_between(d["first_seen_down_at"], checked_at)
-                    < settings.alert_delay_seconds
+                    < settings.ALERT_DELAY_SECONDS
                 ]
                 if pending_devices:
                     devices = [d for d in devices if d not in pending_devices]
@@ -2549,7 +2549,7 @@ async def build_alert_board_payload(
 
     return {
         "checked_at": timeutil.iso_utc_now(),
-        "stale_after_seconds": settings.cache_ttl,
+        "stale_after_seconds": settings.CACHE_TTL,
         "summary": {
             "total": len(alerts),
             **{level: summary.get(level, 0) for level in ALERT_LEVEL_ORDER},
@@ -2573,7 +2573,7 @@ async def site_monitored_devices(site_id: str, include_non_operational: bool = F
     those below an excluded location, unless *include_non_operational*, as
     on the board)."""
     devices = await inventory.read_devices()
-    if settings.alert_board_site_location_type:
+    if settings.ALERT_BOARD_SITE_LOCATION_TYPE:
         devices_by_location: dict[str, list] = {}
         for device in devices:
             devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
@@ -2583,7 +2583,7 @@ async def site_monitored_devices(site_id: str, include_non_operational: bool = F
         _, devices_by_row = roll_up_to_site_locations(
             locations,
             devices_by_location,
-            settings.alert_board_site_location_type,
+            settings.ALERT_BOARD_SITE_LOCATION_TYPE,
             include_non_operational=include_non_operational,
         )
         devices = devices_by_row.get(site_id, [])
@@ -2594,7 +2594,7 @@ async def site_monitored_devices(site_id: str, include_non_operational: bool = F
         for device in wireless.attach(devices, await wireless.load_index(devices))
         if is_monitored(device)
         and not status_is_excluded(
-            device.get("status"), settings.alert_board_excluded_device_statuses
+            device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES
         )
     ]
     # Not one LibreNMS says not to alert for (#570); found matches aren't stored here.
@@ -2630,7 +2630,7 @@ BOARD_BUILD_WAIT_SECONDS = 60
 def board_cache_seconds(payload: dict) -> int:
     """How long a built board is stored: until the next maintenance change at the latest."""
     return maintenance.cache_seconds(
-        payload.get("next_maintenance_change"), settings.cache_ttl + BOARD_TTL_SLACK_SECONDS
+        payload.get("next_maintenance_change"), settings.CACHE_TTL + BOARD_TTL_SLACK_SECONDS
     )
 
 
@@ -2819,7 +2819,7 @@ async def build_location_alert_levels() -> dict:
     lnms_id_map = None
     lnms_index = None
     new_librenms_maps: dict = {}
-    if (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip():
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         lnms_devices = await inventory.read_librenms_devices()
         lnms_id_map = await board_store.load_librenms_id_map()
         lnms_index = librenms_index(lnms_devices)
@@ -2934,7 +2934,7 @@ async def get_location_alert_levels() -> dict:
             LOCATION_ALERTS_CACHE_KEY,
             payload,
             timeout=maintenance.cache_seconds(
-                payload.get("next_maintenance_change"), settings.cache_ttl
+                payload.get("next_maintenance_change"), settings.CACHE_TTL
             ),
         )
     return payload

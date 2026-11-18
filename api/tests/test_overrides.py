@@ -7,21 +7,21 @@ from tests.overrides import overridden, override
 
 
 def test_a_nested_override_undone_restores_the_outer_one(override_settings):
-    override_settings(nautobot_url="http://outer")
-    with overridden(nautobot_url="http://inner"):
-        assert settings.nautobot_url == "http://inner"
-    assert settings.nautobot_url == "http://outer"
+    override_settings(NAUTOBOT_URL="http://outer")
+    with overridden(NAUTOBOT_URL="http://inner"):
+        assert settings.NAUTOBOT_URL == "http://inner"
+    assert settings.NAUTOBOT_URL == "http://outer"
     undo = override(NAUTOBOT_URL="http://second")
-    assert settings.nautobot_url == "http://second"
+    assert settings.NAUTOBOT_URL == "http://second"
     undo()
-    assert settings.nautobot_url == "http://outer"
+    assert settings.NAUTOBOT_URL == "http://outer"
 
 
 def test_an_override_undone_puts_back_the_environments_value(override_settings):
-    default = settings.nautobot_url
-    with overridden(nautobot_url="http://x", nautobot_token="t"):
-        assert settings.nautobot_token == "t"
-    assert settings.nautobot_url == default
+    default = settings.NAUTOBOT_URL
+    with overridden(NAUTOBOT_URL="http://x", NAUTOBOT_TOKEN="t"):
+        assert settings.NAUTOBOT_TOKEN == "t"
+    assert settings.NAUTOBOT_URL == default
 
 
 def test_an_unknown_setting_is_refused():
@@ -36,15 +36,15 @@ def test_one_object_that_every_module_sees_change(configure):
     from app.services import availability_service
 
     shared = module.settings
-    with overridden(case_url_template="https://itsm.example/{case}"):
+    with overridden(CASE_URL_TEMPLATE="https://itsm.example/{case}"):
         assert module.settings is shared
-        assert availability_service.settings.case_url_template == "https://itsm.example/{case}"
+        assert availability_service.settings.CASE_URL_TEMPLATE == "https://itsm.example/{case}"
     configure(CACHE_TTL="42")
     assert module.settings is shared
-    assert availability_service.settings.cache_ttl == 42
+    assert availability_service.settings.CACHE_TTL == 42
 
 
 def test_an_override_survives_a_reload_from_the_environment(configure):
-    with overridden(nautobot_url="http://kept"):
+    with overridden(NAUTOBOT_URL="http://kept"):
         configure(CACHE_TTL="7")
-        assert (settings.nautobot_url, settings.cache_ttl) == ("http://kept", 7)
+        assert (settings.NAUTOBOT_URL, settings.CACHE_TTL) == ("http://kept", 7)

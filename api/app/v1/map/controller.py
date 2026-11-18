@@ -180,11 +180,11 @@ def geocode(query: str):
     # cache.add is atomic (SET NX in Redis): only one caller per second wins.
     if not caching.cache.add("geocode-rate-limit", 1, timeout=GEOCODE_MIN_INTERVAL_SECONDS):
         raise GeocoderBusy()
-    parsed = urlsplit(settings.geocoder_url)
+    parsed = urlsplit(settings.GEOCODER_URL)
     try:
         geolocator = Nominatim(
-            user_agent=settings.geocoder_user_agent,
-            domain=(parsed.netloc + parsed.path) or settings.geocoder_url,
+            user_agent=settings.GEOCODER_USER_AGENT,
+            domain=(parsed.netloc + parsed.path) or settings.GEOCODER_URL,
             scheme=parsed.scheme or "https",
         )
         location = geolocator.geocode(query, timeout=10)
@@ -234,7 +234,7 @@ async def api_search(query: Annotated[dtos.SearchQuery, Query()]):
 
     # Fall back to geocoding
     if lat is None or lon is None:
-        if not settings.geocoder_enabled:
+        if not settings.GEOCODER_ENABLED:
             return deps.Json(
                 {"error": "Address search is turned off; enter coordinates as lat,lon"},
                 status_code=400,

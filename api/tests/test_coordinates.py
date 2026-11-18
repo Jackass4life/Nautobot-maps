@@ -271,7 +271,7 @@ class TestApi:
         self, flask_client, monkeypatch, rows, override_settings
     ):
         """A scrape never builds the board (#368 review): no stored board, no gauge."""
-        override_settings(metrics_enabled=True)
+        override_settings(METRICS_ENABLED=True)
         monkeypatch.setattr(
             alerts,
             "board",

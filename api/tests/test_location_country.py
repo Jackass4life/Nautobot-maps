@@ -64,7 +64,7 @@ def test_hierarchy_country(location_id, country):
 def test_the_country_type_is_a_setting(override_settings):
     tree = {**TREE, "dk": {**TREE["dk"], "location_type": "Land"}}
     assert inventory.hierarchy_country("odense", tree) == ""
-    override_settings(country_location_type="land")
+    override_settings(COUNTRY_LOCATION_TYPE="land")
     assert inventory.hierarchy_country("odense", tree) == "Denmark"
     assert inventory.cache_version().endswith(",land"), "changing it makes the next sync a full one"
 
@@ -130,7 +130,7 @@ def test_an_incremental_sync_finds_it_in_the_stored_tree(no_lookups):
 
 def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch, override_settings):
     override_settings(
-        nautobot_url="https://nautobot.example.com", nautobot_token="token", librenms_url=""
+        NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token", LIBRENMS_URL=""
     )
     calls = []
 
@@ -156,7 +156,7 @@ def test_a_renamed_country_reaches_its_sites_at_the_next_sync(
     client, pg_database, monkeypatch, override_settings
 ):
     override_settings(
-        nautobot_url="https://nautobot.example.com", nautobot_token="token", librenms_url=""
+        NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token", LIBRENMS_URL=""
     )
     country = dict(DENMARK)
     calls = []

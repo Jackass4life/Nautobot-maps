@@ -438,7 +438,7 @@ class TestArubaCentral:
 @pytest.fixture
 def controllers(pg_database, monkeypatch, override_settings):
     """Two instances, dk and se; each test says what they list."""
-    override_settings(wireless_controllers=(DK, SE))
+    override_settings(WIRELESS_CONTROLLERS=(DK, SE))
     answers = {"dk": [], "se": []}
 
     def fetch(controller):
@@ -513,7 +513,7 @@ class TestSync:
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
         controllers["se"] = httpx.ConnectError("https://dnac-se.example.com: connection refused")
-        override_settings(wireless_sync_interval_seconds=60)
+        override_settings(WIRELESS_SYNC_INTERVAL_SECONDS=60)
         monkeypatch.setattr(inventory, "state_due", lambda state, interval: True)
         asyncio.run(wireless.sync_due())
         states = sync_states()
@@ -554,7 +554,7 @@ class TestSync:
             == "last known per Catalyst Center se, which can't be reached"
         )
         assert wireless.reason(index["serial"]["FGL1"]) == "per Catalyst Center dk"
-        override_settings(wireless_controllers=(SE,))
+        override_settings(WIRELESS_CONTROLLERS=(SE,))
         assert ups(read_index()["serial"]) == {"FGL9": False}, "dk is no longer configured"
 
     def test_the_same_ap_in_two_instances(self, controllers):
@@ -668,7 +668,7 @@ class TestSync:
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
-        override_settings(wireless_controllers=(DK,))
+        override_settings(WIRELESS_CONTROLLERS=(DK,))
         asyncio.run(wireless.sync_due())
         conn = adb.connect()
         try:
@@ -686,7 +686,7 @@ class TestSync:
     ):
         """On the event loop (#657): at most MAX_PARALLEL instances at once, all of them."""
         controllers = tuple({**DK, "name": f"c{n}"} for n in range(5))
-        override_settings(wireless_controllers=controllers)
+        override_settings(WIRELESS_CONTROLLERS=controllers)
         monkeypatch.setattr(wireless, "MAX_PARALLEL", 2)
         running, most, done = [0], [0], []
 
@@ -788,9 +788,9 @@ def one_site(**statuses) -> dict[str, dict[str, str]]:
 
 @pytest.fixture
 def board(pg_database, monkeypatch, clock, override_settings):
-    override_settings(nautobot_url="", nautobot_token="", librenms_url="")
+    override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
-    override_settings(wireless_controllers=(DK,))
+    override_settings(WIRELESS_CONTROLLERS=(DK,))
     notified = []
     monkeypatch.setattr(
         notify,
@@ -850,7 +850,7 @@ class TestOnTheBoard:
         )
 
     def test_a_site_already_in_alarm_just_counts_them(self, board, monkeypatch, override_settings):
-        override_settings(wireless_ap_level="critical")
+        override_settings(WIRELESS_AP_LEVEL="critical")
         write_sites(one_site(sw1="Offline"))
         controller_says(monkeypatch, {"cph": APS[:30]})
         (row,) = build_board()["alerts"]
@@ -886,7 +886,7 @@ class TestOnTheBoard:
             "40 access points offline",
             True,
         )
-        override_settings(wireless_ap_level="medium")
+        override_settings(WIRELESS_AP_LEVEL="medium")
         (row,) = build_board()["alerts"]
         assert (row["alert_level"], row["wireless_only"]) == ("medium", True)
 
@@ -924,7 +924,7 @@ class TestOnTheBoard:
         )
         assert test_maintenance.open_alerts() == {"cph-ap09": "open"}
         # Decommissioning in Nautobot, a status the board leaves out: no longer counted, its alert resolved.
-        override_settings(alert_board_excluded_device_statuses={"decommissioning"})
+        override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"decommissioning"})
         write_sites(one_site(ap09="Decommissioning"))
         (row,) = build_board()["alerts"]
         assert row["alert_level"] == "ok" and row["device_count"] == 45
@@ -1004,7 +1004,7 @@ class TestOnTheBoard:
         device = {"role": "Access Point", "primary_ip": ""}
         assert alerts.not_monitored_reason(device) == "no primary IP, not in a wireless controller"
         assert alerts.not_monitored_reason({**device, "role": "Access Switch"}) == "no primary IP"
-        override_settings(wireless_controllers=())
+        override_settings(WIRELESS_CONTROLLERS=())
         assert alerts.not_monitored_reason(device) == "no primary IP"
 
     def test_the_map_and_the_site_panel(self, board, monkeypatch):
@@ -1183,7 +1183,7 @@ class TestCheck:
             in out
         )
         assert "s3cret" not in out
-        override_settings(wireless_controllers=())
+        override_settings(WIRELESS_CONTROLLERS=())
         assert cli.main(["wireless-check"]) == 0
 
 
@@ -1295,7 +1295,7 @@ class TestPlugAndPlay:
         # An instance no longer in the file is forgotten.
         store_pnp(SE, [pnp("FJC9")])
         assert "FJC9" in read_index()["pnp"]
-        override_settings(wireless_controllers=(DK,))
+        override_settings(WIRELESS_CONTROLLERS=(DK,))
         adb.call(wireless.prune)
         conn = adb.connect()
         try:

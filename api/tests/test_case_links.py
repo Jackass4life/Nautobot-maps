@@ -17,10 +17,10 @@ TEMPLATE = "https://itsm.example.com/ticket/{case}"
 
 
 def test_case_url(override_settings):
-    override_settings(case_url_template=TEMPLATE)
+    override_settings(CASE_URL_TEMPLATE=TEMPLATE)
     assert itsm.case_url("INC 1/2&x") == "https://itsm.example.com/ticket/INC%201%2F2%26x"
     assert itsm.case_url("") == ""
-    override_settings(case_url_template="")
+    override_settings(CASE_URL_TEMPLATE="")
     assert itsm.case_url("INC-1") == ""
 
 
@@ -34,7 +34,7 @@ def test_case_url(override_settings):
     ],
 )
 def test_only_http_templates_with_a_placeholder(value, expected):
-    code = "from app.core.settings import settings; print(settings.case_url_template)"
+    code = "from app.core.settings import settings; print(settings.CASE_URL_TEMPLATE)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=REPO_ROOT / "api",  # where app/ is
@@ -54,7 +54,7 @@ def test_the_board_page_gets_the_template(override_settings):
         assert (
             flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"] == ""
         )
-        override_settings(case_url_template=TEMPLATE)
+        override_settings(CASE_URL_TEMPLATE=TEMPLATE)
         assert (
             flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"]
             == TEMPLATE
@@ -62,7 +62,7 @@ def test_the_board_page_gets_the_template(override_settings):
 
 
 def test_notifications_add_the_link(override_settings):
-    override_settings(case_url_template=TEMPLATE)
+    override_settings(CASE_URL_TEMPLATE=TEMPLATE)
     site = {
         "id": "s",
         "name": "S",
@@ -77,7 +77,7 @@ def test_the_csv_has_the_links(override_settings):
 
     from app.services import export_service as export
 
-    override_settings(case_url_template=TEMPLATE)
+    override_settings(CASE_URL_TEMPLATE=TEMPLATE)
     rows = [
         {
             "site_name": "S",
@@ -101,7 +101,7 @@ def test_the_csv_reads_the_numbers_as_a_list(pg_database, override_settings):
 
     from app.services import export_service as export
 
-    override_settings(case_url_template=TEMPLATE)
+    override_settings(CASE_URL_TEMPLATE=TEMPLATE)
     conn = adb.connect()
     try:
         with conn.transaction():

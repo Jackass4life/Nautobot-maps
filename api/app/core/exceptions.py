@@ -115,7 +115,7 @@ def no_access_page(exc: ApiError) -> HTMLResponse:
     """A browser gets a page, not JSON: what happened and how to sign out (the proxy
     would sign them straight back in as the same person otherwise). No styles or
     scripts: the CSP allows none inline."""
-    sign_out = settings.auth_sign_out_url
+    sign_out = settings.AUTH_SIGN_OUT_URL
     link = f'<p><a href="{html.escape(sign_out)}">Sign out</a></p>' if sign_out else ""
     body = (
         '<!DOCTYPE html><html lang="en"><meta charset="utf-8">'

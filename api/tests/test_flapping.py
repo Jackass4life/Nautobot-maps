@@ -26,7 +26,7 @@ def at(clock, minute: int, acc1: str):
 
 @pytest.fixture
 def flapping(site, override_settings):
-    override_settings(alert_delay_seconds=0, flap_changes=4)
+    override_settings(ALERT_DELAY_SECONDS=0, FLAP_CHANGES=4)
 
 
 def acc1(row):
@@ -71,7 +71,7 @@ class TestFlapping:
     def test_a_flapping_device_up_now_is_down_since_its_first_change_not_nautobots_last_edit(
         self, flapping, clock, override_settings
     ):
-        override_settings(alert_delay_seconds=3600)  # no incident from the blips themselves
+        override_settings(ALERT_DELAY_SECONDS=3600)  # no incident from the blips themselves
         for minute, status in ((0, "Offline"), (2, "Active"), (4, "Offline")):
             at(clock, minute, status)
         clock["now"] = "2026-10-10T12:06:00Z"
@@ -131,7 +131,7 @@ class TestFlapping:
     def test_blips_under_the_alert_delay_add_up_to_flapping(
         self, flapping, clock, override_settings
     ):
-        override_settings(alert_delay_seconds=300)
+        override_settings(ALERT_DELAY_SECONDS=300)
         for minute, status in ((0, "Offline"), (1, "Active"), (2, "Offline")):
             assert at(clock, minute, status)["alert_level"] == "ok", (
                 "each blip alone is under the delay"
@@ -140,7 +140,7 @@ class TestFlapping:
         assert acc1(row)["flapping"] and row["alert_level"] != "ok"
 
     def test_off(self, flapping, clock, override_settings):
-        override_settings(flap_changes=0)
+        override_settings(FLAP_CHANGES=0)
         for minute, status in (
             (0, "Offline"),
             (2, "Active"),
@@ -173,11 +173,11 @@ class TestNextDeviceState:
     NOW = "2026-10-10T12:00:00Z"
 
     def test_up_and_steady_has_no_row(self, override_settings):
-        override_settings(flap_changes=4)
+        override_settings(FLAP_CHANGES=4)
         assert alerts.next_device_state(None, False, None, self.NOW) is None
 
     def test_changes_older_than_the_window_are_forgotten(self, override_settings):
-        override_settings(flap_changes=2)
+        override_settings(FLAP_CHANGES=2)
         stored = {
             "state": "up",
             "since": "2026-10-10T11:00:00Z",
@@ -193,7 +193,7 @@ class TestNextDeviceState:
         }
 
     def test_flapping_lasts_until_a_whole_window_without_a_change(self, override_settings):
-        override_settings(flap_changes=2)
+        override_settings(FLAP_CHANGES=2)
         stored = {
             "state": "down",
             "since": "2026-10-10T11:50:00Z",

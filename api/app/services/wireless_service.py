@@ -60,13 +60,13 @@ def display_name(controller: dict) -> str:
 
 
 def configured() -> tuple[dict, ...]:
-    return tuple(settings.wireless_controllers or ())
+    return tuple(settings.WIRELESS_CONTROLLERS or ())
 
 
 def stale_seconds() -> int:
     """How long an instance's last answer counts: as the top bar's staleness (#419)."""
     return max(
-        metrics.STALE_INTERVALS * settings.wireless_sync_interval_seconds,
+        metrics.STALE_INTERVALS * settings.WIRELESS_SYNC_INTERVAL_SECONDS,
         metrics.STALE_FLOOR_SECONDS,
     )
 
@@ -329,7 +329,7 @@ async def due(conn: aconnection.Connection) -> list[dict]:
         controller
         for controller in configured()
         if inventory.state_due(
-            states.get(source(controller)), settings.wireless_sync_interval_seconds
+            states.get(source(controller)), settings.WIRELESS_SYNC_INTERVAL_SECONDS
         )
     ]
 
@@ -444,7 +444,7 @@ async def load_index(devices: list[dict] | None = None) -> dict:
 
 
 def is_access_point(device: dict) -> bool:
-    return (device.get("role") or "").strip().casefold() in settings.access_point_roles
+    return (device.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES
 
 
 def lookup(index: dict | None, device: dict) -> dict | None:

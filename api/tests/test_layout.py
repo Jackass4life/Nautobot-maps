@@ -53,7 +53,7 @@ def test_the_old_places_are_gone():
 
 
 def _settings_read_outside_a_function(tree: ast.AST) -> list[int]:
-    """Lines reading a setting (``settings.name``) that run at import: in a module or
+    """Lines reading a setting (``settings.NAME``) that run at import: in a module or
     class body, a default value or a decorator."""
     found = []
 
@@ -80,7 +80,7 @@ def _settings_read_outside_a_function(tree: ast.AST) -> list[int]:
 
 
 def test_no_setting_is_read_at_import():
-    """settings.name inside the function that needs it (#745, #754): read at import, a
+    """settings.NAME inside the function that needs it (#745, #754): read at import, a
     setting would be copied before a test changes the shared object."""
     offenders = [
         f"{path.relative_to(API_ROOT)}:{line}"
@@ -92,12 +92,33 @@ def test_no_setting_is_read_at_import():
 
 def test_the_import_guard_finds_a_read_at_import():
     code = (
-        "A = settings.x\n"
-        "class C:\n    b = settings.y\n"
-        "def f(c=settings.z):\n    return settings.w\n"
-        "g = lambda: settings.v\n"
+        "A = settings.X\n"
+        "class C:\n    b = settings.Y\n"
+        "def f(c=settings.Z):\n    return settings.W\n"
+        "g = lambda: settings.V\n"
     )
     assert _settings_read_outside_a_function(ast.parse(code)) == [1, 3, 4]
+
+
+def test_settings_are_read_by_their_environment_names():
+    """settings.NAUTOBOT_URL, never settings.nautobot_url (#760): a field is named like its
+    environment variable, so a lowercase read is a mistake (an AttributeError at run time)."""
+    from app.core import settings as module
+    from app.core.settings import Settings
+
+    # Methods, and the module's own names where a test imports the module as settings.
+    methods = {name for name in dir(Settings) if not name.startswith("_")} | set(dir(module))
+    offenders = [
+        f"{path.relative_to(API_ROOT)}:{node.lineno} settings.{node.attr}"
+        for path in sorted([*APP.rglob("*.py"), *(API_ROOT / "tests").rglob("*.py")])
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "settings"
+        and node.attr not in Settings.model_fields
+        and node.attr not in methods
+    ]
+    assert offenders == []
 
 
 def test_the_version_is_pyprojects():

@@ -78,7 +78,7 @@ def test_a_changed_stack_makes_the_next_sync_full(
     """Renaming a stack or moving its master saves the chassis, not its members (#400)."""
 
     override_settings(
-        nautobot_url="https://nautobot.example.com", nautobot_token="token", librenms_url=""
+        NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token", LIBRENMS_URL=""
     )
     changed = []
     calls = []
@@ -131,7 +131,7 @@ def test_the_board_says_which_stack_a_down_device_is_in(board, override_settings
         # An excluded status: not one of the members down.
         {**member(6, "Decommissioning", "")},
     ]
-    override_settings(alert_board_excluded_device_statuses={"decommissioning"})
+    override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"decommissioning"})
     write({"a": "", "b": ""}, devices)
     row = build(board, NOW)["a"]
     # The whole stack wherever its members are (5 at b), without the Decommissioning one.
@@ -224,7 +224,7 @@ def test_when_a_stack_is_down_whole(device, counted, whole):
 def test_a_stack_of_one_left_after_exclusions_is_not_a_stack(override_settings):
     from app.services import alerts_service as alerts
 
-    override_settings(alert_board_excluded_device_statuses={"decommissioning"})
+    override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"decommissioning"})
     stacks = alerts.board_stacks(
         {"vc-1": [{"name": "s", "status": "Active"}, {"name": "s:2", "status": "Decommissioning"}]}
     )

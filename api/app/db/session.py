@@ -77,11 +77,11 @@ def make_async_engine(**kwargs):  # type: ignore[no-untyped-def]
     """The app's async engine; *kwargs* for create_async_engine (tests: poolclass)."""
     url, args = async_url(
         settings.sqlalchemy_url(),
-        settings.db_connect_timeout_seconds,
-        settings.db_statement_timeout_seconds,
+        settings.DB_CONNECT_TIMEOUT_SECONDS,
+        settings.DB_STATEMENT_TIMEOUT_SECONDS,
     )
     return create_async_engine(
-        url, echo=settings.sql_echo, pool_pre_ping=True, connect_args=args, **kwargs
+        url, echo=settings.SQL_ECHO, pool_pre_ping=True, connect_args=args, **kwargs
     )
 
 

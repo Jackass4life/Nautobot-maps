@@ -45,11 +45,11 @@ class FakeLibreNMS:
 @pytest.fixture
 def lnms(pg_database, monkeypatch, override_settings):
     override_settings(
-        nautobot_url="",
-        nautobot_token="",
-        librenms_url="https://librenms.test",
-        librenms_api_token="lnms-secret",
-        allow_unauthenticated_writes=False,
+        NAUTOBOT_URL="",
+        NAUTOBOT_TOKEN="",
+        LIBRENMS_URL="https://librenms.test",
+        LIBRENMS_API_TOKEN="lnms-secret",
+        ALLOW_UNAUTHENTICATED_WRITES=False,
     )
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     fake = FakeLibreNMS()
@@ -296,7 +296,7 @@ class TestPush:
         )
 
     def test_not_configured(self, flask_client, override_settings):
-        override_settings(librenms_url="")
+        override_settings(LIBRENMS_URL="")
         response = flask_client.post(
             "/api/v1/librenms/alert", json={"device_id": 1000}, headers=operator_token()
         )

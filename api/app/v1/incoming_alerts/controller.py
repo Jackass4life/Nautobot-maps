@@ -53,7 +53,7 @@ async def api_librenms_alert(request: Request, body: Body, form: Form):
     seconds.  A device LibreNMS doesn't know is ``{"updated": false}``, not
     an error, so LibreNMS doesn't keep retrying.
     """
-    if not (settings.librenms_url or "").strip() or not (settings.librenms_api_token or "").strip():
+    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         return deps.Json(
             {"error": "LibreNMS is not configured (LIBRENMS_URL, LIBRENMS_API_TOKEN)"},
             status_code=409,

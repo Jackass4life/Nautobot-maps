@@ -175,7 +175,7 @@ def api_notifications_test():
     """
     channels = notify.configured_channels()
     if not channels:
-        if settings.notify_email_to and not settings.smtp_host:
+        if settings.NOTIFY_EMAIL_TO and not settings.SMTP_HOST:
             error = "NOTIFY_EMAIL_TO is set, but SMTP_HOST is not: email needs a mail server"
         else:
             error = (

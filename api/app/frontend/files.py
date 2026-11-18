@@ -54,7 +54,7 @@ def send(
         "Cache-Control": f"public, max-age={max_age}" if max_age is not None else "no-cache",
     }
     zipped = (
-        settings.compress_responses
+        settings.COMPRESS_RESPONSES
         and compression.compressible(media_type)
         and stat.st_size <= compression.MAX_FILE_BYTES
         and request.method == "GET"

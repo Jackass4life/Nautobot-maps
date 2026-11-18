@@ -39,7 +39,7 @@ class TestThresholds:
         assert "More than 25%" in definitions["medium"] and "25% or fewer" in definitions["low"]
 
     def test_configured(self, override_settings):
-        override_settings(alert_medium_percent=50, alert_critical_percent=75)
+        override_settings(ALERT_MEDIUM_PERCENT=50, ALERT_CRITICAL_PERCENT=75)
         assert (
             alerts.compute_alert_level(devices(2, 4), override_map={})["level"] == "low"
         )  # 50 %: not more than 50
@@ -55,7 +55,7 @@ class TestThresholds:
         import os
         import sys
 
-        code = "from app.core.settings import settings; s = settings; print(s.alert_medium_percent, s.alert_critical_percent)"
+        code = "from app.core.settings import settings; s = settings; print(s.ALERT_MEDIUM_PERCENT, s.ALERT_CRITICAL_PERCENT)"
         env = {**os.environ, "ALERT_MEDIUM_PERCENT": "0", "ALERT_CRITICAL_PERCENT": "500"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
@@ -70,7 +70,7 @@ class TestThresholds:
 
 class TestTier:
     def test_read_from_the_custom_field(self, override_settings):
-        override_settings(site_tier_field="tier")
+        override_settings(SITE_TIER_FIELD="tier")
         assert inventory.location_tier({"custom_fields": {"tier": "Gold"}}) == "gold"
         assert (
             inventory.location_tier(
@@ -80,11 +80,11 @@ class TestTier:
         )
         assert inventory.location_tier({"custom_fields": {"tier": None}}) == ""
         assert inventory.location_tier({"custom_fields": None}) == ""
-        override_settings(site_tier_field="")
+        override_settings(SITE_TIER_FIELD="")
         assert inventory.location_tier({"custom_fields": {"tier": "gold"}}) == ""
 
     def test_rank(self, override_settings):
-        override_settings(site_tiers=["gold", "silver"])
+        override_settings(SITE_TIERS=["gold", "silver"])
         assert [alerts.tier_rank(t) for t in ("gold", "Silver", "bronze", "")] == [0, 1, 99, 99]
 
     def test_on_the_board_and_sorting(self, site, override_settings):
@@ -101,14 +101,14 @@ class TestTier:
             conn.close()
         row = build()
         assert (row["tier"], row["tier_rank"]) == ("gold", 0)
-        override_settings(site_tiers=["platinum"])
+        override_settings(SITE_TIERS=["platinum"])
         row = build()
         assert (row["tier"], row["tier_rank"]) == ("", 99), "not a configured tier: none"
 
 
 class TestNotifications:
     def test_a_gold_site_notifies_sooner(self, override_settings):
-        override_settings(notify_min_level="critical", notify_min_level_by_tier={"gold": "low"})
+        override_settings(NOTIFY_MIN_LEVEL="critical", NOTIFY_MIN_LEVEL_BY_TIER={"gold": "low"})
         assert notify.event_kind("ok", "low", "gold") == "alarm"
         assert notify.event_kind("ok", "low", "silver") is None
         assert notify.event_kind("low", "ok", "gold") == "recovery"
@@ -124,7 +124,7 @@ class TestNotifications:
         import os
         import sys
 
-        code = "from app.core.settings import settings; s = settings; print(s.notify_min_level_by_tier)"
+        code = "from app.core.settings import settings; s = settings; print(s.NOTIFY_MIN_LEVEL_BY_TIER)"
         env = {**os.environ, "NOTIFY_MIN_LEVEL_BY_TIER": ":low, gold:low,silver:bogus"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
@@ -148,9 +148,9 @@ class TestTierChangesDuringAnAlarm:
     @pytest.fixture
     def hook(self, pg_database, override_settings):
         override_settings(
-            notify_webhook_url="https://hooks.example.com/x",
-            notify_min_level="critical",
-            notify_min_level_by_tier={"gold": "low"},
+            NOTIFY_WEBHOOK_URL="https://hooks.example.com/x",
+            NOTIFY_MIN_LEVEL="critical",
+            NOTIFY_MIN_LEVEL_BY_TIER={"gold": "low"},
         )
 
     def kinds(self):

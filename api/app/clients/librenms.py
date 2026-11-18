@@ -13,15 +13,15 @@ from app.core.settings import settings
 
 def get(path: str, params: dict | None = None) -> dict:
     """Perform a GET request against the LibreNMS REST API."""
-    base_url = (settings.librenms_url or "").strip().rstrip("/")
-    api_token = (settings.librenms_api_token or "").strip()
+    base_url = (settings.LIBRENMS_URL or "").strip().rstrip("/")
+    api_token = (settings.LIBRENMS_API_TOKEN or "").strip()
     if not base_url or not api_token:
         return {}
 
     headers = {"X-Auth-Token": api_token}
     url = f"{base_url}/api/v0/{path.lstrip('/')}"
     response = http.request(
-        "GET", url, headers=headers, params=params, timeout=15, verify=settings.librenms_verify_ssl
+        "GET", url, headers=headers, params=params, timeout=15, verify=settings.LIBRENMS_VERIFY_SSL
     )
     return response.json()
 
@@ -40,7 +40,7 @@ def fetch_device(device: str) -> dict | None:
 
 def configured() -> bool:
     return bool(
-        (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip()
+        (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip()
     )
 
 

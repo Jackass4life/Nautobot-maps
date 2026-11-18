@@ -314,4 +314,4 @@ def test_behind_needs_two_down_on_one_switch():
 
 @pytest.fixture(autouse=True)
 def _ap_role(override_settings):
-    override_settings(access_point_roles={"access point"})
+    override_settings(ACCESS_POINT_ROLES={"access point"})

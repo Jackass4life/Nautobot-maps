@@ -79,7 +79,7 @@ async def collect(conn: aconnection.Connection | None) -> str:
     syncs = await sync_rows(conn)
     success, attempt, duration, failing, running = [], [], [], [], []
     # Each wireless controller instance in the file too (#508): wireless:<kind>:<name>.
-    configured = [f"{c['kind']}:{c['name']}" for c in settings.wireless_controllers or ()]
+    configured = [f"{c['kind']}:{c['name']}" for c in settings.WIRELESS_CONTROLLERS or ()]
     wireless_sources = [
         f"wireless:{controller}" for controller in configured if f"wireless:{controller}" in syncs
     ]
@@ -132,7 +132,7 @@ async def collect(conn: aconnection.Connection | None) -> str:
         names = {
             str(d["name"] or "").strip().lower().split(".", 1)[0]
             for d in devices
-            if str(d["role"] or "").strip().casefold() in settings.access_point_roles
+            if str(d["role"] or "").strip().casefold() in settings.ACCESS_POINT_ROLES
         } - {""}
         aps = (
             await conn.execute(

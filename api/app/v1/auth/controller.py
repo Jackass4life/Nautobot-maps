@@ -33,7 +33,7 @@ def get_current_user(user: CurrentUserDep) -> MeDto:
         # Not signed in, no role (role_from_groups gives the default role to anyone).
         role=(user.role or None) if user.is_authenticated else None,
         groups=user.groups,
-        auth_mode=settings.auth_mode,
+        auth_mode=settings.AUTH_MODE,
         # Writes as the board's own changes are (open with AUTH_MODE=disabled).
         access=auth_service.access(user, settings),
         can_write=auth_service.may_change_the_board(user, settings),
@@ -134,13 +134,13 @@ async def sign_in(request: Request) -> JSONResponse:
     token, _ = login_service.issue(identity, settings)
     logger.info("AD sign-in: {!r}", identity.unique_name)
     answer = AccessTokenResponseDto(
-        access_token=token, token_type="Bearer", expires_in=settings.jwt_lifetime_seconds
+        access_token=token, token_type="Bearer", expires_in=settings.JWT_LIFETIME_SECONDS
     )
     response = JSONResponse(answer.model_dump(), headers={"Cache-Control": "no-store"})
     response.set_cookie(
         login_service.COOKIE,
         token,
-        max_age=settings.jwt_lifetime_seconds,
+        max_age=settings.JWT_LIFETIME_SECONDS,
         path="/",
         secure=True,
         httponly=True,

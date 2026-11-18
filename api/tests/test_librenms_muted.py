@@ -49,7 +49,7 @@ class TestReason:
 class TestEnrichment:
     @pytest.fixture(autouse=True)
     def configured(self, override_settings):
-        override_settings(librenms_url="https://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
 
     def enrich(self, record: dict) -> dict:
         lnms_devices = [{"device_id": 1, "hostname": "router01", **record}]

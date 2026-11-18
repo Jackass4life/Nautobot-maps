@@ -37,30 +37,30 @@ def issue(found: identity_service.Identity, settings: Settings) -> tuple[str, di
     for role in found.roles:
         scopes |= {str(scope) for scope in permissions.role_scopes(role)}
     claims = {
-        "iss": settings.jwt_issuer,
-        "aud": settings.jwt_audience,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
         "jti": uuid.uuid4().hex,
         "sub": found.unique_name,
         "iat": int(now.timestamp()),
         "nbf": int(now.timestamp()),
-        "exp": int((now + timedelta(seconds=settings.jwt_lifetime_seconds)).timestamp()),
+        "exp": int((now + timedelta(seconds=settings.JWT_LIFETIME_SECONDS)).timestamp()),
         "common_name": found.common_name or None,
         "scopes": sorted(scopes),
     }
-    return jwt.encode(claims, settings.jwt_signing_secret, algorithm=ALGORITHM), claims
+    return jwt.encode(claims, settings.JWT_SIGNING_SECRET, algorithm=ALGORITHM), claims
 
 
 def verify(token: str, settings: Settings) -> dict | None:
     """The claims of a token this app signed and that is still valid, else None."""
-    if not token or not settings.jwt_signing_secret:
+    if not token or not settings.JWT_SIGNING_SECRET:
         return None
     try:
         claims = jwt.decode(
             token,
-            settings.jwt_signing_secret,
+            settings.JWT_SIGNING_SECRET,
             algorithms=[ALGORITHM],
-            audience=settings.jwt_audience,
-            issuer=settings.jwt_issuer,
+            audience=settings.JWT_AUDIENCE,
+            issuer=settings.JWT_ISSUER,
             options={"require": ["exp", "iat", "nbf", "sub", "iss", "aud"]},
             leeway=30,
         )

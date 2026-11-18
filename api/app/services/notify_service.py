@@ -72,18 +72,18 @@ SUMMARY_MAX_EVENTS = 25
 
 def configured_channels() -> list[str]:
     channels = []
-    if settings.notify_webhook_url:
+    if settings.NOTIFY_WEBHOOK_URL:
         channels.append("webhook")
-    if settings.notify_teams_webhook_url:
+    if settings.NOTIFY_TEAMS_WEBHOOK_URL:
         channels.append("teams")
-    if settings.notify_email_to and settings.smtp_host:
+    if settings.NOTIFY_EMAIL_TO and settings.SMTP_HOST:
         channels.append("email")
     return channels
 
 
 def customer_mail_on() -> bool:
     """Whether customers' addresses (status tokens', #707) can be mailed."""
-    return bool(settings.smtp_host)
+    return bool(settings.SMTP_HOST)
 
 
 def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
@@ -95,7 +95,7 @@ def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
     if to_level == "maintenance":
         return None
     minimum = LEVEL_RANK[
-        settings.notify_min_level_by_tier.get((tier or "").lower(), settings.notify_min_level)
+        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
     ]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     if after >= minimum and after > before:
@@ -110,7 +110,7 @@ def dropped_below_minimum(from_level: str, to_level: str, tier: str = "") -> boo
     if to_level == "maintenance":
         return False
     minimum = LEVEL_RANK[
-        settings.notify_min_level_by_tier.get((tier or "").lower(), settings.notify_min_level)
+        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
     ]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     return after < before and before < minimum
@@ -121,15 +121,15 @@ def in_alarm(level: str, tier: str = "") -> bool:
     if level == "maintenance":
         return False
     minimum = LEVEL_RANK[
-        settings.notify_min_level_by_tier.get((tier or "").lower(), settings.notify_min_level)
+        settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)
     ]
     return LEVEL_RANK.get(level, 0) >= minimum
 
 
 def tenant_matches(tenants: list[str]) -> bool:
-    if not settings.notify_tenants:
+    if not settings.NOTIFY_TENANTS:
         return True
-    return any((tenant or "").strip().lower() in settings.notify_tenants for tenant in tenants)
+    return any((tenant or "").strip().lower() in settings.NOTIFY_TENANTS for tenant in tenants)
 
 
 def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_at: str) -> dict:
@@ -186,7 +186,7 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
 
 
 def board_url() -> str:
-    return f"{settings.notify_board_url}/alerts" if settings.notify_board_url else ""
+    return f"{settings.NOTIFY_BOARD_URL}/alerts" if settings.NOTIFY_BOARD_URL else ""
 
 
 async def enqueue_change(
@@ -359,7 +359,7 @@ async def customer_events(
 async def _status_links(conn: aconnection.Connection, keys: list[str]) -> dict[str, str]:
     """Each case-folded tenant's status page address, when it has a link and
     NOTIFY_BOARD_URL says where the app is."""
-    if not settings.notify_board_url or not keys:
+    if not settings.NOTIFY_BOARD_URL or not keys:
         return {}
     rows = (
         await conn.execute(
@@ -367,7 +367,7 @@ async def _status_links(conn: aconnection.Connection, keys: list[str]) -> dict[s
         )
     ).fetchall()
     return {
-        row["tenant_key"]: f"{settings.notify_board_url}/status/{row['link_id']}" for row in rows
+        row["tenant_key"]: f"{settings.NOTIFY_BOARD_URL}/status/{row['link_id']}" for row in rows
     }
 
 
@@ -605,12 +605,12 @@ def _post_json(url: str, body: bytes, headers: dict) -> None:
 def send_webhook(message: dict) -> None:
     body = json.dumps(message, sort_keys=True).encode("utf-8")
     headers = {}
-    if settings.notify_webhook_secret:
+    if settings.NOTIFY_WEBHOOK_SECRET:
         digest = hmac.new(
-            settings.notify_webhook_secret.encode("utf-8"), body, hashlib.sha256
+            settings.NOTIFY_WEBHOOK_SECRET.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
         headers["X-Nautobot-Maps-Signature"] = f"sha256={digest}"
-    _post_json(settings.notify_webhook_url, body, headers)
+    _post_json(settings.NOTIFY_WEBHOOK_URL, body, headers)
 
 
 def teams_card(heading: str, lines: list[str], url: str, kind: str) -> dict:
@@ -651,15 +651,15 @@ def teams_card(heading: str, lines: list[str], url: str, kind: str) -> dict:
 
 def send_teams(heading: str, lines: list[str], url: str, kind: str) -> None:
     body = json.dumps(teams_card(heading, lines, url, kind)).encode("utf-8")
-    _post_json(settings.notify_teams_webhook_url, body, {})
+    _post_json(settings.NOTIFY_TEAMS_WEBHOOK_URL, body, {})
 
 
 def send_email(heading: str, lines: list[str], to: str = "") -> None:
     """To NOTIFY_EMAIL_TO, or to *to* alone (a customer, #707: never with others)."""
     message = EmailMessage()
     message["Subject"] = heading
-    message["From"] = settings.smtp_from or settings.smtp_username or "nautobot-maps@localhost"
-    message["To"] = to or ", ".join(settings.notify_email_to)
+    message["From"] = settings.SMTP_FROM or settings.SMTP_USERNAME or "nautobot-maps@localhost"
+    message["To"] = to or ", ".join(settings.NOTIFY_EMAIL_TO)
     message.set_content("\n".join(lines))
     message.add_alternative(
         f"<h3>{html.escape(heading)}</h3>"
@@ -668,12 +668,12 @@ def send_email(heading: str, lines: list[str], to: str = "") -> None:
     )
     try:
         with smtplib.SMTP(
-            settings.smtp_host, settings.smtp_port, timeout=SEND_TIMEOUT_SECONDS
+            settings.SMTP_HOST, settings.SMTP_PORT, timeout=SEND_TIMEOUT_SECONDS
         ) as smtp:
-            if settings.smtp_starttls:
+            if settings.SMTP_STARTTLS:
                 smtp.starttls()
-            if settings.smtp_username:
-                smtp.login(settings.smtp_username, settings.smtp_password)
+            if settings.SMTP_USERNAME:
+                smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
             smtp.send_message(message)
     except (OSError, smtplib.SMTPException) as exc:
         raise SendError(type(exc).__name__) from None
@@ -759,7 +759,7 @@ async def _send_channel(conn: aconnection.Connection, channel: str) -> int:
         for recipient, its_rows in by_recipient.items():
             # A burst (e.g. a wide outage) goes out as summaries, not one message per
             # site, each small enough for the channel.
-            if len(its_rows) > settings.notify_summary_threshold:
+            if len(its_rows) > settings.NOTIFY_SUMMARY_THRESHOLD:
                 batches += [
                     (recipient, its_rows[start : start + SUMMARY_MAX_EVENTS])
                     for start in range(0, len(its_rows), SUMMARY_MAX_EVENTS)

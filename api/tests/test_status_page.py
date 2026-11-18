@@ -631,7 +631,7 @@ class TestTenantScopes:
     def test_location_scope_parsing_and_one_warning_for_bad_fields(
         self, monkeypatch, caplog, override_settings
     ):
-        override_settings(tenant_scope_field="tenant_scope")
+        override_settings(TENANT_SCOPE_FIELD="tenant_scope")
         monkeypatch.setattr(nautobot, "id_name_map", lambda endpoint: {})
         monkeypatch.setattr(nautobot, "tenant_group_map", lambda: {})
         location = {
@@ -668,7 +668,7 @@ class TestTenantDevices:
 
     @pytest.fixture(autouse=True)
     def _on(self, override_settings):
-        override_settings(status_page_tenant_devices=True)
+        override_settings(STATUS_PAGE_TENANT_DEVICES=True)
 
     def named(
         self,
@@ -771,7 +771,7 @@ class TestTenantDevices:
         board = {"alerts": [{"name": "Site", "tenant": "Acme Corp", "alert_level": "low"}]}
         board["alerts"][0]["tenant_devices"] = self.named([device])
         assert status.tenant_status(board, "Acme Corp")["sites"][0]["devices"]
-        override_settings(status_page_tenant_devices=False)
+        override_settings(STATUS_PAGE_TENANT_DEVICES=False)
         assert self.named([device]) == {}
         # Also from a board built while it was on.
         assert status.tenant_status(board, "Acme Corp")["sites"][0]["devices"] == []
@@ -805,7 +805,7 @@ class TestTenantDevices:
         """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
         from tests.test_app import _snapshot_device, _snapshot_location
 
-        override_settings(nautobot_url="", nautobot_token="", librenms_url="")
+        override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
         monkeypatch.setattr(
             inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
         )
@@ -886,7 +886,7 @@ class TestAccess:
     def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
         self, known_tenants, flask_client, board, frontend_build, override_settings
     ):
-        override_settings(auth_require_viewer=True)
+        override_settings(AUTH_REQUIRE_VIEWER=True)
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         viewer = make("staff", "viewer")["token"]
         anonymous = {"REMOTE_ADDR": "203.0.113.9"}
@@ -1008,7 +1008,7 @@ class TestLinks:
         monkeypatch.setattr(statuslinks, "tenant_for", unreachable)
         response = flask_client.get(f"/api/v1/status/{acme}")
         assert response.status_code == 503 and "unavailable" in response.get_json()["error"]
-        override_settings(auth_require_viewer=True)
+        override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header"):
             # Database trouble is no clue to one who may not look (#500).
             assert (

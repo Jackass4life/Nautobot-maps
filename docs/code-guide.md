@@ -76,7 +76,7 @@ Everything below is in `api/app/`.
 
 ### `core/`: settings, errors, version
 
-- `core/settings.py` is **the only place that reads environment variables.** Each setting is a field on `Settings` with its type, default and checks. They are read once, into one shared object: code imports it with `from app.core.settings import settings` and reads `settings.nautobot_url`. Always **inside the function**, never at import (`TIMEOUT = settings.x` at the top of a module), so a test that changes a setting reaches the code: the `override_settings` fixture (`override_settings(nautobot_url="")`), `with overridden(...)` from `api/tests/overrides.py`, or `configure(NAUTOBOT_URL="")` through the environment.
+- `core/settings.py` is **the only place that reads environment variables.** Each setting is a field on `Settings`, named exactly like its environment variable (`NAUTOBOT_URL: str`, #760), with its type, default and checks. They are read once, into one shared object: code imports it with `from app.core.settings import settings` and reads `settings.NAUTOBOT_URL`. Always **inside the function**, never at import (`TIMEOUT = settings.X` at the top of a module), so a test that changes a setting reaches the code: the `override_settings` fixture (`override_settings(NAUTOBOT_URL="")`), `with overridden(...)` from `api/tests/overrides.py`, or `configure(NAUTOBOT_URL="")` through the environment.
 - `core/exceptions.py` turns errors into answers. Every refusal is `{"error": "<one plain sentence>"}` with a status code.
 - `core/version.py` reads the version from `api/pyproject.toml`.
 
@@ -248,7 +248,7 @@ After changing the API, regenerate the types: `uv run python scripts/generate_op
 A few rules the code follows, which the tests rely on:
 
 - **Call across modules as `module.function()`,** never `from module import function`. Tests replace a function on its module (`monkeypatch.setattr(inventory, "fetch_tenants", fake)`), and that only works if callers look it up there.
-- **Read settings when needed** (`settings.name` in the function), not copied at import. `tests/test_layout.py` fails on a read at import.
+- **Read settings when needed** (`settings.NAME` in the function), not copied at import. `tests/test_layout.py` fails on a read at import.
 - **Get the time from `timeutil`,** so tests can set it.
 - **Importing a module must not touch the database.**
 - Helpers for database tests are in `api/tests/db.py`. For example, `adb.run(fn, …)` runs an async function with a session and commits.

@@ -22,7 +22,7 @@ def test_one_access_log_line_with_the_same_fields(asgi_client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
         asgi_client.get(
             "/api/v1/app-status?x=1",
-            headers={settings.auth_header_user: "olga", "User-Agent": "probe/1"},
+            headers={settings.AUTH_HEADER_USER: "olga", "User-Agent": "probe/1"},
         )
     lines = [record for record in caplog.records if record.name == ACCESS]
     assert len(lines) == 1
@@ -60,7 +60,7 @@ def test_uvicorn_never_takes_the_client_from_a_header():
 
 
 def test_json_lines_include_the_stack_trace(capsys, configure_logs, override_settings):
-    override_settings(log_format="json")
+    override_settings(LOG_FORMAT="json")
     configure_logs()
     try:
         raise KeyError("site")
@@ -103,11 +103,11 @@ def test_gunicorn_config_logs_access_and_keeps_a_root_logger(monkeypatch):
 class TestStartupLog:
     def test_it_reports_the_resolved_sets(self):
         with (
-            overridden(alert_board_excluded_location_statuses={"staging", "decommissioning"}),
-            overridden(alert_board_excluded_location_names=set()),
-            overridden(alert_board_excluded_location_types={"warehouse"}),
-            overridden(alert_board_excluded_location_tags={"non-operational"}),
-            overridden(alert_board_excluded_device_statuses={"planned", "null"}),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES={"staging", "decommissioning"}),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_NAMES=set()),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_TYPES={"warehouse"}),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_TAGS={"non-operational"}),
+            overridden(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"planned", "null"}),
             patch.object(startup.logger, "info") as info,
         ):
             startup.log_alert_board_exclusions()
@@ -129,14 +129,14 @@ class TestStartupLog:
     def test_header_auth_names_the_proxies_never_the_secret(
         self, caplog, secret, says, override_settings
     ):
-        override_settings(auth_mode="header", auth_proxy_secret=secret)
+        override_settings(AUTH_MODE="header", AUTH_PROXY_SECRET=secret)
         with caplog.at_level("INFO", logger="app"):
             startup.log_alert_board_exclusions()
         assert "identity headers trusted from 127.0.0.1/32" in caplog.text and says in caplog.text
         assert "s3cr3t" not in caplog.text
 
     def test_a_leftover_sqlite_setting(self, caplog, override_settings):
-        override_settings(legacy_sqlite_db="/app/data/nautobot_maps.db")
+        override_settings(NAUTOBOT_MAPS_DB="/app/data/nautobot_maps.db")
         with caplog.at_level("ERROR", logger="app"):
             startup.log_alert_board_exclusions()
         assert "SQLite support was removed" in caplog.text
@@ -207,16 +207,16 @@ class TestDevelopmentServer:
     def test_header_auth_listens_on_loopback_only(self, override_settings):
         import run as serve
 
-        override_settings(auth_mode="header")
+        override_settings(AUTH_MODE="header")
         assert serve.host() == "127.0.0.1"
-        override_settings(auth_mode="disabled")
+        override_settings(AUTH_MODE="disabled")
         assert serve.host() == "0.0.0.0"
 
     @pytest.mark.parametrize(("value", "port"), [("", 5000), ("5055", 5055), ("x", 5000)])
     def test_its_port(self, value, port, override_settings):
         import run as serve
 
-        override_settings(flask_run_port=value)
+        override_settings(FLASK_RUN_PORT=value)
         assert serve.port() == port
 
     def test_it_runs_the_app_with_the_image_options(self, monkeypatch, override_settings):
@@ -226,7 +226,7 @@ class TestDevelopmentServer:
         monkeypatch.setattr(serve.uvicorn, "run", lambda *a, **k: calls.append((a, k)))
         # Not the root logger's handlers: pytest's log capture is one of them.
         monkeypatch.setattr(serve.logs, "configure", lambda: None)
-        override_settings(flask_debug=True)
+        override_settings(FLASK_DEBUG=True)
         serve.main()
         ((args, kwargs),) = calls
         assert args == ("app.api:app",) and kwargs["reload"] is True

@@ -260,4 +260,4 @@ def test_an_unsafe_setup_is_refused(monkeypatch, env, message):
     monkeypatch.setenv("LDAP_ALLOW_PLAINTEXT", "true")
     monkeypatch.setenv("JWT_SIGNING_SECRET", SECRET)
     monkeypatch.setenv("LDAP_BASE_DN", BASE)
-    assert config.Settings().ldap_allow_plaintext
+    assert config.Settings().LDAP_ALLOW_PLAINTEXT

@@ -56,13 +56,13 @@ def auth_config(
 ):
     role = (default_role or "").strip().lower()
     with overridden(
-        auth_mode=mode,
-        auth_header_user=user_header,
-        auth_header_groups=groups_header,
-        auth_viewer_groups=set(viewer_groups or set()),
-        auth_operator_groups=set(operator_groups or set()),
-        auth_admin_groups=set(admin_groups or set()),
-        auth_default_role=role if role in ("viewer", "operator", "admin") else "",
+        AUTH_MODE=mode,
+        AUTH_HEADER_USER=user_header,
+        AUTH_HEADER_GROUPS=groups_header,
+        AUTH_VIEWER_GROUPS=set(viewer_groups or set()),
+        AUTH_OPERATOR_GROUPS=set(operator_groups or set()),
+        AUTH_ADMIN_GROUPS=set(admin_groups or set()),
+        AUTH_DEFAULT_ROLE=role if role in ("viewer", "operator", "admin") else "",
     ):
         yield
 
@@ -79,7 +79,7 @@ def flask_client():
 def allow_unauthenticated_writes(override_settings):
     """The endpoint tests below run with AUTH_MODE=disabled, where the
     administrative writes are refused unless explicitly allowed (#188)."""
-    override_settings(allow_unauthenticated_writes=True)
+    override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
 
 
 # ---------------------------------------------------------------------------
@@ -525,7 +525,7 @@ class TestApiLocations:
         assert locs[0]["parent"] == "Denmark"
 
     def test_missing_env_vars_returns_503(self, flask_client, override_settings):
-        override_settings(nautobot_url="", nautobot_token="")
+        override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="")
         resp = flask_client.get("/api/v1/locations")
         assert resp.status_code == 503
         assert resp.get_json()["error"] == "Nautobot service unavailable"
@@ -807,7 +807,7 @@ class TestAlertBoard:
         assert get_alert.call_count == 2
 
     def test_location_exclusion_supports_object_tags(self):
-        with overridden(alert_board_excluded_location_tags={"non-operational"}):
+        with overridden(ALERT_BOARD_EXCLUDED_LOCATION_TAGS={"non-operational"}):
             assert alerts.location_is_excluded_from_alert_board(
                 {
                     "name": "Warehouse",
@@ -828,7 +828,7 @@ class TestAlertBoard:
         assert not alerts.status_is_excluded("", {"decommissioning"})
 
     def test_location_exclusion_null_status(self):
-        with overridden(alert_board_excluded_location_statuses={"null"}):
+        with overridden(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES={"null"}):
             assert alerts.location_is_excluded_from_alert_board({"name": "Site", "status": ""})
             assert alerts.location_is_excluded_from_alert_board({"name": "Site"})
             assert not alerts.location_is_excluded_from_alert_board(
@@ -887,12 +887,12 @@ class TestAlertBoard:
 
     def test_location_exclusion_matches_mixed_case_configured_values(self):
         with (
-            overridden(alert_board_excluded_location_names=config.parse_csv_set("Warehouse")),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_NAMES=config.parse_csv_set("Warehouse")),
             overridden(
-                alert_board_excluded_location_statuses=config.parse_csv_set("Decommissioning")
+                ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=config.parse_csv_set("Decommissioning")
             ),
-            overridden(alert_board_excluded_location_types=config.parse_csv_set("Branch Office")),
-            overridden(alert_board_excluded_location_tags=config.parse_csv_set("Non-Operational")),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_TYPES=config.parse_csv_set("Branch Office")),
+            overridden(ALERT_BOARD_EXCLUDED_LOCATION_TAGS=config.parse_csv_set("Non-Operational")),
         ):
             assert alerts.location_is_excluded_from_alert_board(
                 {
@@ -1116,8 +1116,8 @@ class TestAlertBoard:
         ]
 
         with (
-            overridden(librenms_url="https://librenms.example.com"),
-            overridden(librenms_api_token="token"),
+            overridden(LIBRENMS_URL="https://librenms.example.com"),
+            overridden(LIBRENMS_API_TOKEN="token"),
             patch.object(librenms, "fetch_inventory", side_effect=RuntimeError("down")),
             patch.object(
                 inventory, "get_locations", return_value=_full_locations(sample_locations)
@@ -1473,10 +1473,10 @@ class TestIndex:
     def test_what_the_map_reads(self, flask_client, override_settings):
         """Nautobot's address, the tile server and the first view (#197, #362), from /api/page-config."""
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            map_tile_url="https://tiles.internal/{z}/{x}/{y}.png",
-            map_tile_attribution='<a href="https://x">"Ours" & co</a>',
-            map_default_view=None,
+            NAUTOBOT_URL="https://nautobot.example.com",
+            MAP_TILE_URL="https://tiles.internal/{z}/{x}/{y}.png",
+            MAP_TILE_ATTRIBUTION='<a href="https://x">"Ours" & co</a>',
+            MAP_DEFAULT_VIEW=None,
         )
         config = flask_client.get("/api/v1/page-config").get_json()
         assert config["nautobot_url"] == "https://nautobot.example.com"
@@ -1485,7 +1485,7 @@ class TestIndex:
             "tile_attribution": '<a href="https://x">"Ours" & co</a>',
             "view": None,
         }
-        override_settings(nautobot_url="", map_default_view=(55.7, 12.6, 6))
+        override_settings(NAUTOBOT_URL="", MAP_DEFAULT_VIEW=(55.7, 12.6, 6))
         config = flask_client.get("/api/v1/page-config").get_json()
         assert config["nautobot_url"] == ""
         assert config["map"]["view"] == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
@@ -1609,21 +1609,21 @@ class TestConfigurableCriticalKeywords:
 
     def test_default_keywords_applied(self, override_settings):
         """Without any configuration the built-in defaults are used."""
-        override_settings(critical_role_keywords="", criticality_rules={})
+        override_settings(CRITICAL_ROLE_KEYWORDS="", CRITICALITY_RULES={})
         kw = alerts.get_critical_keywords()
         assert "core" in kw
         assert "router" in kw
 
     def test_env_override_replaces_defaults(self, override_settings):
         """CRITICAL_ROLE_KEYWORDS replaces defaults when no JSON rules."""
-        override_settings(critical_role_keywords="Firewall, border", criticality_rules={})
+        override_settings(CRITICAL_ROLE_KEYWORDS="Firewall, border", CRITICALITY_RULES={})
         kw = alerts.get_critical_keywords()
         assert kw == ("firewall", "border")
 
     def test_env_override_used_as_fallback_for_unknown_type(self, override_settings):
         """When rules have no matching type and no 'default' key, env override is used."""
         override_settings(
-            critical_role_keywords="firewall", criticality_rules={"datacenter": ["core", "spine"]}
+            CRITICAL_ROLE_KEYWORDS="firewall", CRITICALITY_RULES={"datacenter": ["core", "spine"]}
         )
         kw = alerts.get_critical_keywords("office")
         assert kw == ("firewall",)
@@ -1631,7 +1631,7 @@ class TestConfigurableCriticalKeywords:
     def test_location_type_rule_matched(self, override_settings):
         """The exact location_type key is returned when present in rules."""
         override_settings(
-            criticality_rules={
+            CRITICALITY_RULES={
                 "datacenter": ["core", "firewall"],
                 "office": ["router"],
             }
@@ -1642,7 +1642,7 @@ class TestConfigurableCriticalKeywords:
     def test_rules_default_key_used_for_unknown_type(self, override_settings):
         """The 'default' key in rules is the fallback for unknown location types."""
         override_settings(
-            criticality_rules={
+            CRITICALITY_RULES={
                 "default": ["core", "spine"],
                 "office": ["router"],
             }
@@ -1653,7 +1653,7 @@ class TestConfigurableCriticalKeywords:
     def test_compute_alert_level_respects_location_type(self, override_settings):
         """compute_alert_level uses the correct keyword set for the given location type."""
         override_settings(
-            criticality_rules={
+            CRITICALITY_RULES={
                 "office": ["router"],
                 "datacenter": ["core", "firewall"],
             }
@@ -1717,7 +1717,7 @@ class TestLocationDetailWithLocationType:
 
     def test_location_type_influences_alert(self, flask_client, override_settings):
         """When location_type maps to rules, compute_alert_level uses correct keywords."""
-        override_settings(criticality_rules={"datacenter": ["firewall"]})
+        override_settings(CRITICALITY_RULES={"datacenter": ["firewall"]})
 
         firewall_devices_page = {
             "count": 1,
@@ -2272,13 +2272,13 @@ class TestAlertLifecycleTracking:
     def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
         first_payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": settings.cache_ttl,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
         second_payload = {
             "checked_at": "2026-01-01T00:05:00Z",
-            "stale_after_seconds": settings.cache_ttl,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2321,7 +2321,7 @@ class TestAlertLifecycleTracking:
         )
         # The stored board outlives the sync interval a little (#295).
         assert all(
-            call.kwargs.get("timeout") == settings.cache_ttl + alerts.BOARD_TTL_SLACK_SECONDS
+            call.kwargs.get("timeout") == settings.CACHE_TTL + alerts.BOARD_TTL_SLACK_SECONDS
             for call in cache_set.call_args_list
         )
 
@@ -2329,7 +2329,7 @@ class TestAlertLifecycleTracking:
         caching.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": settings.cache_ttl,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2354,7 +2354,7 @@ class TestAlertLifecycleTracking:
         caching.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": settings.cache_ttl,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2498,7 +2498,7 @@ class TestInventoryCacheSync:
     def _database(self, pg_database, override_settings):
         self.db = pg_database
         override_settings(
-            nautobot_url="", nautobot_token="", librenms_url="", librenms_api_token=""
+            NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
@@ -2807,9 +2807,9 @@ class TestInventoryCacheSync:
             refresh_called.set()
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
-            overridden(inventory_sync_interval_seconds=0),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
+            overridden(INVENTORY_SYNC_INTERVAL_SECONDS=0),
             patch.object(inventory, "sync_nautobot", side_effect=fake_sync),
         ):
             locations = asyncio.run(inventory.get_locations())
@@ -2862,8 +2862,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
@@ -2948,8 +2948,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
@@ -3019,8 +3019,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=False),
@@ -3062,8 +3062,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
             patch.object(inventory, "sync_due", return_value=False),
             patch.object(inventory, "sync_nautobot") as sync_nautobot,
         ):
@@ -3132,8 +3132,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=True),
@@ -3445,8 +3445,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            overridden(nautobot_url="https://nautobot.example.com"),
-            overridden(nautobot_token="token"),
+            overridden(NAUTOBOT_URL="https://nautobot.example.com"),
+            overridden(NAUTOBOT_TOKEN="token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
@@ -3477,14 +3477,14 @@ class TestCriticalityRules:
 class TestLibreNMSEnrichment:
     def test_no_enrichment_when_unconfigured(self, override_settings):
         """_enrich_with_librenms is a no-op when LIBRENMS_URL is empty."""
-        override_settings(librenms_url="", librenms_api_token="")
+        override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
         devices = [{"id": "d1", "name": "router01", "status": "active"}]
         result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result == devices
 
     def test_fetch_inventory_skips_when_config_is_blank(self, override_settings):
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
-        override_settings(librenms_url="   ", librenms_api_token="   ")
+        override_settings(LIBRENMS_URL="   ", LIBRENMS_API_TOKEN="   ")
         with patch.object(upstream_http, "request") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
@@ -3492,9 +3492,9 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_get_uses_verify_setting(self, override_settings):
         override_settings(
-            librenms_url="https://librenms.test",
-            librenms_api_token="tok",
-            librenms_verify_ssl=False,
+            LIBRENMS_URL="https://librenms.test",
+            LIBRENMS_API_TOKEN="tok",
+            LIBRENMS_VERIFY_SSL=False,
         )
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
@@ -3506,7 +3506,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_overrides_active_status(self, override_settings):
         """A device active in Nautobot but down in LibreNMS is set to offline."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {
             "devices": [
                 {"device_id": 1, "hostname": "router01", "status": 0},
@@ -3519,7 +3519,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_up_does_not_change_active_status(self, override_settings):
         """A device up in LibreNMS stays active."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 1}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
@@ -3528,7 +3528,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_does_not_upgrade_already_offline(self, override_settings):
         """A device already offline in Nautobot stays offline (no double-counting)."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "offline"}]
@@ -3537,7 +3537,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_api_failure_returns_original_devices(self, override_settings):
         """If LibreNMS API call fails, original device list is returned unchanged."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         with patch.object(librenms, "get", side_effect=Exception("timeout")):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = asyncio.run(alerts.enrich_with_librenms(devices))
@@ -3545,7 +3545,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_unmatched_device_not_affected(self, override_settings):
         """Devices not present in LibreNMS are left unchanged."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {"devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
@@ -3554,7 +3554,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_matches_short_hostname(self, override_settings):
         """Name-valued LibreNMS hostnames match Nautobot short device names."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {
             "devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]
         }
@@ -3565,7 +3565,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_matches_primary_ip_when_hostname_is_ip(self, override_settings):
         """IP-valued LibreNMS hostnames match Nautobot primary_ip without mask bits."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {"devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [
@@ -3576,7 +3576,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_matches_primary_ipv6_when_hostname_case_differs(self, override_settings):
         """IPv6-valued LibreNMS hostnames match Nautobot primary_ip regardless of hex casing."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {"devices": [{"device_id": 1, "hostname": "2001:DB8::1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [
@@ -3592,7 +3592,7 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_ip_hostnames_do_not_collide_with_short_name_keys(self, override_settings):
         """IP-valued LibreNMS hostnames must not be short-name normalized."""
-        override_settings(librenms_url="http://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="http://librenms.test", LIBRENMS_API_TOKEN="tok")
         lnms_response = {"devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
@@ -3617,7 +3617,7 @@ class TestAuthConfiguration:
 
     def test_auth_disabled_refuses_admin_writes_by_default(self, flask_client, override_settings):
         """Anyone who can reach the app must not change Nautobot with its token (#188)."""
-        override_settings(allow_unauthenticated_writes=False)
+        override_settings(ALLOW_UNAUTHENTICATED_WRITES=False)
         writes = [
             (
                 "post",
@@ -3637,7 +3637,7 @@ class TestAuthConfiguration:
                 assert "ALLOW_UNAUTHENTICATED_WRITES" in resp.get_json()["detail"]
 
     def test_auth_disabled_keeps_reads_and_cases_open(self, flask_client, override_settings):
-        override_settings(allow_unauthenticated_writes=False)
+        override_settings(ALLOW_UNAUTHENTICATED_WRITES=False)
         with auth_config(mode="disabled"):
             assert flask_client.get("/api/v1/criticality-overrides").status_code != 403
             # Adding a case is what the board does; it reaches the handler
@@ -3655,7 +3655,7 @@ class TestAuthConfiguration:
     )
     def test_nautobot_proxy_endpoints_are_gone(self, flask_client, method, url, override_settings):
         """Changes to Nautobot data are made in Nautobot, not through this app (#188)."""
-        override_settings(allow_unauthenticated_writes=True)
+        override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
         assert getattr(flask_client, method)(url).status_code in (404, 405)
 
     def test_the_nautobot_client_cannot_write(self):
@@ -3664,7 +3664,7 @@ class TestAuthConfiguration:
     def test_require_viewer_protects_every_page_but_probes(
         self, flask_client, frontend_build, override_settings
     ):
-        override_settings(auth_require_viewer=True)
+        override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert flask_client.get("/").status_code == 401
             assert flask_client.get("/api/v1/alerts").status_code == 401
@@ -3681,7 +3681,7 @@ class TestAuthConfiguration:
     def test_require_viewer_is_off_by_default(
         self, flask_client, frontend_build, override_settings
     ):
-        override_settings(auth_require_viewer=False)
+        override_settings(AUTH_REQUIRE_VIEWER=False)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert flask_client.get("/").status_code == 200
 
@@ -3749,8 +3749,8 @@ class TestDeviceDisplayIp:
         )
 
     def test_enrichment_records_matched_librenms_hostname(self):
-        orig_url, orig_token = settings.librenms_url, settings.librenms_api_token
-        settings.librenms_url, settings.librenms_api_token = (
+        orig_url, orig_token = settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN
+        settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = (
             "https://librenms.test",
             "tok",
         )
@@ -3764,7 +3764,7 @@ class TestDeviceDisplayIp:
                 )
             )
         finally:
-            settings.librenms_url, settings.librenms_api_token = orig_url, orig_token
+            settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = orig_url, orig_token
         assert enriched[0]["librenms_hostname"] == "router01"
 
 
@@ -3839,7 +3839,7 @@ class TestAlertBoardSyncProgress:
         assert resp.get_json()["sync_pending"] is False
 
     def test_cold_start_enqueues_first_sync_without_waiting(self, flask_client, override_settings):
-        override_settings(nautobot_url="https://nautobot.example.com", nautobot_token="token")
+        override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
         with (
             patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
             patch.object(alerts, "build_alert_board_payload", return_value=self._board()),
@@ -3870,9 +3870,9 @@ class TestAlertBoardSyncProgress:
     def test_due_sync_is_started_by_a_normal_board_load(self, flask_client, override_settings):
         """An open board keeps itself up to date: a normal load starts a sync once one is due (#152)."""
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            inventory_sync_interval_seconds=300,
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            INVENTORY_SYNC_INTERVAL_SECONDS=300,
         )
         old = (datetime.now(UTC) - timedelta(seconds=301)).isoformat()
         self._set_nautobot_sync_state("idle", old, old)
@@ -3891,9 +3891,9 @@ class TestAlertBoardSyncProgress:
         self, flask_client, override_settings
     ):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            inventory_sync_interval_seconds=300,
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            INVENTORY_SYNC_INTERVAL_SECONDS=300,
         )
         completed = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
         self._set_nautobot_sync_state("idle", completed, completed)
@@ -3909,12 +3909,12 @@ class TestAlertBoardSyncProgress:
 
     def test_next_update_uses_the_sooner_source(self, override_settings):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="https://librenms.example.com",
-            librenms_api_token="token",
-            inventory_sync_interval_seconds=3600,
-            librenms_sync_interval_seconds=120,
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="https://librenms.example.com",
+            LIBRENMS_API_TOKEN="token",
+            INVENTORY_SYNC_INTERVAL_SECONDS=3600,
+            LIBRENMS_SYNC_INTERVAL_SECONDS=120,
         )
         now = datetime.now(UTC).isoformat()
         self._set_nautobot_sync_state("idle", now, now)
@@ -3933,12 +3933,12 @@ class TestAlertBoardSyncProgress:
         assert 115 <= next_in <= 120
 
     def test_next_update_unknown_while_sync_runs(self, override_settings):
-        override_settings(nautobot_url="https://nautobot.example.com", nautobot_token="token")
+        override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
         self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
         assert asyncio.run(alerts.inventory_update_schedule()) == (False, None)
 
     def test_next_update_unknown_without_persistence(self, override_settings):
-        override_settings(nautobot_maps_database_url="")
+        override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         assert asyncio.run(alerts.inventory_update_schedule()) == (False, None)
 
     def test_running_sync_is_reported_as_pending(self, flask_client):
@@ -3951,7 +3951,7 @@ class TestAlertBoardSyncProgress:
         assert asyncio.run(alerts.nautobot_sync_in_progress()) is False
 
     def test_no_sync_pending_without_persistence(self, override_settings):
-        override_settings(nautobot_maps_database_url="")
+        override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         assert asyncio.run(alerts.nautobot_sync_in_progress()) is False
 
     def test_adding_case_invalidates_cached_board(self, flask_client):
@@ -4067,7 +4067,7 @@ class TestHealthz:
 
     def test_makes_no_upstream_calls(self, flask_client, override_settings):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
-        override_settings(nautobot_maps_database_url="")
+        override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         with patch.object(
             upstream_http, "request", side_effect=AssertionError("no upstream calls")
         ):
@@ -4098,7 +4098,7 @@ class TestLibreNMSPolledIp:
         assert inventory.librenms_polled_ip(record) == expected
 
     def test_sync_caches_polled_ip(self, pg_database, override_settings):
-        override_settings(librenms_url="https://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
         pass  # the schema: Alembic's (tests/test_schema.py)
         with patch.object(
             librenms,
@@ -4126,7 +4126,7 @@ class TestLibreNMSPolledIp:
         ]
 
     def test_device_added_by_hostname_shows_librenms_ip(self, override_settings):
-        override_settings(librenms_url="https://librenms.test", librenms_api_token="tok")
+        override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
         enriched = asyncio.run(
             alerts.enrich_with_librenms(
                 [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}],
@@ -4175,10 +4175,10 @@ class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
     def _database_and_nautobot(self, pg_database, override_settings):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         pass  # the schema: Alembic's (tests/test_schema.py)
 
@@ -4219,10 +4219,10 @@ class TestAlertBoardBulkReads:
     def _database(self, pg_database, monkeypatch, override_settings):
         self.db = pg_database
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
@@ -4414,7 +4414,7 @@ class TestAlertBoardBulkReads:
         )
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
 
-        with overridden(alert_board_excluded_device_statuses={"decommissioning"}):
+        with overridden(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"decommissioning"}):
             data = asyncio.run(alerts.get_alert_board_data())
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
@@ -4465,15 +4465,15 @@ class TestSiteRollup:
     def _database(self, pg_database, monkeypatch, override_settings):
         self.db = pg_database
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         override_settings(
-            alert_board_excluded_location_statuses={"decommissioning"},
-            alert_board_excluded_location_types=set(),
+            ALERT_BOARD_EXCLUDED_LOCATION_STATUSES={"decommissioning"},
+            ALERT_BOARD_EXCLUDED_LOCATION_TYPES=set(),
         )
         names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
         self.db.executemany(
@@ -4511,7 +4511,7 @@ class TestSiteRollup:
 
     def _board(self, monkeypatch, site_type="site"):
         caching.cache.clear()
-        with overridden(alert_board_site_location_type=site_type):
+        with overridden(ALERT_BOARD_SITE_LOCATION_TYPE=site_type):
             return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
 
     def test_only_sites_are_rows_and_regions_are_hidden(self, monkeypatch):
@@ -4586,10 +4586,10 @@ class TestBackgroundScheduler:
     def _database(self, pg_database, override_settings):
         self.db = pg_database
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         self.db.execute(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
@@ -4670,9 +4670,9 @@ class TestBackgroundScheduler:
         monkeypatch.setattr(scheduler, "loop", adb.async_of(idle))
 
         async def run():
-            override_settings(background_sync_enabled=False)
+            override_settings(BACKGROUND_SYNC_ENABLED=False)
             assert scheduler.start() is False
-            override_settings(background_sync_enabled=True)
+            override_settings(BACKGROUND_SYNC_ENABLED=True)
             assert scheduler.start() is True
             first = scheduler._task
             assert scheduler.start() is True
@@ -4682,9 +4682,9 @@ class TestBackgroundScheduler:
         asyncio.run(run())
 
     def test_tick_seconds_follow_the_sooner_interval(self, override_settings):
-        override_settings(inventory_sync_interval_seconds=300)
+        override_settings(INVENTORY_SYNC_INTERVAL_SECONDS=300)
         assert scheduler.tick_seconds() == 30
-        override_settings(inventory_sync_interval_seconds=10)
+        override_settings(INVENTORY_SYNC_INTERVAL_SECONDS=10)
         assert scheduler.tick_seconds() == 10
 
 
@@ -4706,7 +4706,7 @@ class TestSeverityTiers:
 
     @pytest.fixture(autouse=True)
     def _no_database(self, override_settings):
-        override_settings(nautobot_maps_database_url="")
+        override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
 
     @pytest.mark.parametrize(
         ("total", "down", "level", "reason"),
@@ -4794,7 +4794,7 @@ class TestRealStartTimes:
         )
 
     def test_librenms_only_down_is_marked(self, override_settings):
-        override_settings(librenms_url="https://librenms.example.com", librenms_api_token="token")
+        override_settings(LIBRENMS_URL="https://librenms.example.com", LIBRENMS_API_TOKEN="token")
         enriched = asyncio.run(
             alerts.enrich_with_librenms(
                 [
@@ -4826,10 +4826,10 @@ class TestRealStartTimes:
     @pytest.fixture
     def board(self, pg_database, monkeypatch, override_settings):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
@@ -4904,10 +4904,10 @@ class TestAlertFeed:
     def board(self, pg_database, monkeypatch, override_settings):
         """A site with two switches; returns (build, set_status, clock)."""
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         clock = {"now": "2026-09-28T12:00:00+00:00"}
@@ -5121,7 +5121,7 @@ class TestGeocoder:
         return geolocator
 
     def test_disabled_geocoder_only_accepts_coordinates(self, flask_client, override_settings):
-        override_settings(geocoder_enabled=False)
+        override_settings(GEOCODER_ENABLED=False)
         with patch(
             "app.v1.map.controller.Nominatim", side_effect=AssertionError("must not geocode")
         ):
@@ -5131,8 +5131,8 @@ class TestGeocoder:
 
     def test_uses_the_configured_service(self, flask_client, override_settings):
         override_settings(
-            geocoder_url="http://nominatim.internal:8080/nominatim",
-            geocoder_user_agent="noc-maps/2",
+            GEOCODER_URL="http://nominatim.internal:8080/nominatim",
+            GEOCODER_USER_AGENT="noc-maps/2",
         )
         with patch("app.v1.map.controller.Nominatim", return_value=self._geolocator()) as nominatim:
             assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
@@ -5188,7 +5188,7 @@ class TestGeocoder:
 class TestSecurityHeaders:
     @pytest.mark.parametrize("path", ["/", "/alerts", "/healthz", "/api/v1/does-not-exist"])
     def test_headers_on_every_response(self, flask_client, path, override_settings):
-        override_settings(nautobot_maps_database_url="")
+        override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         resp = flask_client.get(path)
         assert resp.headers["X-Content-Type-Options"] == "nosniff"
         assert resp.headers["X-Frame-Options"] == "DENY"
@@ -5199,17 +5199,17 @@ class TestSecurityHeaders:
         assert "style-src 'self';" in csp and "unsafe-inline" not in csp
 
     def test_images_allowed_from_the_tile_server(self, flask_client, override_settings):
-        override_settings(map_tile_url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+        override_settings(MAP_TILE_URL="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
         assert (
             "img-src 'self' data: https://*.tile.openstreetmap.org;"
             in flask_client.get("/").headers["Content-Security-Policy"]
         )
-        override_settings(map_tile_url="http://tiles.internal:8080/{z}/{x}/{y}.png")
+        override_settings(MAP_TILE_URL="http://tiles.internal:8080/{z}/{x}/{y}.png")
         assert (
             "img-src 'self' data: http://tiles.internal:8080;"
             in flask_client.get("/").headers["Content-Security-Policy"]
         )
-        override_settings(map_tile_url="/tiles/{z}/{x}/{y}.png")
+        override_settings(MAP_TILE_URL="/tiles/{z}/{x}/{y}.png")
         assert "img-src 'self' data:;" in flask_client.get("/").headers["Content-Security-Policy"]
 
 
@@ -5271,17 +5271,17 @@ class TestHistoryRetention:
 
     def test_off_by_default_and_once_a_day(self, pg_database, override_settings):
         self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
-        override_settings(alert_history_retention_days=0)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=0)
         assert adb.call(alerts.maybe_prune_alert_history) is None
         assert self._devices(pg_database) == ["old-resolved"]
-        override_settings(alert_history_retention_days=30)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         assert adb.call(alerts.maybe_prune_alert_history)["alert_instances"] == 1
         self._alert(pg_database, "later", "resolved", resolved_days_ago=100)
         assert adb.call(alerts.maybe_prune_alert_history) is None  # already ran today
         assert self._devices(pg_database) == ["later"]
 
     def test_scheduler_tick_runs_retention(self, pg_database, monkeypatch, override_settings):
-        override_settings(alert_history_retention_days=30)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
         asyncio.run(scheduler.tick())
@@ -5349,7 +5349,7 @@ class TestMetrics:
         assert "# TYPE nautobot_maps_sites gauge" in body
 
     def test_can_be_turned_off(self, flask_client, override_settings):
-        override_settings(metrics_enabled=False)
+        override_settings(METRICS_ENABLED=False)
         assert flask_client.get("/metrics").status_code == 404
 
     def test_label_values_are_escaped(self):
@@ -5563,7 +5563,7 @@ class TestApiExplorer:
     def test_needs_the_viewer_role_like_every_page(
         self, flask_client, frontend_build, override_settings
     ):
-        override_settings(auth_require_viewer=True)
+        override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert flask_client.get("/api/docs").status_code == 401
             assert flask_client.get("/api/v1/endpoints").status_code == 401
@@ -5620,7 +5620,7 @@ class TestLocationAlertLevels:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, override_settings):
         override_settings(
-            nautobot_url="", nautobot_token="", librenms_url="", librenms_api_token=""
+            NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
         conn = adb.connect()
         try:
@@ -5967,14 +5967,14 @@ class TestLocationTenantRelationships:
     def test_setting_narrows_by_key_or_label(self, monkeypatch, wanted, override_settings):
         fetch, _ = _relationship_fetch()
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-        override_settings(site_tenant_relationships={wanted})
+        override_settings(SITE_TENANT_RELATIONSHIPS={wanted})
         links = inventory.fetch_location_tenant_links()
         assert {link["relationship"] for link in links} == {"Site customers"}
 
     def test_no_relationship_is_an_empty_list(self, monkeypatch, override_settings):
         fetch, _ = _relationship_fetch()
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-        override_settings(site_tenant_relationships={"nothing-matches"})
+        override_settings(SITE_TENANT_RELATIONSHIPS={"nothing-matches"})
         assert inventory.fetch_location_tenant_links() == []
 
     def test_a_failed_read_is_none(self, monkeypatch):
@@ -5996,10 +5996,10 @@ class TestLocationTenantSync:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, override_settings):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
 
     def _sync(self, monkeypatch, error_on=None):
@@ -6061,10 +6061,10 @@ class TestTenantDescriptions:
     @pytest.fixture(autouse=True)
     def _sync_setup(self, pg_database, override_settings):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
 
     _sync = TestLocationTenantSync._sync
@@ -6151,10 +6151,10 @@ class TestLibreNMSMappingsAreBatched:
     @pytest.fixture(autouse=True)
     def _inventory(self, pg_database, monkeypatch, override_settings):
         override_settings(
-            nautobot_url="",
-            nautobot_token="",
-            librenms_url="https://librenms.test",
-            librenms_api_token="tok",
+            NAUTOBOT_URL="",
+            NAUTOBOT_TOKEN="",
+            LIBRENMS_URL="https://librenms.test",
+            LIBRENMS_API_TOKEN="tok",
         )
         # No background sync against the fake LibreNMS URL.
         monkeypatch.setattr(

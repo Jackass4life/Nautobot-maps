@@ -33,7 +33,7 @@ class AdUser:
 
 
 def enabled(settings: Settings) -> bool:
-    return bool(settings.ldap_url)
+    return bool(settings.LDAP_URL)
 
 
 def server(settings: Settings) -> Server:
@@ -42,15 +42,15 @@ def server(settings: Settings) -> Server:
     tls = Tls(
         validate=ssl.CERT_REQUIRED,
         version=ssl.PROTOCOL_TLS_CLIENT,
-        ca_certs_data=settings.extra_ca_pem or None,
+        ca_certs_data=settings.EXTRA_CA_PEM or None,
     )
-    secure = settings.ldap_url.lower().startswith("ldaps://")
+    secure = settings.LDAP_URL.lower().startswith("ldaps://")
     return Server(
-        settings.ldap_url,
+        settings.LDAP_URL,
         use_ssl=secure,
         tls=tls if secure else None,
         get_info=None,
-        connect_timeout=settings.ldap_timeout_seconds,
+        connect_timeout=settings.LDAP_TIMEOUT_SECONDS,
     )
 
 
@@ -61,7 +61,7 @@ def connect(target: Server, user: str, password: str, settings: Settings) -> Con
         user,
         password,
         auto_bind=True,
-        receive_timeout=settings.ldap_timeout_seconds,
+        receive_timeout=settings.LDAP_TIMEOUT_SECONDS,
         raise_exceptions=False,
     )
 
@@ -82,7 +82,7 @@ def find(username: str, settings: Settings) -> AdUser | None:
         return None
     target = server(settings)
     try:
-        lookup = connect(target, settings.ldap_bind_dn, settings.ldap_bind_password, settings)
+        lookup = connect(target, settings.LDAP_BIND_DN, settings.LDAP_BIND_PASSWORD, settings)
     except LDAPBindError:
         logger.error("AD sign-in: the service account (LDAP_BIND_DN) was refused")
         raise DirectoryUnavailable("service account refused") from None
@@ -90,9 +90,9 @@ def find(username: str, settings: Settings) -> AdUser | None:
         logger.error("AD sign-in: the directory can't be reached: {}", type(exc).__name__)
         raise DirectoryUnavailable(type(exc).__name__) from None
     try:
-        attribute = settings.ldap_user_attribute
+        attribute = settings.LDAP_USER_ATTRIBUTE
         lookup.search(
-            settings.ldap_base_dn,
+            settings.LDAP_BASE_DN,
             f"({attribute}={escape_filter_chars(name)})",
             SUBTREE,
             attributes=[attribute, *COMMON_NAME_ATTRIBUTES],

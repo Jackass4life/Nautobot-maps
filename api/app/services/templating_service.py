@@ -20,8 +20,8 @@ def sign_out_url(user: dict) -> str:
     """Where Sign out goes (#546): AUTH_SIGN_OUT_URL for someone signed in through the
     proxy; the sign-in page, which ends the app's own sign-in, for someone signed in
     there (#717); "" for an API token, which has no session to end."""
-    if settings.auth_mode != "header" or user.get("token"):
+    if settings.AUTH_MODE != "header" or user.get("token"):
         return ""
     if user.get("signed_in_with") == "app":
         return "/auth?signed_out=1"
-    return settings.auth_sign_out_url
+    return settings.AUTH_SIGN_OUT_URL

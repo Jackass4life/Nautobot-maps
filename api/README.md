@@ -64,7 +64,7 @@ response status is < 400, otherwise rolls back, and always closes it. Routes tak
 ## Settings (#588)
 
 Every setting is described in
-[docs/configuration.md](../docs/configuration.md). Read with `settings.name`
+[docs/configuration.md](../docs/configuration.md). Read with `settings.NAME`
 (`from app.core.settings import settings`: the only module that reads the environment, once); an empty value means
 the default. Only the new stack's own:
 
@@ -131,7 +131,7 @@ their behaviour is pinned by many tests, they were ported close to verbatim, on 
   connect and statement timeouts. `app/db/connection.py` keeps its helpers (`db.row_to_dict()`,
   `db.placeholders()`, ...).
 - Settings: one shared object, `from app.core.settings import settings` (#754), read as
-  `settings.nautobot_url` inside the function; a test's `override_settings(nautobot_url=...)`
+  `settings.NAUTOBOT_URL` inside the function; a test's `override_settings(NAUTOBOT_URL=...)`
   (`tests/overrides.py`) changes that object, so every module sees it, until the test ends.
 
 The background work is `app/services/scheduler.py`: one asyncio task per process, the

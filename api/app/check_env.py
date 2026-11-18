@@ -104,7 +104,7 @@ def check(text: str) -> tuple[list[str], int]:
         if len(numbers) > 1:
             twice.append(f"{name}: lines {', '.join(map(str, numbers))} (line {numbers[-1]} wins)")
         if name in env_names.REMOVED:
-            instead = REMOVED_FILE_SETTINGS[name.lower()]
+            instead = REMOVED_FILE_SETTINGS[name]
             removed.append(f"{name} ({where}): removed (#739), set {instead} instead")
             continue
         if name in env_names.NOT_IN_ENV:

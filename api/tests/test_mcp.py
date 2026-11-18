@@ -84,7 +84,7 @@ BOARD = {
 
 @pytest.fixture
 def flask_client(monkeypatch, override_settings):
-    override_settings(mcp_enabled=True)
+    override_settings(MCP_ENABLED=True)
     # The rest of a real board's fields, empty (#449: the answer is checked against /api/docs).
     board = answers.complete(board_answers.Board, BOARD)
     monkeypatch.setattr(
@@ -133,7 +133,7 @@ def call(flask_client, name, arguments=None, **kwargs):
 
 class TestProtocol:
     def test_off_by_default(self, flask_client, override_settings):
-        override_settings(mcp_enabled=False)
+        override_settings(MCP_ENABLED=False)
         assert modern(flask_client, "server/discover").status_code == 404
         assert (
             legacy(flask_client, "initialize", {"protocolVersion": "2025-11-25"}).status_code == 404
@@ -283,7 +283,7 @@ class TestProtocol:
             == 403
         )
         assert modern(flask_client, "tools/list", headers={"Origin": "null"}).status_code == 403
-        override_settings(mcp_allowed_origins=["https://Assistant.example.com"])
+        override_settings(MCP_ALLOWED_ORIGINS=["https://Assistant.example.com"])
         assert (
             modern(
                 flask_client, "tools/list", headers={"Origin": "https://assistant.example.com"}
@@ -546,7 +546,7 @@ class TestRoles:
             assert not call(flask_client, "get_site", {"site": "Oslo"}, headers=viewer)["isError"]
 
     def test_require_viewer_protects_the_endpoint(self, flask_client, override_settings):
-        override_settings(auth_require_viewer=True)
+        override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert modern(flask_client, "tools/list").status_code == 401
             signed_in = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
@@ -621,7 +621,7 @@ class TestAddCase:
     def test_an_allowed_browser_client_can_add_a_case(self, flask_client, override_settings):
         """A browser MCP flask_client from an allowed origin passes /mcp's own check;
         its tool's call must not be refused as a change from another site."""
-        override_settings(mcp_allowed_origins=["https://assistant.example"])
+        override_settings(MCP_ALLOWED_ORIGINS=["https://assistant.example"])
         self._open_alerts()
         browser = {
             "Origin": "https://assistant.example",

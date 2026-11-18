@@ -101,7 +101,7 @@ class TestRules:
         assert "content-encoding" not in run(self._json(), method="HEAD").headers
 
     def test_the_setting_turns_it_off(self, override_settings):
-        override_settings(compress_responses=False)
+        override_settings(COMPRESS_RESPONSES=False)
         assert "content-encoding" not in run(self._json()).headers
 
 

@@ -47,7 +47,7 @@ def _ssl(verify: bool, extra_ca: str = "") -> bool | ssl.SSLContext:
 
 def client(verify: bool = True) -> httpx.Client:
     """The shared client for this certificate setting, created on first use."""
-    key = (verify, settings.extra_ca_pem)
+    key = (verify, settings.EXTRA_CA_PEM)
     with _clients_lock:
         current = _clients.get(key)
         if current is None:

@@ -417,7 +417,7 @@ def test_the_pages_are_told_exactly_what_the_api_allows(configure, mode, role):
 
     configure(**MODES[mode])
     if role is None:
-        user = CurrentUser(auth_mode=settings.auth_mode)
+        user = CurrentUser(auth_mode=settings.AUTH_MODE)
     else:
         user = CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
     have = set(auth_service.access(user, settings)["permissions"])
@@ -544,12 +544,12 @@ def test_can_write_and_can_administer_as_before(configure, mode, role):
         return
     configure(**MODES[mode])
     user = (
-        CurrentUser(auth_mode=settings.auth_mode)
+        CurrentUser(auth_mode=settings.AUTH_MODE)
         if role is None
         else CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
     )
-    disabled = settings.auth_mode == "disabled"
-    writes_open = settings.allow_unauthenticated_writes
+    disabled = settings.AUTH_MODE == "disabled"
+    writes_open = settings.ALLOW_UNAUTHENTICATED_WRITES
     was_write = (disabled or role in ("operator", "admin")) and (role is not None or disabled)
     was_admin = (disabled and writes_open) or role == "admin"
     assert auth_service.may_change_the_board(user, settings) == was_write

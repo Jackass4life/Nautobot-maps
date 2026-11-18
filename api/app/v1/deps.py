@@ -268,7 +268,7 @@ def finish(request: Request, response):  # type: ignore[no-untyped-def]
         if name not in headers:
             headers[name] = value
     mimetype = (headers.get("content-type") or "").split(";")[0].strip().lower()
-    if not settings.compress_responses or not compression.compressible(mimetype):
+    if not settings.COMPRESS_RESPONSES or not compression.compressible(mimetype):
         return response
     vary = [part.strip() for part in headers.get("vary", "").split(",") if part.strip()]
     if "accept-encoding" not in (part.lower() for part in vary):
