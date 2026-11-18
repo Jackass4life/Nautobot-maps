@@ -135,6 +135,21 @@ sed -i 's/^OIDC_CLIENT_SECRET=/OAUTH2_PROXY_CLIENT_SECRET=/; s/^OAUTH2_COOKIE_SE
 
 Then `docker compose up -d --build` and check `docker compose logs api`: a setting from before stops the API at startup and names what replaces it (`WIRELESS_CONTROLLERS_FILE was removed (#739): set WIRELESS_CONTROLLERS ...`), and so does `AUTH_PROXY_SECRET` without `AUTH_MODE=header`. Once it runs, `config/` can go (keep the backup).
 
+### Every API setting in .env, no defaults (#760)
+
+The API no longer has defaults in its code: every setting it reads must be in `.env`, or it won't start (`Settings missing in .env: CACHE_TTL, …`, naming them all). An existing `.env` has only the lines you changed. Before you upgrade, add the rest with the values the code used until now, so nothing changes:
+
+```bash
+cp .env .env.backup
+# The new image's check, on your .env: the lines it is missing, with the old values.
+docker compose pull api   # or: docker compose build api
+docker compose run --rm --no-deps -T --entrypoint python api -m app.check_env --fill - < .env >> .env
+docker compose run --rm --no-deps -T --entrypoint python api -m app.check_env - < .env   # nothing missing
+docker compose up -d
+```
+
+An empty value is now a value: `ACCESS_POINT_ROLES=` means no access point roles, `AUTH_TRUSTED_PROXIES=` trusts no proxy. A number or yes/no setting needs one (`CACHE_TTL=300`, not `CACHE_TTL=`).
+
 ## Building the API, the pages and the proxy separately (#672)
 
 Each part has its own Dockerfile, built from its own folder. `docker-compose.yml` builds `api` and `web` this way, and `reverse-proxy/compose.yml` the proxy; for a deployment that runs them some other way:
@@ -162,7 +177,7 @@ The proxy sends `/api/` (but the `/api/docs` page), `/healthz`, `/mcp`, `/help/i
 
 ## The .env file
 
-Every setting is in `.env` (#739), and every container reads the whole file (`env_file: .env`): the compose files set nothing, and the app reads no other files. The wireless controllers and the criticality rules are JSON in their setting, a company CA its text (`EXTRA_CA_PEM`) ([how .env works](configuration.md#how-env-works)). It holds the passwords, so `chmod 600 .env`; it is git-ignored and never built into an image. A change takes effect with `docker compose up -d` (the containers are recreated). Back it up: it is not in the database.
+Every setting is in `.env` (#739), each of the API's with a value or empty (#760: the API has no defaults), and every container reads the whole file (`env_file: .env`): the compose files set nothing, and the app reads no other files. The wireless controllers and the criticality rules are JSON in their setting, a company CA its text (`EXTRA_CA_PEM`) ([how .env works](configuration.md#how-env-works)). It holds the passwords, so `chmod 600 .env`; it is git-ignored and never built into an image. A change takes effect with `docker compose up -d` (the containers are recreated). Back it up: it is not in the database.
 
 ## Local overrides (ports, volumes, …)
 

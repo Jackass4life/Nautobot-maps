@@ -36,7 +36,8 @@ services:
   # The API on 4200, as the request's `--build-arg API_PORT=4200` expects.
   api:
     image: nautobot-maps-api:ci
-    env_file: images.env
+    # Every setting (#760: no defaults), then the deployment's.
+    env_file: [../../api/local.env, images.env]
     depends_on:
       postgres:
         condition: service_healthy

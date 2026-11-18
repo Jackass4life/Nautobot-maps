@@ -1,12 +1,12 @@
 # Configuration
 
-Every setting the app has, with its default. This page is for the person installing and running the app; what to fill in **in Nautobot** is on [What to set in Nautobot and LibreNMS](nautobot-setup.md).
+Every setting the app has, with its value in `.env.example`. This page is for the person installing and running the app; what to fill in **in Nautobot** is on [What to set in Nautobot and LibreNMS](nautobot-setup.md).
 
 ## In short
 
 - **Where settings go:** every setting is in the `.env` file next to `docker-compose.yml`, and only there: `cp .env.example .env && chmod 600 .env`. After a change: `docker compose up -d`.
-- **Required:** only `NAUTOBOT_URL` and `NAUTOBOT_TOKEN`, plus your own `POSTGRES_PASSWORD` (in it and in `NAUTOBOT_MAPS_DATABASE_URL`) before the first start.
-- **Leaving a setting empty** (or out) means its default.
+- **Every API setting is in `.env`** (#760): the API has no defaults, and won't start while one is missing; the error names them all. `.env.example` has every one. Fill in `NAUTOBOT_URL` and `NAUTOBOT_TOKEN`, and your own `POSTGRES_PASSWORD` (in it and in `NAUTOBOT_MAPS_DATABASE_URL`) before the first start.
+- **Empty** turns a feature off or means none (`LIBRENMS_URL=`: no LibreNMS, `AUTH_VIEWER_GROUPS=`: no group); a number or yes/no setting needs a value.
 - **No files:** the wireless controllers and the criticality rules are JSON in their setting, a company CA is the certificate's text. [How .env works](#how-env-works).
 
 **The settings most people change:**
@@ -31,7 +31,8 @@ Every container gets the whole `.env` (`env_file: .env` in each compose file, #7
 - **Values as written:** no `${VAR}` references. Put single quotes around JSON and around a value with a `$` in it.
 - **JSON settings** (`WIRELESS_CONTROLLERS`, `CRITICALITY_RULES`): on one line, in single quotes, e.g. `CRITICALITY_RULES='{"office": ["core", "router"]}'`. A mistake stops the app at startup and says where (never a password).
 - **A certificate** (`EXTRA_CA_PEM`): the PEM text on one line with `\n` for each line break, or base64 of the file (`base64 -w0 company-ca.pem`).
-- **Outside Docker** (`uv run python run.py` in `api/`): the app reads `api/.env`; copy `.env.example` there and use `localhost` instead of the service names (`postgres`, `redis`).
+- **Outside Docker** (`uv run python run.py` in `api/`): the app reads `api/.env`. `cp local.env .env` there gives every setting with a value for this machine (`localhost`, no Redis); the tests, CI and the demo start from `api/local.env` too.
+- **Value** (the column in each table below): for an API setting, its value in `.env.example` and `api/local.env` (what the code used before #760); for another part's, what that part uses when the line is empty or missing.
 - **Read by** (the column in each table below): which part acts on the setting. The others get it too and ignore it.
   - `api`: the API container (`app/core/settings.py`, the only place the API reads settings).
   - `gunicorn`: the API container's server (`api/gunicorn_config.py`).
@@ -41,16 +42,20 @@ Every container gets the whole `.env` (`env_file: .env` in each compose file, #7
   - `compose`: `docker compose` itself, while it starts the containers (a port, a network, a file to mount, oauth2-proxy's command line, nginx's build). `compose (nginx build)` needs `docker compose up -d --build` after a change.
   - `build`: only when the pages are built (`bun run generate`); a running container ignores it.
   - `dev server`: only `uv run python run.py` (development), never the Docker image.
-- **Check it:** `python -m app.check_env` lists what in your `.env` nothing reads (a typo, a leftover, another app's names), what the API would refuse, a name set twice (only the last line counts) and lines set to the default anyway. It prints names and line numbers, never a value, and exits with 1 when something is unread or invalid. With Docker, from the folder with `.env`:
+- **Check it:** `python -m app.check_env` lists the API settings your `.env` is missing, what in it nothing reads (a typo, a leftover, another app's names), what the API would refuse, a name set twice (only the last line counts) and another part's lines set to its default anyway. It prints names and line numbers, never a value, and exits with 1 when something is missing, unread or invalid. With Docker, from the folder with `.env`:
   ```
   docker compose run --rm --no-deps -T --entrypoint python api -m app.check_env - < .env
+  ```
+  `--fill` prints the missing lines instead, with the values the code used before #760 (so the app behaves as before); add them to `.env`:
+  ```
+  docker compose run --rm --no-deps -T --entrypoint python api -m app.check_env --fill - < .env >> .env
   ```
   At startup the API also warns about a name in its environment that looks like a setting but isn't one: `Unknown setting AUTH_MOD (did you mean AUTH_MODE?): ignored`.
 - **Upgrading from a version with `config/`:** `WIRELESS_CONTROLLERS_FILE`, `CRITICALITY_RULES_FILE` and `LDAP_CA_FILE` stop the app at startup and say what replaces them; a `*_VERIFY_SSL` with a file's path does too. [Operations](operations.md#every-setting-in-env-no-config-folder-739) has the steps.
 
 ## Nautobot
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `NAUTOBOT_URL` | api | **required** | Base URL of your Nautobot instance, e.g. `https://nautobot.example.com` (validated at startup) |
 | `NAUTOBOT_TOKEN` | api | **required** | Nautobot API token. Read-only is enough: the app never writes to Nautobot |
@@ -62,7 +67,7 @@ Every container gets the whole `.env` (`env_file: .env` in each compose file, #7
 
 The alert board needs PostgreSQL; the map works without it. The bundled `docker-compose.yml` includes one.
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `NAUTOBOT_MAPS_DATABASE_URL` | api | — | `postgresql://...` URL for the inventory snapshot, alert history, cases and criticality overrides. With the bundled PostgreSQL: `postgresql://nautobot_maps:<POSTGRES_PASSWORD>@postgres:5432/nautobot_maps` (in `.env.example`). Without it the alert board stays empty and says so |
 | `DATABASE_PASSWORD` | api | — | The database password, as is (no URL encoding: `@`, `:` or `%` need no escaping); used instead of the one in `NAUTOBOT_MAPS_DATABASE_URL`, which can then leave it out |
@@ -75,7 +80,7 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 
 See [authentication](authentication.md).
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `AUTH_MODE` | api | `disabled` | `disabled`, or `header` behind a sign-in proxy |
 | `AUTH_HEADER_USER` | api | `X-Forwarded-User` | Header with the user name, set by the proxy |
@@ -108,7 +113,7 @@ The API behind it needs these in `.env` too (#739: the compose files set nothing
 
 Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`LDAP_URL`, `LDAP_BASE_DN`, `JWT_SIGNING_SECRET`, …); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `PUBLIC_HOSTNAME` | compose (nginx build, oauth2-proxy) | required | The host name people open, e.g. `maps.example.com`; the certificate must match it |
 | `OIDC_ISSUER_URL` | compose (oauth2-proxy), nginx | required | Your identity provider, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
@@ -130,7 +135,7 @@ The certificate goes in `reverse-proxy/certs/` as `fullchain.pem` and `privkey.p
 
 What `docker compose` starts, and how the containers find each other. `.env.example` has the values for the bundled stack.
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `COMPOSE_FILE` | compose | `docker-compose.yml` | The compose files to use, `:`-separated: add `reverse-proxy/compose.yml` (or `reverse-proxy/compose.app-sign-in.yml`) for [the bundled proxy](#the-bundled-https-and-sign-in-proxy) |
 | `API_URL` | web | — (`http://api:5000` in `.env.example`) | Where the pages' container sends the API's paths (`/api/`, `/healthz`, `/metrics`, …). Without it they answer 404, which is fine behind the bundled proxy: nginx sends them to the API itself |
@@ -140,7 +145,7 @@ What `docker compose` starts, and how the containers find each other. `.env.exam
 
 ## Server and logging
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `GUNICORN_WORKERS` | gunicorn | `4` | Worker processes (Docker image): gunicorn runs uvicorn workers, each serving several requests at once |
 | `GUNICORN_TIMEOUT` | gunicorn | `120` | Worker timeout in seconds; lower values are raised to 120 |
@@ -153,7 +158,7 @@ What `docker compose` starts, and how the containers find each other. `.env.exam
 
 ## Syncing and caching
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `BACKGROUND_SYNC_ENABLED` | api | `true` | Run due syncs and record alert history in the background with no page open. `false`: syncs only run when pages are loaded |
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | api | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs |
@@ -168,7 +173,7 @@ What `docker compose` starts, and how the containers find each other. `.env.exam
 
 Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to take device up/down status from LibreNMS. Each sync also caches the address LibreNMS polls for every device (`overwrite_ip` if set, otherwise `ip`); the alert board shows it when Nautobot has no primary IP for the device.
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `LIBRENMS_URL` | api | — | Base URL of your LibreNMS |
 | `LIBRENMS_API_TOKEN` | api | — | LibreNMS API token |
@@ -196,7 +201,7 @@ What a push does: the app asks the LibreNMS API for that one device and stores i
 
 Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each. Access points get their address by DHCP, so a controller watches them: one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, not notified, and operational on the status page with them counted (an access point with its own level set is an ordinary alarm) ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in `WIRELESS_CONTROLLERS`, as JSON ([how .env works](#how-env-works)). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m app wireless-check`.
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `WIRELESS_CONTROLLERS` | api | — | The instances, as JSON on one line in single quotes (#739; [every key](sources.md#wireless-controllers-access-points)): `'{"catalyst_center": [...], "aruba_central": [...]}'`. A mistake in it stops the app at startup, naming the instance, never a password |
 | `WIRELESS_SYNC_INTERVAL_SECONDS` | api | `300` | How often each wireless controller is read (at least 60) |
@@ -206,7 +211,7 @@ Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking Ne
 
 Prometheus Alertmanager and any tool that can call a webhook can mark devices down. See [other monitoring sources](sources.md).
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `ALERTMANAGER_DEVICE_LABELS` | api | `instance,hostname,host,device` | Alert labels that name the device; the first one an alert has is used (a port or URL is stripped) |
 | `ALERTMANAGER_ALERTNAMES` | api | — | Only alerts with these `alertname`s; empty: every alert Alertmanager sends here |
@@ -216,7 +221,7 @@ Prometheus Alertmanager and any tool that can call a webhook can mark devices do
 
 What these do is explained in [the alert board guide](alert-board.md). List settings take comma- or semicolon-separated values; in the status settings, `null` matches an empty status.
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `ALERT_BOARD_SITE_LOCATION_TYPE` | api | — | Location type that gets the board's rows (e.g. `Site`); devices in its child locations roll up into it. Empty: one row per location ([one row per Site](alert-board.md#one-row-per-site)) |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | api | `graveyard,warehouse` | Location types hidden from the board |
@@ -247,7 +252,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 
 See [notifications](notifications.md). Each channel is on when its setting is filled in.
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `NOTIFY_MIN_LEVEL` | api | `critical` | `low`, `medium` or `critical`: notify when a site reaches it (or gets worse above it) and when it drops below it |
 | `NOTIFY_MIN_LEVEL_BY_TIER` | api | — | `NOTIFY_MIN_LEVEL` for some importance tiers, e.g. `gold:low,silver:medium` |
@@ -265,7 +270,7 @@ See [notifications](notifications.md). Each channel is on when its setting is fi
 
 ## Map and address search
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `MAP_TILE_URL` | api | OpenStreetMap | Tile URL template (`{s}`, `{z}`, `{x}`, `{y}`), e.g. an internal tile server |
 | `MAP_TILE_ATTRIBUTION` | api | OpenStreetMap | Attribution shown on the map (HTML allowed) |
@@ -280,7 +285,7 @@ By default viewers' browsers load tiles from `tile.openstreetmap.org`, and the a
 
 See [MCP server](mcp.md).
 
-| Variable | Read by | Default | Description |
+| Variable | Read by | Value | Description |
 |---|---|---|---|
 | `MCP_ENABLED` | api | `false` | Serve the MCP server at `/mcp`; off: 404 |
 | `MCP_ALLOWED_ORIGINS` | api | — | Browser origins (`https://host[:port]`) allowed to call `/mcp`. MCP clients send no `Origin`; any request that does is refused unless listed |

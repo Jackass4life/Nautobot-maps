@@ -76,7 +76,7 @@ Everything below is in `api/app/`.
 
 ### `core/`: settings, errors, version
 
-- `core/settings.py` is **the only place that reads environment variables.** Each setting is a field on `Settings`, named exactly like its environment variable (`NAUTOBOT_URL: str`, #760), with its type, default and checks. They are read once, into one shared object: code imports it with `from app.core.settings import settings` and reads `settings.NAUTOBOT_URL`. Always **inside the function**, never at import (`TIMEOUT = settings.X` at the top of a module), so a test that changes a setting reaches the code: the `override_settings` fixture (`override_settings(NAUTOBOT_URL="")`), `with overridden(...)` from `api/tests/overrides.py`, or `configure(NAUTOBOT_URL="")` through the environment.
+- `core/settings.py` is **the only place that reads environment variables.** Each setting is a field on `Settings`, named exactly like its environment variable (`NAUTOBOT_URL: str`, #760), with its type and checks, and no default (#760: every setting is in `.env`; `api/local.env` has them all for development). They are read once, into one shared object: code imports it with `from app.core.settings import settings` and reads `settings.NAUTOBOT_URL`. Always **inside the function**, never at import (`TIMEOUT = settings.X` at the top of a module), so a test that changes a setting reaches the code: the `override_settings` fixture (`override_settings(NAUTOBOT_URL="")`), `with overridden(...)` from `api/tests/overrides.py`, or `configure(NAUTOBOT_URL="")` through the environment.
 - `core/exceptions.py` turns errors into answers. Every refusal is `{"error": "<one plain sentence>"}` with a status code.
 - `core/version.py` reads the version from `api/pyproject.toml`.
 

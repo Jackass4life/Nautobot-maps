@@ -15,6 +15,7 @@ import subprocess
 
 import pytest
 import yaml
+from dotenv import dotenv_values
 
 from app.core import settings
 from app.core.settings import SETTING_NAMES, Settings
@@ -24,19 +25,6 @@ REPO_ROOT = API_ROOT.parent
 
 # Read only to warn that it is still set (#153): neither passed nor documented.
 LEGACY_SETTINGS = {"NAUTOBOT_MAPS_DB"}
-# Not in .env.example (docs/configuration.md has them): only for the development server.
-NOT_IN_ENV_EXAMPLE = {
-    # The development server's (python run.py), and development's SQL log.
-    "FLASK_DEBUG",
-    "FLASK_RUN_PORT",
-    "SQL_ECHO",
-    # The development server's: where `bun run generate` put the pages (#674: the API
-    # image has none; the web image serves them).
-    "WEB_BUILD_DIR",
-    # The new stack's name; compose's .env has NAUTOBOT_MAPS_DATABASE_URL, which wins.
-    "DATABASE_URL",
-    *LEGACY_SETTINGS,
-}
 # Every compose file of the app (#739): settings come from an env file, never from an
 # environment: block.
 COMPOSE_FILES = (
@@ -58,17 +46,21 @@ _ComposeLoader.add_constructor("!reset", lambda loader, node: None)
 
 
 def env_example_names() -> set[str]:
-    """The settings .env.example names, set or commented out."""
+    """The names .env.example sets (not those only in a comment)."""
     text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
-    return set(re.findall(r"^#? ?([A-Z][A-Z0-9_]*)=", text, flags=re.MULTILINE))
+    return set(re.findall(r"^([A-Z][A-Z0-9_]*)=", text, flags=re.MULTILINE))
+
+
+def local_env() -> dict[str, str]:
+    """api/local.env: every setting, with the values the code had before #760."""
+    return {name: value or "" for name, value in dotenv_values(API_ROOT / "local.env").items()}
 
 
 def load(monkeypatch, **env: str) -> Settings:
-    """Settings from exactly this environment (and no .env file)."""
-    for name in SETTING_NAMES:
+    """Settings from api/local.env with *env* on top (and no .env file)."""
+    for name in Settings.model_fields:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    for name, value in env.items():
+    for name, value in {**local_env(), **env}.items():
         monkeypatch.setenv(name, value)
     return Settings(_env_file=None)
 
@@ -90,7 +82,9 @@ def test_the_development_stacks_app_reads_its_env_file():
     compose = yaml.safe_load((REPO_ROOT / "development/docker-compose.yml").read_text("utf-8"))
     for service in ("maps-postgres", "web", "api"):
         definition = compose["services"][service]
-        assert definition["env_file"] == "maps.env", service
+        # The API: every setting first (#760: no defaults).
+        expected = ["../api/local.env", "maps.env"] if service == "api" else "maps.env"
+        assert definition["env_file"] == expected, service
         assert "environment" not in definition, service
 
 
@@ -107,8 +101,8 @@ def test_env_example_lists_every_setting():
     """.env.example is the one place to start from (#739): every setting, with the
     compose stack's own (the database, the cache, the pages' API_URL)."""
     names = env_example_names()
-    missing = sorted(set(SETTING_NAMES) - names - NOT_IN_ENV_EXAMPLE)
-    assert not missing, f"add to .env.example: {missing}"
+    missing = sorted(set(settings.REQUIRED) - names)
+    assert not missing, f"set in .env.example (#760: no defaults): {missing}"
     stack = {"POSTGRES_PASSWORD", "NAUTOBOT_MAPS_DATABASE_URL", "CACHE_TYPE", "API_URL"}
     assert stack <= names
     assert not (API_ROOT / ".env.example").exists()
@@ -120,7 +114,12 @@ def test_env_example_parses_as_settings(monkeypatch):
     text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
     values = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", text, flags=re.MULTILINE))
     known = {name: value for name, value in values.items() if name in SETTING_NAMES}
-    assert load(monkeypatch, **known).CACHE_TYPE == "RedisCache"
+    # On its own (#760): no api/local.env under it.
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in known.items():
+        monkeypatch.setenv(name, value.strip("'"))
+    assert Settings(_env_file=None).CACHE_TYPE == "RedisCache"
     # The commented examples parse too.
     examples = dict(re.findall(r"^# ([A-Z][A-Z0-9_]*)=('\{.*\}')$", text, flags=re.MULTILINE))
     assert {"WIRELESS_CONTROLLERS", "CRITICALITY_RULES"} <= set(examples)
@@ -263,24 +262,41 @@ def test_only_the_settings_module_reads_the_environment():
     assert not readers, f"read settings through app.core.settings: {readers}"
 
 
-def test_empty_settings_mean_defaults(monkeypatch):
-    """compose passes unset variables as "": every setting takes its default
-    then, except those where empty is a value."""
-    defaults = load(monkeypatch)
-    empty = load(monkeypatch, **dict.fromkeys(SETTING_NAMES, ""))
-    for field in Settings.model_fields:
-        if field in settings.EMPTY_IS_A_VALUE:
-            assert not getattr(empty, field), field
-        elif field != "database_password":  # None vs "": the URL's own password
-            assert getattr(empty, field) == getattr(defaults, field), field
-    assert defaults.CACHE_TTL == 300 and defaults.INVENTORY_SYNC_INTERVAL_SECONDS == 300
+def test_every_setting_is_needed(monkeypatch):
+    """No defaults (#760): a missing setting stops startup, naming every one missing; a
+    number or yes/no needs a value; text may be empty."""
+    env = local_env()
+    del env["CACHE_TTL"], env["LIBRENMS_URL"]
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(RuntimeError, match=re.escape("missing in .env: CACHE_TTL, LIBRENMS_URL")):
+        Settings(_env_file=None)
+    with pytest.raises(RuntimeError, match="empty, but need a value: CACHE_TTL, METRICS_ENABLED"):
+        load(monkeypatch, CACHE_TTL=" ", METRICS_ENABLED="")
+    assert load(monkeypatch, LIBRENMS_URL="").LIBRENMS_URL == ""
 
 
-def test_empty_is_a_value_where_it_was_in_compose():
-    """These were passed with ${NAME-default} (#588): unset is the default, set empty
-    means none, now that .env passes them as written (#739)."""
-    for field in settings.EMPTY_IS_A_VALUE:
-        assert Settings.model_fields[field].default, field
+def test_the_removed_names_are_not_needed():
+    """Only read to refuse them: not in .env, not in REQUIRED."""
+    assert not set(settings.REQUIRED) & {*settings.REMOVED_FILE_SETTINGS, "NAUTOBOT_MAPS_DB"}
+    assert set(settings.REQUIRED) == set(SETTING_NAMES) - LEGACY_SETTINGS
+
+
+def test_local_env_lists_every_setting():
+    """api/local.env is the whole set, for the tests, run.py, CI and the demo (#760)."""
+    assert set(local_env()) == set(settings.REQUIRED)
+
+
+def test_a_database_url_is_needed(monkeypatch):
+    with pytest.raises(RuntimeError, match="Set NAUTOBOT_MAPS_DATABASE_URL"):
+        load(monkeypatch, NAUTOBOT_MAPS_DATABASE_URL="", DATABASE_URL="")
+
+
+def test_web_build_dir_is_relative_to_the_api(monkeypatch):
+    assert load(monkeypatch, WEB_BUILD_DIR="../web/x").WEB_BUILD_DIR == str(REPO_ROOT / "web" / "x")
+    assert load(monkeypatch, WEB_BUILD_DIR="").WEB_BUILD_DIR == ""
 
 
 # --- Values --------------------------------------------------------------------------------
@@ -332,11 +348,11 @@ def test_lists_and_sets(monkeypatch):
     assert defaults.ALERTMANAGER_DEVICE_LABELS == ["instance", "hostname", "host", "device"]
 
 
-def test_empty_exclusions_exclude_nothing(monkeypatch):
-    s = load(monkeypatch, ALERT_BOARD_EXCLUDED_LOCATION_TYPES="")
+def test_an_empty_list_is_empty(monkeypatch):
+    """Empty is none, for every list (#760: no default to fall back to)."""
+    s = load(monkeypatch, ALERT_BOARD_EXCLUDED_LOCATION_TYPES="", ACCESS_POINT_ROLES="")
     assert s.ALERT_BOARD_EXCLUDED_LOCATION_TYPES == frozenset()
-    # compose passes this one with ${NAME:-default}: empty is the default.
-    assert load(monkeypatch, ACCESS_POINT_ROLES="").ACCESS_POINT_ROLES == {"access point"}
+    assert s.ACCESS_POINT_ROLES == frozenset()
 
 
 def test_tiers_and_levels(monkeypatch, caplog):
@@ -440,8 +456,8 @@ def test_secrets_are_kept_as_given(monkeypatch):
     s = load(monkeypatch, DATABASE_PASSWORD="   ", SMTP_PASSWORD=" pw ", NAUTOBOT_TOKEN=" t ")
     assert (s.DATABASE_PASSWORD, s.SMTP_PASSWORD, s.NAUTOBOT_TOKEN) == ("   ", " pw ", " t ")
     assert load(monkeypatch, DATABASE_PASSWORD="").DATABASE_PASSWORD is None
-    # Other settings: whitespace is empty, the default.
-    assert load(monkeypatch, CACHE_TTL="  ").CACHE_TTL == 300
+    # Other settings: whitespace is empty.
+    assert load(monkeypatch, NAUTOBOT_API_VERSION="  ").NAUTOBOT_API_VERSION == ""
 
 
 def test_cors_origins_json_or_csv(monkeypatch):

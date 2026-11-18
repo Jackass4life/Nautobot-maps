@@ -76,7 +76,7 @@ RUN uv sync --locked --no-dev --no-install-project --python /usr/local/bin/pytho
 # too, explicitly (#517).
 RUN groupadd --gid 10001 app && useradd --create-home --uid 10001 --gid 10001 app
 
-COPY alembic.ini docker-entrypoint.sh gunicorn_config.py ./
+COPY alembic.ini docker-entrypoint.sh gunicorn_config.py local.env ./
 COPY alembic ./alembic
 COPY app ./app
 COPY --from=extras /out/repo/ /app/

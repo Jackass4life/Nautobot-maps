@@ -32,6 +32,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
    ```bash
    (cd api && uv sync --group e2e && uv run python -m playwright install chromium)
+   cp -n api/local.env api/.env                                 # every setting (#760); the exports below win
    uv run --project api python demo/mock_nautobot.py &         # :8080
    export NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x NAUTOBOT_MAPS_DATABASE_URL=postgresql://...
    (cd api && uv run python -m app migrate && FLASK_RUN_PORT=5055 uv run python run.py) &
@@ -49,7 +50,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `.env.example` to `api/.env` (with `localhost` for the database instead of `postgres`, and without the `CACHE_*` lines), then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `bun run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `api/local.env` to `api/.env` (every setting, #760: the API has no defaults; `localhost`, no Redis; set `NAUTOBOT_URL` and `NAUTOBOT_TOKEN` there), then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `bun run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 

@@ -4,10 +4,11 @@ Everything is a setting (#739): the wireless controllers and the criticality rul
 are JSON, a CA certificate is PEM text; no file is read.
 
 Every setting of the current app (nautobot_maps/settings.py) with the same
-name and the same parsing (#588): an empty value means the default (compose
-passes unset variables as ""), except where "" deliberately means "none"
-(EMPTY_IS_A_VALUE). Invalid values that stop the current app at startup stop
-this one too (RuntimeError); those it warns about fall back the same way.
+name and the same parsing (#588). No defaults (#760): every setting is in the
+environment or .env (api/local.env has them all, with the values the code used
+before), or the app won't start; empty means none, and a number or yes/no needs a
+value. Invalid values that stop the current app at startup stop this one too
+(RuntimeError); those it warns about fall back the same way.
 
 Each field is named exactly like its environment variable (#760): NAUTOBOT_URL is
 `settings.NAUTOBOT_URL`. One shared object, read once at import (#754): `from
@@ -39,6 +40,7 @@ Level = Literal["low", "medium", "critical"]
 IpNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 DEVICE_LEVELS = ("critical", "medium", "low")
+API_DIR = pathlib.Path(__file__).resolve().parents[2]
 ROLE_NAMES = ("viewer", "operator", "admin")
 
 # Wireless controllers (#508): kind -> (the settings each instance needs, those it may have).
@@ -61,24 +63,8 @@ REMOVED_FILE_SETTINGS = {
     "LDAP_CA_FILE": "EXTRA_CA_PEM (the certificate itself)",
 }
 
-DEFAULT_MAP_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-DEFAULT_MAP_TILE_ATTRIBUTION = (
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-)
-DEFAULT_GEOCODER_USER_AGENT = "nautobot-maps (+https://github.com/Jackass4life/Nautobot-maps)"
-
-# Settings whose empty value is a value, not "the default": the current
-# compose passes it with ${NAME-default}, so setting it empty is deliberate
-# (no excluded location types).
-EMPTY_IS_A_VALUE = {"ALERT_BOARD_EXCLUDED_LOCATION_TYPES"}
-# Used exactly as given, as the current app does: whitespace is part of a secret.
-VERBATIM = {
-    "DATABASE_PASSWORD",
-    "SMTP_PASSWORD",
-    "NAUTOBOT_TOKEN",
-    "LDAP_BIND_PASSWORD",
-    "JWT_SIGNING_SECRET",
-}
+# The types whose empty value isn't one (#760): a number or yes/no needs a value.
+NEEDS_A_VALUE = (int, float, bool)
 
 
 # --- Parsing, as nautobot_maps/settings.py does it ------------------------------------------
@@ -160,12 +146,9 @@ def _networks(name: str, value: str) -> tuple[IpNetwork, ...]:
     return tuple(networks)
 
 
-def _flag(value: str, default: bool) -> bool:
-    """Off only for "0", "false" or "no"; empty: the default."""
-    value = value.strip().lower()
-    if not value:
-        return default
-    return value not in ("0", "false", "no")
+def _flag(value: str) -> bool:
+    """Off only for "0", "false" or "no"."""
+    return value.strip().lower() not in ("0", "false", "no")
 
 
 def _http_url(value: object, where: str, setting: str) -> str:
@@ -423,6 +406,12 @@ def _lower(value: str) -> str:
     return value.strip().lower()
 
 
+def _build_dir(value: str) -> str:
+    """Empty: no pages here (the web container serves them); a relative path is from api/."""
+    value = value.strip()
+    return str((API_DIR / value).resolve()) if value else ""
+
+
 def _csv_set(value: str) -> frozenset[str]:
     return frozenset(parse_csv_set(value))
 
@@ -451,212 +440,208 @@ class Settings(BaseSettings):
     # --- The new stack's own -----------------------------------------------------------------
     # Optional: the password on its own, as is (no URL encoding). It replaces the one in
     # the database URL, so a password with "@", ":" or "%" needs no escaping (#577).
-    DATABASE_PASSWORD: str | None = None
+    DATABASE_PASSWORD: str | None
     # Other sites' pages allowed to call the API (a JSON list or comma-separated); the
-    # app's own pages share its origin (#594), so none by default.
-    CORS_ORIGINS: list[str] = []
-    # web/'s built pages (`bun run generate`, #594); the image sets it.
-    WEB_BUILD_DIR: str = str(
-        pathlib.Path(__file__).resolve().parents[3] / "web" / ".output" / "public"
-    )
-    SQL_ECHO: bool = False
+    # app's own pages share its origin (#594), so usually none.
+    CORS_ORIGINS: list[str]
+    # web/'s built pages (`bun run generate`, #594), relative to api/; empty: none here,
+    # the web container serves them (#674).
+    WEB_BUILD_DIR: str
+    SQL_ECHO: bool
 
     # --- Development server (the names are Flask's, kept for existing .env files) ----------
-    FLASK_DEBUG: bool = False
-    FLASK_RUN_PORT: str = ""
+    FLASK_DEBUG: bool
+    FLASK_RUN_PORT: str
 
     # --- Logging (#193) ----------------------------------------------------------------------
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "text"
+    LOG_LEVEL: str
+    LOG_FORMAT: str
 
     # --- Nautobot ----------------------------------------------------------------------------
-    NAUTOBOT_URL: str = ""
-    NAUTOBOT_TOKEN: str = ""
-    NAUTOBOT_API_VERSION: str = ""
-    NAUTOBOT_VERIFY_SSL: bool = True
+    NAUTOBOT_URL: str
+    NAUTOBOT_TOKEN: str
+    NAUTOBOT_API_VERSION: str
+    NAUTOBOT_VERIFY_SSL: bool
     # A company CA (#739): PEM text, trusted with the system's CAs by Nautobot, LibreNMS
     # and the wireless controllers' connections, and alone by LDAP's.
-    EXTRA_CA_PEM: str = ""
+    EXTRA_CA_PEM: str
 
     # --- Caching and sync intervals ------------------------------------------------------------
-    CACHE_TTL: int = 300
-    CACHE_TYPE: str = "SimpleCache"
-    CACHE_REDIS_URL: str = ""
-    # Default: CACHE_TTL.
-    INVENTORY_SYNC_INTERVAL_SECONDS: int | None = None
-    LIBRENMS_SYNC_INTERVAL_SECONDS: int | None = None
+    CACHE_TTL: int
+    CACHE_TYPE: str
+    CACHE_REDIS_URL: str
+    # Empty: CACHE_TTL.
+    INVENTORY_SYNC_INTERVAL_SECONDS: int | None
+    LIBRENMS_SYNC_INTERVAL_SECONDS: int | None
     # Background scheduler (#154): sync and record history with nobody viewing the board.
-    BACKGROUND_SYNC_ENABLED: bool = True
+    BACKGROUND_SYNC_ENABLED: bool
 
     # --- LibreNMS (optional) -------------------------------------------------------------------
-    LIBRENMS_URL: str = ""
-    LIBRENMS_API_TOKEN: str = ""
-    LIBRENMS_VERIFY_SSL: bool = True
+    LIBRENMS_URL: str
+    LIBRENMS_API_TOKEN: str
+    LIBRENMS_VERIFY_SSL: bool
 
     # --- Wireless controllers (#508) -----------------------------------------------------------
     # JSON (#739): {"catalyst_center": [...], "aruba_central": [...]}.
-    WIRELESS_CONTROLLERS: tuple[dict, ...] = ()
-    WIRELESS_SYNC_INTERVAL_SECONDS: int = 300
+    WIRELESS_CONTROLLERS: tuple[dict, ...]
+    WIRELESS_SYNC_INTERVAL_SECONDS: int
 
     # --- History, metrics ----------------------------------------------------------------------
     # Delete resolved alerts older than this many days, once a day (#194); 0 keeps everything.
-    ALERT_HISTORY_RETENTION_DAYS: int = 730
-    METRICS_ENABLED: bool = True
+    ALERT_HISTORY_RETENTION_DAYS: int
+    METRICS_ENABLED: bool
 
     # --- Notifications (#282) ------------------------------------------------------------------
-    NOTIFY_MIN_LEVEL: str = "critical"
-    NOTIFY_TENANTS: frozenset[str] = frozenset()
-    NOTIFY_BOARD_URL: str = ""
-    NOTIFY_SUMMARY_THRESHOLD: int = 5
-    NOTIFY_WEBHOOK_URL: str = ""
-    NOTIFY_WEBHOOK_SECRET: str = ""
-    NOTIFY_TEAMS_WEBHOOK_URL: str = ""
-    NOTIFY_EMAIL_TO: list[str] = []
-    SMTP_HOST: str = ""
-    SMTP_PORT: int = 587
-    SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_FROM: str = ""
-    SMTP_STARTTLS: bool = True
+    NOTIFY_MIN_LEVEL: str
+    NOTIFY_TENANTS: frozenset[str]
+    NOTIFY_BOARD_URL: str
+    NOTIFY_SUMMARY_THRESHOLD: int
+    NOTIFY_WEBHOOK_URL: str
+    NOTIFY_WEBHOOK_SECRET: str
+    NOTIFY_TEAMS_WEBHOOK_URL: str
+    NOTIFY_EMAIL_TO: list[str]
+    SMTP_HOST: str
+    SMTP_PORT: int
+    SMTP_USERNAME: str
+    SMTP_PASSWORD: str
+    SMTP_FROM: str
+    SMTP_STARTTLS: bool
 
     # --- MCP (#250) ----------------------------------------------------------------------------
-    MCP_ENABLED: bool = False
-    MCP_ALLOWED_ORIGINS: list[str] = []
+    MCP_ENABLED: bool
+    MCP_ALLOWED_ORIGINS: list[str]
 
     # --- Map tiles and address search (#197) ---------------------------------------------------
-    MAP_TILE_URL: str = DEFAULT_MAP_TILE_URL
-    MAP_TILE_ATTRIBUTION: str = DEFAULT_MAP_TILE_ATTRIBUTION
+    MAP_TILE_URL: str
+    MAP_TILE_ATTRIBUTION: str
     # A fixed first view (lat, lon, zoom); None: fit the map to the sites (#362).
-    MAP_DEFAULT_VIEW: tuple[float, float, int] | None = None
-    GEOCODER_ENABLED: bool = True
-    GEOCODER_URL: str = "https://nominatim.openstreetmap.org"
-    GEOCODER_USER_AGENT: str = DEFAULT_GEOCODER_USER_AGENT
+    MAP_DEFAULT_VIEW: tuple[float, float, int] | None
+    GEOCODER_ENABLED: bool
+    GEOCODER_URL: str
+    GEOCODER_USER_AGENT: str
 
     # --- Persistence ---------------------------------------------------------------------------
     # The current app's name; when set (not empty) it wins over DATABASE_URL, the new
     # stack's. Two fields, not aliases: an empty first one must not hide the second.
-    NAUTOBOT_MAPS_DATABASE_URL: str = ""
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
-    DB_CONNECT_TIMEOUT_SECONDS: int = 5
-    DB_STATEMENT_TIMEOUT_SECONDS: int = 60
-    # Removed in #153 (SQLite); only read to warn when it is still set.
-    NAUTOBOT_MAPS_DB: str = ""
+    NAUTOBOT_MAPS_DATABASE_URL: str
+    DATABASE_URL: str
+    DB_CONNECT_TIMEOUT_SECONDS: int
+    DB_STATEMENT_TIMEOUT_SECONDS: int
 
     # --- Authentication (#582) -----------------------------------------------------------------
     # disabled: no sign-in, everyone may do everything (development only).
     # header: a trusted sign-in proxy (oauth2-proxy) sets the user and group headers.
-    AUTH_MODE: Literal["disabled", "header"] = "disabled"
-    AUTH_HEADER_USER: str = "X-Forwarded-User"
-    AUTH_HEADER_GROUPS: str = "X-Forwarded-Groups"
+    AUTH_MODE: Literal["disabled", "header"]
+    AUTH_HEADER_USER: str
+    AUTH_HEADER_GROUPS: str
     # Role for a signed-in user in none of the groups; empty (or not a role): no role.
-    AUTH_DEFAULT_ROLE: Role | Literal[""] = ""
+    AUTH_DEFAULT_ROLE: Role | Literal[""]
     # Group names (CSV, case-insensitive) that give each role; the first of admin,
     # operator (NWO), noc, customer, viewer wins (#691): one role, never merged.
-    AUTH_VIEWER_GROUPS: frozenset[str] = frozenset()
-    AUTH_OPERATOR_GROUPS: frozenset[str] = frozenset()
-    AUTH_ADMIN_GROUPS: frozenset[str] = frozenset()
-    AUTH_NOC_GROUPS: frozenset[str] = frozenset()
+    AUTH_VIEWER_GROUPS: frozenset[str]
+    AUTH_OPERATOR_GROUPS: frozenset[str]
+    AUTH_ADMIN_GROUPS: frozenset[str]
+    AUTH_NOC_GROUPS: frozenset[str]
     # The NOC role was DOV until 0.5.1 (#703): read when AUTH_NOC_GROUPS is empty.
-    AUTH_DOV_GROUPS: frozenset[str] = frozenset()
-    AUTH_CUSTOMER_GROUPS: frozenset[str] = frozenset()
+    AUTH_DOV_GROUPS: frozenset[str]
+    AUTH_CUSTOMER_GROUPS: frozenset[str]
     # Reads need at least the viewer role too (otherwise reads are public).
-    AUTH_REQUIRE_VIEWER: bool = False
+    AUTH_REQUIRE_VIEWER: bool
     # Someone signed in without an identity (#715): a role from AUTH_*_GROUPS as before
     # (true), or no access (false: set it once everyone has an identity).
-    AUTH_GROUP_ROLES: bool = True
+    AUTH_GROUP_ROLES: bool
     # Identity headers count only from these peer addresses (CSV of CIDRs) and, when
     # AUTH_PROXY_SECRET is set, only with it in X-Auth-Proxy-Secret.
-    AUTH_TRUSTED_PROXIES: tuple[IpNetwork, ...] = (
-        ipaddress.ip_network("127.0.0.1/32"),
-        ipaddress.ip_network("::1/128"),
-    )
-    AUTH_PROXY_SECRET: str = ""
+    AUTH_TRUSTED_PROXIES: tuple[IpNetwork, ...]
+    AUTH_PROXY_SECRET: str
     # Where Sign out goes (#546): a path on this site or an http(s):// address.
-    AUTH_SIGN_OUT_URL: str = ""
+    AUTH_SIGN_OUT_URL: str
     # --- Sign-in with AD (#717): off until LDAP_URL is set --------------------------------
     # ldaps://dc1.example.local[:636]; ldap:// only with LDAP_ALLOW_PLAINTEXT (tests).
-    LDAP_URL: str = ""
-    LDAP_BASE_DN: str = ""
+    LDAP_URL: str
+    LDAP_BASE_DN: str
     # The read-only service account that finds a user before their own bind.
-    LDAP_BIND_DN: str = ""
-    LDAP_BIND_PASSWORD: str = ""
-    LDAP_USER_ATTRIBUTE: str = "sAMAccountName"
+    LDAP_BIND_DN: str
+    LDAP_BIND_PASSWORD: str
+    LDAP_USER_ATTRIBUTE: str
     # The CA that signed the domain controller's certificate: EXTRA_CA_PEM (#739), else
     # the system's.
-    LDAP_ALLOW_PLAINTEXT: bool = False
-    LDAP_TIMEOUT_SECONDS: int = 10
+    LDAP_ALLOW_PLAINTEXT: bool
+    LDAP_TIMEOUT_SECONDS: int
     # Signs the app's own sign-in tokens: required with LDAP_URL, at least 32 characters.
-    JWT_SIGNING_SECRET: str = ""
-    JWT_LIFETIME_SECONDS: int = 28800
-    JWT_ISSUER: str = "nautobot-maps"
-    JWT_AUDIENCE: str = "nautobot-maps"
+    JWT_SIGNING_SECRET: str
+    JWT_LIFETIME_SECONDS: int
+    JWT_ISSUER: str
+    JWT_AUDIENCE: str
 
     # AUTH_MODE=disabled: allow changing criticality overrides without signing in (#188).
-    ALLOW_UNAUTHENTICATED_WRITES: bool = False
+    ALLOW_UNAUTHENTICATED_WRITES: bool
 
     # --- Criticality ---------------------------------------------------------------------------
-    CRITICAL_ROLE_KEYWORDS: str = ""
+    CRITICAL_ROLE_KEYWORDS: str
     # JSON (#739): critical role keywords per location type.
-    CRITICALITY_RULES: dict[str, list[str]] = {}
+    CRITICALITY_RULES: dict[str, list[str]]
 
-    # --- Removed (#739): set, they stop startup and say what replaced them -----------------
+    # --- Alert board ---------------------------------------------------------------------------
+    ALERT_BOARD_EXCLUDED_LOCATION_TYPES: frozenset[str]
+    ALERT_BOARD_EXCLUDED_LOCATION_STATUSES: frozenset[str]
+    ALERT_BOARD_EXCLUDED_LOCATION_TAGS: frozenset[str]
+    ALERT_BOARD_EXCLUDED_LOCATION_NAMES: frozenset[str]
+    ALERT_BOARD_EXCLUDED_DEVICE_STATUSES: frozenset[str]
+    # Down this long before a device alarms (#286); 0: at once.
+    ALERT_DELAY_SECONDS: int
+    # Up/down this many times within 30 minutes: flapping (#286); 0: off.
+    FLAP_CHANGES: int
+    # Alertmanager (#292): labels naming the device (the first present wins), alert names.
+    ALERTMANAGER_DEVICE_LABELS: list[str]
+    ALERTMANAGER_ALERTNAMES: frozenset[str]
+    # A firing webhook alert not refreshed for this long stops counting.
+    WEBHOOK_ALERT_TTL_HOURS: int
+    # Severity thresholds (#293), in percent of a site's monitored devices down.
+    ALERT_MEDIUM_PERCENT: int
+    # Clamped to above ALERT_MEDIUM_PERCENT, at most 100.
+    ALERT_CRITICAL_PERCENT: int
+    # Site importance (#293): a Nautobot custom field and its values, most important first.
+    SITE_TIER_FIELD: str
+    SITE_TIERS: list[str]
+    TENANT_SCOPE_FIELD: str
+    # Name the customer's own devices on their status page (#555).
+    STATUS_PAGE_TENANT_DEVICES: bool
+    # The location type whose locations are countries (#386).
+    COUNTRY_LOCATION_TYPE: str
+    # A device's level when down (#377): a custom field, and a default per site tier.
+    DEVICE_CRITICALITY_FIELD: str
+    TIER_DEVICE_LEVEL: dict[str, str]
+    # A site with only access points down (#521): this level, never notified.
+    WIRELESS_AP_LEVEL: str
+    NOTIFY_MIN_LEVEL_BY_TIER: dict[str, str]
+    # A case number's ticket in the ITSM system (#289), with {case}.
+    CASE_URL_TEMPLATE: str
+    # gzip large text answers (#349); off where a proxy in front compresses.
+    COMPRESS_RESPONSES: bool
+
+    # --- Availability --------------------------------------------------------------------------
+    AVAILABILITY_BASIS: Literal["any_down", "critical"]
+    # The availability target in percent (#525): below it is shown in red.
+    AVAILABILITY_TARGET_PCT: float
+    # Location type whose locations are the board's rows (#158); empty: one row per location.
+    ALERT_BOARD_SITE_LOCATION_TYPE: str
+    # Nautobot Relationships that link a location to more tenants (#238); empty: all.
+    SITE_TENANT_RELATIONSHIPS: frozenset[str]
+    # Device roles that are access points (#499), case-folded.
+    ACCESS_POINT_ROLES: frozenset[str]
+
+    # --- Not settings: names only read to refuse them, so not needed in .env --------------
+    # Removed in #739: set, they stop startup and say what replaced them.
     WIRELESS_CONTROLLERS_FILE: str = ""
     CRITICALITY_RULES_FILE: str = ""
     LDAP_CA_FILE: str = ""
-
-    # --- Alert board ---------------------------------------------------------------------------
-    ALERT_BOARD_EXCLUDED_LOCATION_TYPES: frozenset[str] = frozenset({"graveyard", "warehouse"})
-    ALERT_BOARD_EXCLUDED_LOCATION_STATUSES: frozenset[str] = frozenset()
-    ALERT_BOARD_EXCLUDED_LOCATION_TAGS: frozenset[str] = frozenset()
-    ALERT_BOARD_EXCLUDED_LOCATION_NAMES: frozenset[str] = frozenset()
-    ALERT_BOARD_EXCLUDED_DEVICE_STATUSES: frozenset[str] = frozenset()
-    # Down this long before a device alarms (#286); 0: at once.
-    ALERT_DELAY_SECONDS: int = 0
-    # Up/down this many times within 30 minutes: flapping (#286); 0: off.
-    FLAP_CHANGES: int = 4
-    # Alertmanager (#292): labels naming the device (the first present wins), alert names.
-    ALERTMANAGER_DEVICE_LABELS: list[str] = ["instance", "hostname", "host", "device"]
-    ALERTMANAGER_ALERTNAMES: frozenset[str] = frozenset()
-    # A firing webhook alert not refreshed for this long stops counting.
-    WEBHOOK_ALERT_TTL_HOURS: int = 24
-    # Severity thresholds (#293), in percent of a site's monitored devices down.
-    ALERT_MEDIUM_PERCENT: int = 25
-    # Clamped to above ALERT_MEDIUM_PERCENT, at most 100.
-    ALERT_CRITICAL_PERCENT: int = 100
-    # Site importance (#293): a Nautobot custom field and its values, most important first.
-    SITE_TIER_FIELD: str = ""
-    SITE_TIERS: list[str] = ["gold", "silver", "bronze"]
-    TENANT_SCOPE_FIELD: str = ""
-    # Name the customer's own devices on their status page (#555).
-    STATUS_PAGE_TENANT_DEVICES: bool = False
-    # The location type whose locations are countries (#386).
-    COUNTRY_LOCATION_TYPE: str = "Country"
-    # A device's level when down (#377): a custom field, and a default per site tier.
-    DEVICE_CRITICALITY_FIELD: str = ""
-    TIER_DEVICE_LEVEL: dict[str, str] = {}
-    # A site with only access points down (#521): this level, never notified.
-    WIRELESS_AP_LEVEL: str = "low"
-    NOTIFY_MIN_LEVEL_BY_TIER: dict[str, str] = {}
-    # A case number's ticket in the ITSM system (#289), with {case}.
-    CASE_URL_TEMPLATE: str = ""
-    # gzip large text answers (#349); off where a proxy in front compresses.
-    COMPRESS_RESPONSES: bool = True
-
-    # --- Availability --------------------------------------------------------------------------
-    AVAILABILITY_BASIS: Literal["any_down", "critical"] = "any_down"
-    # The availability target in percent (#525): below it is shown in red.
-    AVAILABILITY_TARGET_PCT: float = 99.9
-    # Location type whose locations are the board's rows (#158); empty: one row per location.
-    ALERT_BOARD_SITE_LOCATION_TYPE: str = ""
-    # Nautobot Relationships that link a location to more tenants (#238); empty: all.
-    SITE_TENANT_RELATIONSHIPS: frozenset[str] = frozenset()
-    # Device roles that are access points (#499), case-folded.
-    ACCESS_POINT_ROLES: frozenset[str] = frozenset({"access point"})
+    # Removed in #153 (SQLite); only read to warn when it is still set.
+    NAUTOBOT_MAPS_DB: str = ""
 
     # --- How the environment's text is read ----------------------------------------------------
     _strip = _parse(
         str.strip,
-        "WEB_BUILD_DIR",
         "NAUTOBOT_API_VERSION",
         "CACHE_TTL",
         "INVENTORY_SYNC_INTERVAL_SECONDS",
@@ -696,6 +681,7 @@ class Settings(BaseSettings):
         "COUNTRY_LOCATION_TYPE",
         "DEVICE_CRITICALITY_FIELD",
     )
+    _web_build_dir = _parse(_build_dir, "WEB_BUILD_DIR")
     _urls = _parse(_url, "LIBRENMS_URL", "NOTIFY_BOARD_URL", "GEOCODER_URL")
     _lowered = _parse(
         _lower,
@@ -760,12 +746,15 @@ class Settings(BaseSettings):
         lambda v: frozenset(role.casefold() for role in parse_csv_set(v)), "ACCESS_POINT_ROLES"
     )
 
-    @field_validator(*FLAGS, mode="before")
-    @classmethod
-    def _flags(cls, value: Any, info: ValidationInfo) -> Any:
-        if not isinstance(value, str):
-            return value
-        return _flag(value, cls.model_fields[info.field_name].default)
+    _flags = _parse(_flag, *FLAGS)
+    # Empty: none. The password as given otherwise ("   " is one); the URL's own then.
+    _password = _parse(lambda v: v or None, "DATABASE_PASSWORD")
+    # Empty: CACHE_TTL.
+    _intervals = _parse(
+        lambda v: v.strip() or None,
+        "INVENTORY_SYNC_INTERVAL_SECONDS",
+        "LIBRENMS_SYNC_INTERVAL_SECONDS",
+    )
 
     @field_validator("NAUTOBOT_VERIFY_SSL", "LIBRENMS_VERIFY_SSL", mode="before")
     @classmethod
@@ -774,17 +763,31 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def _empty_means_default(cls, data: Any) -> Any:
-        """docker-compose passes unset variables as "": take the default."""
-        if isinstance(data, dict):
-            return {
-                key: value
-                for key, value in data.items()
-                if not isinstance(value, str)
-                or key.upper() in EMPTY_IS_A_VALUE
-                # Secrets as given: "   " is a password; only "" means none.
-                or (value != "" if key.upper() in VERBATIM else value.strip() != "")
-            }
+    def _every_setting_given(cls, data: Any) -> Any:
+        """No defaults (#760): every setting is in the environment or .env, a number or
+        yes/no with a value. One error naming them all, not one per field."""
+        if not isinstance(data, dict):
+            return data
+        given = {str(key).upper(): value for key, value in data.items()}
+        missing = [name for name in REQUIRED if name not in given]
+        empty = [
+            name
+            for name in REQUIRED
+            if isinstance(given.get(name), str)
+            and not given[name].strip()
+            and cls.model_fields[name].annotation in NEEDS_A_VALUE
+        ]
+        problems = []
+        if missing:
+            problems.append(f"missing in .env: {', '.join(missing)}")
+        if empty:
+            problems.append(f"empty, but need a value: {', '.join(empty)}")
+        if problems:
+            raise RuntimeError(
+                f"Settings {'; '.join(problems)}. Every setting is in .env (#760): "
+                "python -m app.check_env --fill .env >> .env adds the missing ones, with the "
+                "values the code used before"
+            )
         return data
 
     @field_validator("LOG_LEVEL")
@@ -826,6 +829,8 @@ class Settings(BaseSettings):
     def _derived(self) -> "Settings":
         if self.NAUTOBOT_MAPS_DATABASE_URL:
             self.DATABASE_URL = self.NAUTOBOT_MAPS_DATABASE_URL
+        if not self.DATABASE_URL:
+            raise RuntimeError("Set NAUTOBOT_MAPS_DATABASE_URL (or DATABASE_URL): the database")
         if self.INVENTORY_SYNC_INTERVAL_SECONDS is None:
             self.INVENTORY_SYNC_INTERVAL_SECONDS = self.CACHE_TTL
         if self.LIBRENMS_SYNC_INTERVAL_SECONDS is None:
@@ -872,6 +877,11 @@ def _check_ad_login(settings: "Settings") -> None:
         )
     if not settings.LDAP_BASE_DN:
         raise RuntimeError("LDAP_URL is set: LDAP_BASE_DN is needed too")
+
+
+# Every setting the API needs in its environment or .env (#760): all but the names only
+# read to refuse them.
+REQUIRED = tuple(name for name, info in Settings.model_fields.items() if info.is_required())
 
 
 def env_name(field: str) -> str:

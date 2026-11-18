@@ -94,8 +94,8 @@ On Availability, click *Tidal Ports* for its status page: 3 of its 75 sites
 affected, with how many network devices and access points are down at each,
 and the other 72 folded into one line.
 
-Set `MOCK_SCALE=1200` in `demo/demo.env` (every demo container reads that file,
-#739), then:
+Set `MOCK_SCALE=1200` in `demo/demo.env` (every demo container reads that file, #739;
+the API reads `api/local.env` first, for every setting, #760), then:
 
 ```bash
 docker compose -f demo/docker-compose.yml up --build

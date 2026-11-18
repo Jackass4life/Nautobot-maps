@@ -7,7 +7,7 @@ PostgreSQL. It serves `web/`'s built pages; the only thing it shares with `web/`
 ## Commands (run from `api/`)
 
 ```bash
-cp ../.env.example .env               # localhost for the database, not postgres (#739)
+cp local.env .env                     # every setting, for this machine (#760: no defaults)
 uv sync
 uv run alembic upgrade head           # apply migrations
 uv run python run.py                       # http://127.0.0.1:5000 (FLASK_RUN_PORT), docs at /api/docs; FLASK_DEBUG=true reloads
@@ -25,7 +25,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `api.py` | App, middleware, routers under `/api/v1`, spec at `/api/openapi.json` (`app.api:app`) |
 | `lifespan.py` | Startup and shutdown: response cache, Nautobot's SSL warnings, the background scheduler |
 | `__main__.py` | The command line, `python -m app …` (below) |
-| `check_env.py` | `python -m app.check_env [FILE]`: what in a `.env` nothing reads, is invalid, is set twice or is the default (#758) |
+| `check_env.py` | `python -m app.check_env [FILE]`: what a `.env` is missing (#760), what in it nothing reads, is invalid or is set twice (#758); `--fill` prints the missing lines |
 | `migrate.py` | `python -m app migrate`: adopts a schema-33 database, upgrades to head |
 | `startup.py` | The startup log: what the board leaves out, settings that would quietly break something |
 | `server.py` | uvicorn's options (no proxy headers, no server header) for `run.py` and gunicorn |
@@ -65,15 +65,16 @@ response status is < 400, otherwise rolls back, and always closes it. Routes tak
 
 Every setting is described in
 [docs/configuration.md](../docs/configuration.md). Read with `settings.NAME`
-(`from app.core.settings import settings`: the only module that reads the environment, once); an empty value means
-the default. Only the new stack's own:
+(`from app.core.settings import settings`: the only module that reads the environment, once).
+There are no defaults (#760): every setting is in `.env`, and `local.env` has them all with the
+values the code used before. Only the new stack's own:
 
-| Setting | Default | Meaning |
+| Setting | In `local.env` | Meaning |
 |---|---|---|
 | `NAUTOBOT_MAPS_DATABASE_URL` / `DATABASE_URL` | local `app` database | PostgreSQL URL; the first wins. `postgres://`, `postgresql://` and `postgresql+psycopg://` URLs get the asyncpg driver. |
 | `DATABASE_PASSWORD` | — | The password on its own, no URL encoding; replaces the URL's. |
 | `CORS_ORIGINS` | — | Other sites' pages that may call the API (JSON list or comma-separated); the app's own pages share its origin. |
-| `WEB_BUILD_DIR` | `../web/.output/public` | `web/`'s built pages; the image sets it. |
+| `WEB_BUILD_DIR` | `../web/.output/public` | `web/`'s built pages, relative to `api/`; empty: none (the web container serves them). |
 | `SQL_ECHO` | `false` | Log every SQL statement (development). |
 
 ## Database (#590)

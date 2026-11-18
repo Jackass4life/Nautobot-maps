@@ -47,9 +47,9 @@ def test_only_this_schema(pg_database):
     assert not any(name.startswith("pg_") for name in tables)
 
 
-@pytest.mark.parametrize(("value", "days"), [("", 730), ("  ", 730), ("0", 0), ("365", 365)])
-def test_retention_defaults_to_two_years(value, days):
-    """Unset or empty keeps two years; 0 still keeps everything (#298).
+@pytest.mark.parametrize(("value", "days"), [("730", 730), ("0", 0), ("365", 365)])
+def test_retention_setting(value, days):
+    """Two years in .env.example; 0 keeps everything (#298).
 
     Read in a fresh process: reloading the settings module here would reset
     settings that other tests rely on.

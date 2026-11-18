@@ -98,7 +98,8 @@ services:
       context: ../api
       additional_contexts:
         docs: ..
-    env_file: maps.env
+    # Every setting (#760: no defaults), then the stack's own.
+    env_file: [../api/local.env, maps.env]
     depends_on:
       nautobot:
         condition: service_healthy
