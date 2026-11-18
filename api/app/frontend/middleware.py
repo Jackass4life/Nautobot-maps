@@ -21,7 +21,7 @@ class FinishMiddleware:
             return
         request_headers = Headers(scope=scope)
         may_gzip = (
-            settings.compress_responses
+            settings.COMPRESS_RESPONSES
             and scope["method"] == "GET"
             and compression.accepts_gzip(request_headers.get("accept-encoding", ""))
         )
@@ -35,7 +35,7 @@ class FinishMiddleware:
                     if name not in headers:
                         headers[name] = value
                 mimetype = (headers.get("content-type") or "").split(";")[0].strip().lower()
-                if not settings.compress_responses or not compression.compressible(mimetype):
+                if not settings.COMPRESS_RESPONSES or not compression.compressible(mimetype):
                     await send(message)
                     return
                 vary = [part.strip() for part in headers.get("vary", "").split(",") if part.strip()]

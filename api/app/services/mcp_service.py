@@ -681,7 +681,7 @@ def _origin_allowed() -> bool:
     origin = request.headers.get("Origin")
     if origin is None:
         return True
-    allowed = {_normalize_origin(item) for item in settings.mcp_allowed_origins}
+    allowed = {_normalize_origin(item) for item in settings.MCP_ALLOWED_ORIGINS}
     normalized = _normalize_origin(origin)
     return bool(normalized) and normalized in allowed
 

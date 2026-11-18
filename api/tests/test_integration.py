@@ -63,7 +63,7 @@ def integration_client(mock_nautobot_server):
     # Every call goes to the mock server, until the module's tests are done.
     caching.cache.clear()
     with (
-        overridden(nautobot_url=mock_nautobot_server, nautobot_token="demo-token"),
+        overridden(NAUTOBOT_URL=mock_nautobot_server, NAUTOBOT_TOKEN="demo-token"),
         http_client.FlaskStyleClient() as flask_client,
     ):
         yield flask_client
@@ -383,7 +383,7 @@ class TestEndToEndScenario:
 @pytest.fixture
 def persisted_integration_client(integration_client, pg_database, override_settings):
     """Integration flask_client with PostgreSQL persistence and a synced inventory snapshot."""
-    override_settings(librenms_url="", librenms_api_token="")
+    override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
     assert asyncio.run(inventory.ensure_snapshot(force=True, wait=True))
     return integration_client
 
@@ -419,7 +419,7 @@ class TestAlertBoardWithPersistence:
 
     def test_site_rollup_through_a_real_sync(self, persisted_integration_client, override_settings):
         """Parents come from the Nautobot API, are cached, and the board rolls up to Sites (#158)."""
-        override_settings(alert_board_site_location_type="site")
+        override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site")
         caching.cache.clear()
         alerts = self._alerts_by_site(persisted_integration_client)
         for hidden in ("loc-emea", "loc-dnk", "loc-aar-bld-a", "loc-aar-bld-a-f2"):
@@ -487,7 +487,7 @@ class TestAlertBoardWithPersistence:
             status_code = 202
 
         override_settings(
-            notify_webhook_url="https://hooks.example.com/x", notify_min_level="medium"
+            NOTIFY_WEBHOOK_URL="https://hooks.example.com/x", NOTIFY_MIN_LEVEL="medium"
         )
         monkeypatch.setattr(
             notify, "_post", lambda url, content=None, **kw: posts.append(content) or Accepted()
@@ -529,7 +529,7 @@ class TestAlertBoardColdStart:
     ):
         import time
 
-        override_settings(librenms_url="", librenms_api_token="")
+        override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
 
         # Fresh database, and /alerts is the first page anyone opens.
         first = integration_client.get("/api/v1/alerts").get_json()

@@ -18,7 +18,7 @@ STATUS_API_PREFIX = auth_service.STATUS_API_PREFIX
 
 
 def is_config_valid() -> bool:
-    return settings.auth_mode in SUPPORTED_MODES
+    return settings.AUTH_MODE in SUPPORTED_MODES
 
 
 def _user() -> CurrentUser:

@@ -7,9 +7,9 @@ from app.core.settings import Settings
 @pytest.mark.parametrize("password", ["plain", "p@ss:w/rd", "100%40", "a%b c#?"])
 def test_database_password_needs_no_escaping(password):
     settings = Settings(
-        database_url="postgresql://app@db:5432/app",
-        nautobot_maps_database_url="",  # the tests' own is in the environment
-        database_password=password,
+        DATABASE_URL="postgresql://app@db:5432/app",
+        NAUTOBOT_MAPS_DATABASE_URL="",  # the tests' own is in the environment
+        DATABASE_PASSWORD=password,
     )
     url = settings.sqlalchemy_url()
     assert (url.password, url.host, url.database) == (password, "db", "app")
@@ -18,5 +18,5 @@ def test_database_password_needs_no_escaping(password):
 
 
 def test_without_database_password_the_url_is_used_as_is():
-    settings = Settings(database_url="postgresql://u:p%40x@db/app", nautobot_maps_database_url="")
+    settings = Settings(DATABASE_URL="postgresql://u:p%40x@db/app", NAUTOBOT_MAPS_DATABASE_URL="")
     assert settings.sqlalchemy_url().password == "p@x"

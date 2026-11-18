@@ -86,7 +86,7 @@ def address_country(physical_address: str) -> str:
 def hierarchy_country(location_id: str, tree: dict[str, dict]) -> str:
     """The name of the nearest location of type COUNTRY_LOCATION_TYPE at or
     above *location_id* (#386); *tree* is ``location_tree``'s."""
-    country_type = settings.country_location_type.strip().lower()
+    country_type = settings.COUNTRY_LOCATION_TYPE.strip().lower()
     return next(
         (
             node["name"]
@@ -249,7 +249,7 @@ def normalize_locations(
     if invalid_tenant_scopes:
         logger.warning(
             "Invalid {} custom field on {} locations; tenant status will use all monitored devices there",
-            settings.tenant_scope_field,
+            settings.TENANT_SCOPE_FIELD,
             invalid_tenant_scopes,
         )
     return locations
@@ -270,10 +270,10 @@ def custom_field_value(obj: dict, field: str) -> str:
 
 def location_tenant_scopes(location: dict) -> tuple[dict, bool]:
     """A Location's tenant -> roles mapping, case-folded; malformed values disable the scope."""
-    if not settings.tenant_scope_field:
+    if not settings.TENANT_SCOPE_FIELD:
         return {}, False
     fields = location.get("custom_fields")
-    raw = fields.get(settings.tenant_scope_field) if isinstance(fields, dict) else None
+    raw = fields.get(settings.TENANT_SCOPE_FIELD) if isinstance(fields, dict) else None
     if raw is None or raw == "":
         return {}, False
     if isinstance(raw, str):
@@ -298,12 +298,12 @@ def location_tenant_scopes(location: dict) -> tuple[dict, bool]:
 
 def location_tier(location: dict) -> str:
     """The location's value of the SITE_TIER_FIELD custom field, lowercased, or "" (#293)."""
-    return custom_field_value(location, settings.site_tier_field)
+    return custom_field_value(location, settings.SITE_TIER_FIELD)
 
 
 def device_criticality(device: dict) -> str:
     """The device's DEVICE_CRITICALITY_FIELD: critical, medium or low; "" when unset or unknown (#377)."""
-    value = custom_field_value(device, settings.device_criticality_field)
+    value = custom_field_value(device, settings.DEVICE_CRITICALITY_FIELD)
     return value if value in DEVICE_LEVELS else ""
 
 
@@ -332,7 +332,7 @@ def fetch_location_tenant_links() -> list[dict] | None:
                 continue
             key = str(rel.get("key") or rel.get("slug") or "").strip()
             label = nautobot.nested_str(rel, "label", "name", "display") or key
-            wanted = settings.site_tenant_relationships
+            wanted = settings.SITE_TENANT_RELATIONSHIPS
             if wanted and key.lower() not in wanted and label.lower() not in wanted:
                 continue
             selected.append((rel, label))
@@ -1050,12 +1050,12 @@ def cache_version() -> str:
     """CACHE_VERSION, and the custom fields read at sync time: setting or
     changing one forces a full resync, not a wait for the daily one (#377)."""
     fields = [
-        settings.site_tier_field,
-        settings.device_criticality_field,
-        settings.tenant_scope_field,
+        settings.SITE_TIER_FIELD,
+        settings.DEVICE_CRITICALITY_FIELD,
+        settings.TENANT_SCOPE_FIELD,
     ]
-    if settings.country_location_type.strip().lower() != "country":  # not the default (#386)
-        fields.append(settings.country_location_type)
+    if settings.COUNTRY_LOCATION_TYPE.strip().lower() != "country":  # not the default (#386)
+        fields.append(settings.COUNTRY_LOCATION_TYPE)
     return f"{CACHE_VERSION}+{','.join(fields)}" if any(fields) else CACHE_VERSION
 
 
@@ -1688,7 +1688,7 @@ async def sync_nautobot(force: bool = False) -> None:
     """Read Nautobot's locations and devices (changed ones, or all on a full
     reconcile) into the cache. On the async connection since #659: the
     upstream reads in a thread, a failure recorded on the sync state."""
-    if not db.dialect() or not settings.nautobot_url or not settings.nautobot_token:
+    if not db.dialect() or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         return
     source = "nautobot_inventory"
     reconcile_source = "nautobot_inventory_reconcile"
@@ -1843,8 +1843,8 @@ async def sync_librenms(force: bool = False) -> None:
     since #659: the upstream read in a thread, a failure recorded on the sync state."""
     if (
         not db.dialect()
-        or not (settings.librenms_url or "").strip()
-        or not (settings.librenms_api_token or "").strip()
+        or not (settings.LIBRENMS_URL or "").strip()
+        or not (settings.LIBRENMS_API_TOKEN or "").strip()
     ):
         return
     source = "librenms_inventory"
@@ -1940,9 +1940,9 @@ async def sources_to_sync(
     """``(Nautobot, LibreNMS)``: which configured sources to sync now: due,
     Nautobot's cache from an older version, or *force*d, but not one that
     synced successfully less than *cooldown_seconds* ago.  One state read per source."""
-    nautobot_on = bool(settings.nautobot_url and settings.nautobot_token)
+    nautobot_on = bool(settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
     librenms_on = bool(
-        (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip()
+        (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip()
     )
     needs_nautobot = needs_librenms = False
     if nautobot_on:
@@ -1950,12 +1950,12 @@ async def sources_to_sync(
         needs_nautobot = (
             (force and not synced_within(state, cooldown_seconds))
             or cache_version_mismatch(state)
-            or state_due(state, settings.inventory_sync_interval_seconds)
+            or state_due(state, settings.INVENTORY_SYNC_INTERVAL_SECONDS)
         )
     if librenms_on:
         state = await sync_state("librenms_inventory", conn)
         needs_librenms = (force and not synced_within(state, cooldown_seconds)) or state_due(
-            state, settings.librenms_sync_interval_seconds
+            state, settings.LIBRENMS_SYNC_INTERVAL_SECONDS
         )
     return needs_nautobot, needs_librenms
 

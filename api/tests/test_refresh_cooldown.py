@@ -15,10 +15,10 @@ def sources(
     flask_client, pg_database, monkeypatch, override_settings
 ):  # flask_client: the app, so the schema's cache can be cleared
     override_settings(
-        nautobot_url="https://nautobot.example.com",
-        nautobot_token="token",
-        librenms_url="https://librenms.example.com",
-        librenms_api_token="token",
+        NAUTOBOT_URL="https://nautobot.example.com",
+        NAUTOBOT_TOKEN="token",
+        LIBRENMS_URL="https://librenms.example.com",
+        LIBRENMS_API_TOKEN="token",
     )
     ran = []
 

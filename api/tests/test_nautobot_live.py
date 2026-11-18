@@ -20,10 +20,10 @@ pytestmark = pytest.mark.skipif(not LIVE_URL, reason="NAUTOBOT_LIVE_URL not set"
 @pytest.fixture
 def synced(override_settings):
     override_settings(
-        nautobot_url=LIVE_URL.rstrip("/"),
-        nautobot_token=LIVE_TOKEN,
-        nautobot_verify_ssl=False,
-        librenms_url="",
+        NAUTOBOT_URL=LIVE_URL.rstrip("/"),
+        NAUTOBOT_TOKEN=LIVE_TOKEN,
+        NAUTOBOT_VERIFY_SSL=False,
+        LIBRENMS_URL="",
     )
     asyncio.run(inventory.sync_nautobot(force=True))
     state = asyncio.run(inventory.sync_state("nautobot_inventory"))

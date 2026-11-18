@@ -259,7 +259,7 @@ def roles_command(args) -> int:
         print(f"{role} ({definition.label}), opens {definition.landing}; groups: {given}")
         for name in sorted(definition.permissions):
             print(f"  {name}")
-    default = settings.auth_default_role or "none"
+    default = settings.AUTH_DEFAULT_ROLE or "none"
     print(f"In none of the groups: {default} (AUTH_DEFAULT_ROLE). The first role above wins.")
     print("status: an API token for one tenant's status page.")
     return 0

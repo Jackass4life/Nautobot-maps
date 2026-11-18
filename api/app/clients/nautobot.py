@@ -109,7 +109,7 @@ def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) ->
     not use the cache: it would be served a previous sync's pages and miss changes
     (#185).
     """
-    if not settings.nautobot_url or not settings.nautobot_token:
+    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     cache_key = f"{endpoint}:{params}"
     if use_cache:
@@ -118,21 +118,21 @@ def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) ->
             return cached
 
     accept = "application/json"
-    if settings.nautobot_api_version:
-        accept += f"; version={settings.nautobot_api_version}"
+    if settings.NAUTOBOT_API_VERSION:
+        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
     headers = {
-        "Authorization": f"Token {settings.nautobot_token}",
+        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
         "Content-Type": "application/json",
         "Accept": accept,
     }
-    url = f"{settings.nautobot_url}/api/{endpoint.lstrip('/')}"
+    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
     response = http.request(
         "GET",
         url,
         headers=headers,
         params=params,
         timeout=(5, 30),
-        verify=settings.nautobot_verify_ssl,
+        verify=settings.NAUTOBOT_VERIFY_SSL,
     )
     data = response.json()
     if use_cache:

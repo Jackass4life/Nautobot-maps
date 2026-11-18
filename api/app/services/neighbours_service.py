@@ -64,7 +64,7 @@ async def read_index(conn: aconnection.Connection, devices: list[dict] | None = 
                 index["serial"][row["serial_key"]] = neighbour
             if row["name_key"]:
                 index["name"][row["name_key"]] = neighbour
-    roles = list(settings.access_point_roles)
+    roles = list(settings.ACCESS_POINT_ROLES)
     rows = (
         await conn.execute(
             """

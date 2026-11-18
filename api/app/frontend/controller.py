@@ -32,7 +32,7 @@ router = APIRouter(dependencies=[Depends(check_request)], include_in_schema=Fals
 
 
 def build_dir() -> pathlib.Path:
-    return pathlib.Path(settings.web_build_dir)
+    return pathlib.Path(settings.WEB_BUILD_DIR)
 
 
 def shell(headers: dict | None = None) -> Response:

@@ -86,23 +86,23 @@ def group_roles(settings: Settings) -> list[tuple[str, frozenset[str]]]:
     """Each role groups can give and its groups, first wins (#691): admin, operator
     (NWO), noc, customer, viewer."""
     return [
-        ("admin", settings.auth_admin_groups),
-        ("operator", settings.auth_operator_groups),
+        ("admin", settings.AUTH_ADMIN_GROUPS),
+        ("operator", settings.AUTH_OPERATOR_GROUPS),
         ("noc", noc_groups(settings)),
-        ("customer", settings.auth_customer_groups),
-        ("viewer", settings.auth_viewer_groups),
+        ("customer", settings.AUTH_CUSTOMER_GROUPS),
+        ("viewer", settings.AUTH_VIEWER_GROUPS),
     ]
 
 
 def noc_groups(settings: Settings) -> frozenset[str]:
     """AUTH_NOC_GROUPS, or the old AUTH_DOV_GROUPS when it is empty (#703)."""
-    if settings.auth_noc_groups or not settings.auth_dov_groups:
-        return settings.auth_noc_groups
+    if settings.AUTH_NOC_GROUPS or not settings.AUTH_DOV_GROUPS:
+        return settings.AUTH_NOC_GROUPS
     global _dov_warned
     if not _dov_warned:
         _dov_warned = True
         logger.warning("AUTH_DOV_GROUPS is deprecated: rename it AUTH_NOC_GROUPS (#703)")
-    return settings.auth_dov_groups
+    return settings.AUTH_DOV_GROUPS
 
 
 _dov_warned = False
@@ -115,7 +115,7 @@ def role_from_groups(groups: list[str], settings: Settings) -> str:
     for role, role_groups in group_roles(settings):
         if names & role_groups:
             return role
-    return settings.auth_default_role
+    return settings.AUTH_DEFAULT_ROLE
 
 
 def bearer_token(request: Request) -> str:
@@ -144,12 +144,12 @@ async def _token_user(token: str, settings: Settings) -> CurrentUser:
     except Exception as exc:  # noqa: BLE001 - the database; never log the token
         logger.warning("API token check failed: {}", type(exc).__name__)
     if found is None:
-        return CurrentUser(auth_mode=settings.auth_mode, token_rejected=True)
+        return CurrentUser(auth_mode=settings.AUTH_MODE, token_rejected=True)
     user = CurrentUser(
         is_authenticated=True,
         username=f"token:{found['name']}",
         role=found["role"],
-        auth_mode=settings.auth_mode,
+        auth_mode=settings.AUTH_MODE,
         token=found["name"],
         tenant=found.get("tenant") or "",
         signed_in_with="token",
@@ -179,16 +179,16 @@ def from_trusted_proxy(request: Request, settings: Settings) -> bool:
         return False
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
         address = address.ipv4_mapped
-    trusted = any(address in network for network in settings.auth_trusted_proxies)
-    if trusted and settings.auth_proxy_secret:
+    trusted = any(address in network for network in settings.AUTH_TRUSTED_PROXIES)
+    if trusted and settings.AUTH_PROXY_SECRET:
         sent = request.headers.get(PROXY_SECRET_HEADER, "")
-        trusted = hmac.compare_digest(sent.encode(), settings.auth_proxy_secret.encode())
+        trusted = hmac.compare_digest(sent.encode(), settings.AUTH_PROXY_SECRET.encode())
     if not trusted and str(address) not in _logged_untrusted and len(_logged_untrusted) < 100:
         _logged_untrusted.add(str(address))
         logger.warning(
             "Header auth: ignoring identity headers from {} (not in AUTH_TRUSTED_PROXIES{})",
             address,
-            " or wrong/missing proxy secret" if settings.auth_proxy_secret else "",
+            " or wrong/missing proxy secret" if settings.AUTH_PROXY_SECRET else "",
         )
     return trusted
 
@@ -199,10 +199,10 @@ async def resolve_user(request: Request, settings: Settings) -> CurrentUser:
     token = bearer_token(request)
     if token:
         return await _token_user(token, settings)
-    anonymous = CurrentUser(auth_mode=settings.auth_mode)
-    if settings.auth_mode != "header":
+    anonymous = CurrentUser(auth_mode=settings.AUTH_MODE)
+    if settings.AUTH_MODE != "header":
         return anonymous
-    if request.headers.get(settings.auth_header_user, "").strip() and from_trusted_proxy(
+    if request.headers.get(settings.AUTH_HEADER_USER, "").strip() and from_trusted_proxy(
         request, settings
     ):
         return await _proxy_user(request, settings)
@@ -210,14 +210,14 @@ async def resolve_user(request: Request, settings: Settings) -> CurrentUser:
 
 
 async def _proxy_user(request: Request, settings: Settings) -> CurrentUser:
-    username = request.headers.get(settings.auth_header_user, "").strip()
-    groups_header = request.headers.get(settings.auth_header_groups, "")
+    username = request.headers.get(settings.AUTH_HEADER_USER, "").strip()
+    groups_header = request.headers.get(settings.AUTH_HEADER_GROUPS, "")
     groups = [item.strip() for item in re.split(r"[;,]", groups_header) if item.strip()]
     signed_in = CurrentUser(
         is_authenticated=bool(username),
         username=username,
         groups=groups,
-        auth_mode=settings.auth_mode,
+        auth_mode=settings.AUTH_MODE,
         signed_in_with="proxy",
     )
     if not username:
@@ -245,7 +245,7 @@ def app_token(request: Request) -> str:
 
 def app_sign_in_on(settings: Settings) -> bool:
     """AD sign-in (#717): with LDAP_URL, in header mode (the proxy optional)."""
-    return settings.auth_mode == "header" and ad_service.enabled(settings)
+    return settings.AUTH_MODE == "header" and ad_service.enabled(settings)
 
 
 async def _app_user(request: Request, settings: Settings) -> CurrentUser | None:
@@ -259,7 +259,7 @@ async def _app_user(request: Request, settings: Settings) -> CurrentUser | None:
     user = CurrentUser(
         is_authenticated=True,
         username=claims["sub"],
-        auth_mode=settings.auth_mode,
+        auth_mode=settings.AUTH_MODE,
         signed_in_with="app",
     )
     found = await identity_service.lookup(user.username)
@@ -288,7 +288,7 @@ async def with_identity(user: CurrentUser, settings: Settings) -> CurrentUser:
             identity=found.unique_name,
             common_name=found.common_name,
         )
-    if settings.auth_group_roles:
+    if settings.AUTH_GROUP_ROLES:
         role = role_from_groups(user.groups, settings)
         identity_service.note_unknown(user.username, f"role from groups: {role or 'none'}")
         return replace(user, role=role, roles=(role,) if role else ())
@@ -300,7 +300,7 @@ def disabled_mode_allows(method: str, open_when_disabled: bool, settings: Settin
     """Whether a protected route runs with AUTH_MODE=disabled (#188): reads and the
     board's own changes always; administrative changes only with
     ALLOW_UNAUTHENTICATED_WRITES."""
-    return method in SAFE_METHODS or open_when_disabled or settings.allow_unauthenticated_writes
+    return method in SAFE_METHODS or open_when_disabled or settings.ALLOW_UNAUTHENTICATED_WRITES
 
 
 def granted_scopes(user: CurrentUser, settings: Settings) -> frozenset[str]:
@@ -317,7 +317,7 @@ def granted_scopes(user: CurrentUser, settings: Settings) -> frozenset[str]:
         return permissions.role_scopes(user.role)
     if user.token or is_status_token(user):
         return frozenset()
-    if settings.auth_mode == "header" and not settings.auth_require_viewer:
+    if settings.AUTH_MODE == "header" and not settings.AUTH_REQUIRE_VIEWER:
         return permissions.role_scopes("viewer")
     return frozenset()
 
@@ -332,11 +332,11 @@ def effective_permissions(user: CurrentUser, settings: Settings) -> frozenset[Pe
     (#693): the pages show exactly what the API allows. With AUTH_MODE=disabled (no
     token): every read and the board's own changes, everything with
     ALLOW_UNAUTHENTICATED_WRITES; otherwise ``granted``."""
-    if settings.auth_mode == "disabled" and not user.token:
-        if settings.allow_unauthenticated_writes:
+    if settings.AUTH_MODE == "disabled" and not user.token:
+        if settings.ALLOW_UNAUTHENTICATED_WRITES:
             return permissions.ALL
         return permissions.READS | permissions.OPEN_WHEN_DISABLED
-    if settings.auth_mode not in ("disabled", "header"):
+    if settings.AUTH_MODE not in ("disabled", "header"):
         return frozenset()
     return granted(user, settings)
 
@@ -377,7 +377,7 @@ def permission_problem(
     signed in, 403 a role without any of them (naming the first, and the lowest of
     the old roles that has it)."""
     # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
-    if settings.auth_mode == "disabled" and not user.token:
+    if settings.AUTH_MODE == "disabled" and not user.token:
         if disabled_mode_allows(method, open_when_disabled, settings):
             return None
         return {
@@ -385,7 +385,7 @@ def permission_problem(
             "detail": "Set AUTH_MODE=header behind an authenticating proxy, "
             "or ALLOW_UNAUTHENTICATED_WRITES=true to allow it without authentication.",
         }, 403
-    if settings.auth_mode not in ("disabled", "header"):
+    if settings.AUTH_MODE not in ("disabled", "header"):
         # Startup refuses another value; one set in code answers as the current app.
         return {"error": "Unsupported AUTH_MODE configuration"}, 503
     held = granted_scopes(user, settings)
@@ -440,7 +440,7 @@ def status_access(user: CurrentUser, settings: Settings, tenant: str) -> Refusal
 
 
 def _viewer_problem(user: CurrentUser, settings: Settings) -> Refusal | None:
-    if settings.auth_mode != "header" or not settings.auth_require_viewer:
+    if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
         return None
     if not user.is_authenticated:
         return not_signed_in(settings)
@@ -471,7 +471,7 @@ def is_cross_site_write(request: Request, settings: Settings) -> bool:
     if request.url.path == MCP_PATH:
         return False
     origin = request.headers.get("origin", "").strip()
-    if origin and origin in settings.cors_origins:
+    if origin and origin in settings.CORS_ORIGINS:
         return False
     fetch_site = request.headers.get("sec-fetch-site", "").strip().lower()
     if fetch_site:

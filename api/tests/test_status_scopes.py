@@ -12,7 +12,7 @@ def test_the_board_build_at_scale(board, override_settings):
     """Acme on 40 sites, half scoped to its firewalls; a core outage at one
     of them (30 routers down) is not Acme's; a site without firewalls is
     hidden from Acme.  The board itself is unchanged."""
-    override_settings(tenant_scope_field="tenant_scope")
+    override_settings(TENANT_SCOPE_FIELD="tenant_scope")
     sites, devices = {}, []
     for n in range(40):
         sites[f"s{n}"] = ""

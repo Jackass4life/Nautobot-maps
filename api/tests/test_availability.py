@@ -166,9 +166,9 @@ class TestIntervals:
 
     def test_oldest_day(self, override_settings):
         # The calendar's first day is the first whole day report() accepts (#341).
-        override_settings(alert_history_retention_days=0)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=0)
         assert availability.oldest_day(t(21, 9)) == ""
-        override_settings(alert_history_retention_days=10)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=10)
         assert availability.oldest_day(t(21, 9)) == "2026-10-12", "the 11th is partly deleted"
         # At midnight too: a moment later the 11th is partly deleted.
         assert availability.oldest_day(t(21)) == "2026-10-12"
@@ -306,10 +306,10 @@ class TestReport:
         assert site["downtime_seconds"] == 5 * 86400
 
     def test_months_with_deleted_history_are_refused(self, pg_database, clock, override_settings):
-        override_settings(alert_history_retention_days=10)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=10)
         with pytest.raises(availability.ReportError, match="History before 2026-10-11 is deleted"):
             run()
-        override_settings(alert_history_retention_days=30)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         assert run()["period"]["seconds"] == PERIOD
 
     def test_every_board_site_is_listed_and_tenants_average(self, pg_database, clock):
@@ -379,7 +379,7 @@ class TestReport:
             "2026-10",
         )
         assert run("2026-02", sites=sites)["period"]["to"] == "2026-02-28"
-        override_settings(alert_history_retention_days=10)
+        override_settings(ALERT_HISTORY_RETENTION_DAYS=10)
         with pytest.raises(
             availability.ReportError, match="2026-10-03 to 2026-10-04 can't be reported"
         ):
@@ -645,7 +645,7 @@ class TestPages:
 
     def test_the_target_follows_the_setting(self, flask_client, override_settings):
         # #525: the 90 % site is below the default 99.9 %, not below an 85 % target.
-        override_settings(availability_target_pct=85.0)
+        override_settings(AVAILABILITY_TARGET_PCT=85.0)
         summary = flask_client.get("/api/v1/availability?month=2026-10").get_json()["summary"]
         assert summary["target"] == 85.0 and summary["below_target"] == 0
         assert flask_client.get("/api/v1/page-config").get_json()["availability"]["target"] == 85.0

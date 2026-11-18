@@ -10,7 +10,7 @@ from app.core.settings import settings
 
 def case_url(case: str) -> str:
     """The ticket's URL from ``CASE_URL_TEMPLATE``, or "" without one."""
-    template = settings.case_url_template
+    template = settings.CASE_URL_TEMPLATE
     if not template or not case:
         return ""
     return template.replace("{case}", quote(case.strip(), safe=""))

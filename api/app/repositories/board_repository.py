@@ -152,14 +152,14 @@ async def flapping_device_ids(conn: aconnection.Connection, now: str, window: ti
 
 async def pending_device_ids(conn: aconnection.Connection, now: str) -> set:
     """Devices down for less than ALERT_DELAY_SECONDS that haven't alarmed (#286)."""
-    if not settings.alert_delay_seconds:
+    if not settings.ALERT_DELAY_SECONDS:
         return set()
     rows = (
         await conn.execute(
             "SELECT ds.device_id FROM device_states ds WHERE ds.state = 'down' "
             "AND ds.since > %s::text::timestamptz - make_interval(secs => %s) "
             "AND NOT EXISTS (SELECT 1 FROM alert_instances ai WHERE ai.device_id = ds.device_id AND ai.status = 'open')",
-            (now, float(settings.alert_delay_seconds)),
+            (now, float(settings.ALERT_DELAY_SECONDS)),
         )
     ).fetchall()
     return {db.row_to_dict(row)["device_id"] for row in rows}

@@ -20,7 +20,7 @@ class _Cache:
     in-process one, so a module or test that uses the cache early works."""
 
     def __init__(self) -> None:
-        self.backend: BaseCache = SimpleCache(default_timeout=settings.cache_ttl)
+        self.backend: BaseCache = SimpleCache(default_timeout=settings.CACHE_TTL)
 
     def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
         return getattr(self.backend, name)
@@ -45,7 +45,7 @@ def backend_for(cache_type: str, redis_url: str, timeout: int) -> BaseCache:
 
 def init() -> None:
     """The cache from the settings. Works outside requests too (the scheduler uses it)."""
-    cache.backend = backend_for(settings.cache_type, settings.cache_redis_url, settings.cache_ttl)
+    cache.backend = backend_for(settings.CACHE_TYPE, settings.CACHE_REDIS_URL, settings.CACHE_TTL)
 
 
 def get(key: str):  # type: ignore[no-untyped-def]

@@ -194,10 +194,10 @@ class TestSitePanel:
     @pytest.fixture(autouse=True)
     def _synced(self, flask_client, pg_database, monkeypatch, override_settings):
         override_settings(
-            nautobot_url="https://nautobot.example.com",
-            nautobot_token="token",
-            librenms_url="",
-            librenms_api_token="",
+            NAUTOBOT_URL="https://nautobot.example.com",
+            NAUTOBOT_TOKEN="token",
+            LIBRENMS_URL="",
+            LIBRENMS_API_TOKEN="",
         )
         self.circuits = list(CIRCUITS)
         self.circuits_error = None

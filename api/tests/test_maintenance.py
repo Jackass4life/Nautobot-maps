@@ -31,7 +31,7 @@ def clock(monkeypatch):
 @pytest.fixture
 def site(pg_database, monkeypatch, clock, override_settings):
     """London: a core router and two access switches; the core and one switch are down."""
-    override_settings(nautobot_url="", nautobot_token="", librenms_url="")
+    override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     set_devices(core="Offline", acc1="Offline", acc2="Active")
     return "loc-lon"
@@ -272,9 +272,9 @@ class TestBoard:
             )
 
         assert counts(build()) == (3, 0, 1, 0)
-        override_settings(access_point_roles={"access switch"})
+        override_settings(ACCESS_POINT_ROLES={"access switch"})
         assert counts(build()) == (1, 2, 0, 1)
-        override_settings(access_point_roles={"core router"})
+        override_settings(ACCESS_POINT_ROLES={"core router"})
         assert counts(build()) == (2, 1, 1, 0), "the core, in maintenance: counted, not down"
 
     def test_in_a_site_window_nothing_is_down(self, site):
@@ -337,7 +337,7 @@ class TestBoard:
             raise RuntimeError("permission denied")
 
         monkeypatch.setattr(maintenance, "read_active", adb.async_of(broken))
-        override_settings(notify_webhook_url="https://hooks.example.com/x")
+        override_settings(NOTIFY_WEBHOOK_URL="https://hooks.example.com/x")
         set_devices(core="Active", acc1="Active", acc2="Active")  # everything recovered
         build()
         assert open_alerts() == {"core": "open", "acc1": "open"}, "nothing resolved"
@@ -390,7 +390,7 @@ class TestNotifications:
     def test_quiet_into_maintenance_alarm_if_still_critical_after(
         self, site, clock, override_settings
     ):
-        override_settings(notify_webhook_url="https://hooks.example.com/x")
+        override_settings(NOTIFY_WEBHOOK_URL="https://hooks.example.com/x")
         build()
         build()  # the first build only recorded the level
         (created,) = window(duration_minutes=60)
@@ -408,7 +408,7 @@ class TestNotifications:
 
     def test_a_device_window_that_lowers_the_level_is_quiet(self, site, override_settings):
         """Copilot on #303: the only failed devices going into maintenance is no "recovery"."""
-        override_settings(notify_webhook_url="https://hooks.example.com/x")
+        override_settings(NOTIFY_WEBHOOK_URL="https://hooks.example.com/x")
         set_devices(core="Offline", acc1="Active", acc2="Active")
         build()
         build()
@@ -437,7 +437,7 @@ class TestNotifications:
         assert outbox_kinds() == [("alarm", "ok", "critical")], "still down when it ends"
 
     def test_rule(self, override_settings):
-        override_settings(notify_min_level="critical")
+        override_settings(NOTIFY_MIN_LEVEL="critical")
         assert notify.event_kind("critical", "maintenance") is None
         assert notify.event_kind("maintenance", "critical") == "alarm"
         assert notify.event_kind("maintenance", "ok") is None
@@ -494,7 +494,7 @@ class TestSiteDevices:
                 )
         finally:
             conn.close()
-        override_settings(alert_board_excluded_device_statuses={"planned"})
+        override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"planned"})
         devices = asyncio.run(alerts.site_monitored_devices("loc-lon"))
         assert [d["id"] for d in devices] == ["acc1", "acc2", "core"], (
             "no primary IP or excluded: not offered"
@@ -525,7 +525,7 @@ class TestSiteDevices:
                 )
         finally:
             conn.close()
-        override_settings(alert_board_site_location_type="site")
+        override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site")
         devices = {d["id"]: d for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))}
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
 
@@ -550,8 +550,8 @@ class TestSiteDevices:
         finally:
             conn.close()
         override_settings(
-            alert_board_site_location_type="site",
-            alert_board_excluded_location_names={"old building"},
+            ALERT_BOARD_SITE_LOCATION_TYPE="site",
+            ALERT_BOARD_EXCLUDED_LOCATION_NAMES={"old building"},
         )
         assert "old-sw" not in {
             d["id"] for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))
@@ -1068,12 +1068,12 @@ class TestApi:
                     == 400
                 ), bad
             # The viewer role when the board needs it (AUTH_REQUIRE_VIEWER).
-            override_settings(auth_require_viewer=True)
+            override_settings(AUTH_REQUIRE_VIEWER=True)
             assert flask_client.get("/api/v1/maintenance/history").status_code == 401
             assert flask_client.get("/api/v1/maintenance/history.csv").status_code == 401
 
     def test_bad_requests(self, flask_client, override_settings):
-        override_settings(allow_unauthenticated_writes=True)
+        override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
         resp = flask_client.post(
             "/api/v1/maintenance", json={"site_id": "loc-lon", "duration_minutes": 60}
         )

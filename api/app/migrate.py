@@ -145,7 +145,7 @@ async def _migrate(engine: AsyncEngine, url: str) -> str:
 def engine_for(url: URL) -> AsyncEngine:
     """An asyncpg engine for migrations (#643): a connection per use, the app's connect
     timeout and no statement timeout (a migration may take longer)."""
-    async_url, args = session.async_url(url, settings.db_connect_timeout_seconds, 0)
+    async_url, args = session.async_url(url, settings.DB_CONNECT_TIMEOUT_SECONDS, 0)
     return create_async_engine(async_url, poolclass=NullPool, connect_args=args)
 
 

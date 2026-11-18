@@ -17,10 +17,10 @@ from tests import db as adb
 @pytest.fixture(autouse=True)
 def nautobot_set(override_settings):
     override_settings(
-        nautobot_url="https://nautobot.example.com",
-        nautobot_token="token",
-        librenms_url="",
-        librenms_api_token="",
+        NAUTOBOT_URL="https://nautobot.example.com",
+        NAUTOBOT_TOKEN="token",
+        LIBRENMS_URL="",
+        LIBRENMS_API_TOKEN="",
     )
 
 
@@ -121,9 +121,9 @@ def test_start_is_idempotent_and_respects_the_setting(monkeypatch, override_sett
     monkeypatch.setattr(scheduler, "loop", adb.async_of(_idle))
 
     async def run():
-        override_settings(background_sync_enabled=False)
+        override_settings(BACKGROUND_SYNC_ENABLED=False)
         assert scheduler.start() is False
-        override_settings(background_sync_enabled=True)
+        override_settings(BACKGROUND_SYNC_ENABLED=True)
         assert scheduler.start() is True
         first = scheduler._task
         assert scheduler.start() is True
@@ -138,7 +138,7 @@ def test_start_is_idempotent_and_respects_the_setting(monkeypatch, override_sett
 def test_restart_does_not_clear_the_previous_workers_stop_event(monkeypatch, override_settings):
     monkeypatch.setattr(scheduler, "_started", False)
     monkeypatch.setattr(scheduler, "loop", adb.async_of(_idle))
-    override_settings(background_sync_enabled=True)
+    override_settings(BACKGROUND_SYNC_ENABLED=True)
 
     async def run():
         assert scheduler.start() is True
@@ -158,19 +158,19 @@ async def _idle(stop):
 
 def test_not_started_without_nautobot(monkeypatch, override_settings):
     monkeypatch.setattr(scheduler, "_started", False)
-    override_settings(nautobot_url="")
+    override_settings(NAUTOBOT_URL="")
     assert scheduler.start() is False
 
 
 def test_tick_seconds_follow_the_sooner_interval(override_settings):
-    override_settings(inventory_sync_interval_seconds=300)
+    override_settings(INVENTORY_SYNC_INTERVAL_SECONDS=300)
     assert scheduler.tick_seconds() == 30
-    override_settings(inventory_sync_interval_seconds=10)
+    override_settings(INVENTORY_SYNC_INTERVAL_SECONDS=10)
     assert scheduler.tick_seconds() == 10
     override_settings(
-        librenms_url="https://librenms.example.com",
-        librenms_api_token="tok",
-        librenms_sync_interval_seconds=5,
+        LIBRENMS_URL="https://librenms.example.com",
+        LIBRENMS_API_TOKEN="tok",
+        LIBRENMS_SYNC_INTERVAL_SECONDS=5,
     )
     assert scheduler.tick_seconds() == 5
 

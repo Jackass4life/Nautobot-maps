@@ -138,7 +138,7 @@ class TestTheLines:
         logging.getLogger("httpx").warning("pool closed")
         err = capsys.readouterr().err
         assert "HTTP Request" not in err and " WARNING [sync] httpx: pool closed" in err
-        override_settings(log_level="DEBUG")
+        override_settings(LOG_LEVEL="DEBUG")
         configure_logs()
         logging.getLogger("httpx").info("HTTP Request: GET https://nautobot/api/")
         assert " INFO [sync] httpx: HTTP Request" in capsys.readouterr().err
@@ -148,13 +148,13 @@ class TestTheLines:
     ):
         from app import startup
 
-        override_settings(legacy_sqlite_db="/app/data/nautobot_maps.db")
+        override_settings(NAUTOBOT_MAPS_DB="/app/data/nautobot_maps.db")
         configure_logs()
         startup.log_alert_board_exclusions()
         assert " ERROR [server] app.startup: NAUTOBOT_MAPS_DB is set" in capsys.readouterr().err
 
     def test_json_carries_the_part(self, capsys, configure_logs, override_settings):
-        override_settings(log_format="json")
+        override_settings(LOG_FORMAT="json")
         configure_logs()
         logging.getLogger("alembic.runtime.migration").info("Running upgrade")
         entry = json.loads(capsys.readouterr().err.strip())
@@ -168,7 +168,7 @@ class TestTheLines:
     def test_the_access_log_goes_to_stdout_even_at_warning(
         self, capsys, configure_logs, asgi_client, override_settings
     ):
-        override_settings(log_level="WARNING")
+        override_settings(LOG_LEVEL="WARNING")
         configure_logs()
         asgi_client.get("/alerts")
         asgi_client.get("/api/v1/app-status")

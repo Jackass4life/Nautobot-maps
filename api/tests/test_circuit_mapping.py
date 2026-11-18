@@ -13,10 +13,10 @@ from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 @pytest.fixture
 def synced(flask_client, pg_database, monkeypatch, override_settings):
     override_settings(
-        nautobot_url="https://nautobot.example.com",
-        nautobot_token="token",
-        librenms_url="",
-        librenms_api_token="",
+        NAUTOBOT_URL="https://nautobot.example.com",
+        NAUTOBOT_TOKEN="token",
+        LIBRENMS_URL="",
+        LIBRENMS_API_TOKEN="",
     )
     circuits = [*CIRCUITS, _circuit("c-formula", "=HYPERLINK(1)", "@Roersvej 33, 5000 Odense")]
 
@@ -75,7 +75,7 @@ def test_csv_one_row_per_circuit_formula_safe(flask_client, synced):
 
 def test_left_out_and_sorted(flask_client, monkeypatch, pg_database, override_settings):
     """Decommissioned circuits aren't work; an unnamed one sorts as "Unnamed circuit"."""
-    override_settings(nautobot_url="https://nautobot.example.com", nautobot_token="token")
+    override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
     circuits = [
         _circuit("c-old", "OLD-1", "", status={"label": "Decommissioned"}),
         _circuit("c-x", "", ""),
@@ -96,7 +96,7 @@ def test_left_out_and_sorted(flask_client, monkeypatch, pg_database, override_se
 def test_a_site_off_the_map_links_through_its_building(
     flask_client, monkeypatch, pg_database, override_settings
 ):
-    override_settings(nautobot_url="https://nautobot.example.com", nautobot_token="token")
+    override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
     address = "Roersvej 33, 5000 Odense C"
     locations = [
         {**LOCATIONS[0], "latitude": None, "longitude": None},  # Odense: no coordinates
@@ -142,7 +142,7 @@ def test_page_and_nav(flask_client, synced, frontend_build):
 
 
 def test_viewers_only_when_required(flask_client, override_settings):
-    override_settings(auth_require_viewer=True)
+    override_settings(AUTH_REQUIRE_VIEWER=True)
     with auth_config(mode="header", viewer_groups={"noc"}):
         for path in ("/circuits", "/api/v1/circuit-mapping", "/api/v1/circuit-mapping.csv"):
             assert flask_client.get(path).status_code == 401, path

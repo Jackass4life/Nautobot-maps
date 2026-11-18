@@ -8,7 +8,7 @@ from app.core.settings import Settings
 
 def tile_source(settings: Settings) -> str:
     """The CSP source for MAP_TILE_URL's host, with ``{s}`` subdomains as ``*``."""
-    parsed = urlsplit(settings.map_tile_url)
+    parsed = urlsplit(settings.MAP_TILE_URL)
     if not parsed.netloc:
         return ""  # a relative URL: same origin, covered by 'self'
     return f"{parsed.scheme}://{parsed.netloc.replace('{s}', '*')}"

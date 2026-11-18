@@ -39,7 +39,7 @@ MAX_PERIOD_DAYS = 366
 def target_pct() -> float:
     """Below this a site or tenant is shown in red (#287) and counted as below
     target (#342): ``AVAILABILITY_TARGET_PCT`` (#525)."""
-    return settings.availability_target_pct
+    return settings.AVAILABILITY_TARGET_PCT
 
 
 Interval = tuple[datetime, datetime]
@@ -129,7 +129,7 @@ def resolve_period(
 
 def kept_from(at: datetime) -> datetime | None:
     """When the history kept starts (``ALERT_HISTORY_RETENTION_DAYS``), or None: all kept."""
-    days = settings.alert_history_retention_days
+    days = settings.ALERT_HISTORY_RETENTION_DAYS
     return at - timedelta(days=days) if days > 0 else None
 
 
@@ -355,7 +355,7 @@ async def report(
     the history are added, sites with no monitored devices left out.
     """
     at = now()
-    basis = basis or settings.availability_basis
+    basis = basis or settings.AVAILABILITY_BASIS
     if basis not in BASES:
         raise ReportError(f"basis must be one of: {', '.join(BASES)}")
     asked = resolve_period(month, from_date, to_date, at)
@@ -365,7 +365,7 @@ async def report(
         # Deleted history would read as no downtime: refuse rather than guess.
         raise ReportError(
             f"History before {history_start:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
-            f"{settings.alert_history_retention_days}): {asked['label']} can't be reported in full"
+            f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {asked['label']} can't be reported in full"
         )
     period = int((end - start).total_seconds())
     site_windows, device_windows = await read_maintenance(conn, start, end)

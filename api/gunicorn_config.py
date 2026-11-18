@@ -23,7 +23,7 @@ worker_class = "app.server.Worker"
 timeout = max(120, _env_int("GUNICORN_TIMEOUT", 120))
 
 accesslog = None
-loglevel = settings.log_level.lower()
+loglevel = settings.LOG_LEVEL.lower()
 # loguru in the master, so the workers it forks have it too (#633).
 logs.configure()
 logconfig_dict = logs.gunicorn_logconfig()

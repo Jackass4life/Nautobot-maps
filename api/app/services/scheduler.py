@@ -42,17 +42,17 @@ SHUTDOWN_GRACE_SECONDS = 5
 
 def tick_seconds() -> int:
     """Seconds between ticks: often enough to catch a due sync promptly."""
-    intervals = [settings.inventory_sync_interval_seconds]
-    if (settings.librenms_url or "").strip() and (settings.librenms_api_token or "").strip():
-        intervals.append(settings.librenms_sync_interval_seconds)
-    if settings.wireless_controllers:
-        intervals.append(settings.wireless_sync_interval_seconds)
+    intervals = [settings.INVENTORY_SYNC_INTERVAL_SECONDS]
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
+        intervals.append(settings.LIBRENMS_SYNC_INTERVAL_SECONDS)
+    if settings.WIRELESS_CONTROLLERS:
+        intervals.append(settings.WIRELESS_SYNC_INTERVAL_SECONDS)
     return max(1, min(MAX_TICK_SECONDS, *intervals))
 
 
 async def prune_alert_history_if_due() -> None:
     """Daily history retention (#194); a failure is logged, never stops the syncs."""
-    if settings.alert_history_retention_days <= 0:
+    if settings.ALERT_HISTORY_RETENTION_DAYS <= 0:
         return
     try:
         async with aconnection.connect() as conn:
@@ -118,7 +118,7 @@ async def sync_wireless() -> bool:
 
 def start_wireless_sync() -> None:
     """Run ``sync_wireless`` in the background unless it is still running."""
-    if not settings.wireless_controllers or not _wireless_running.acquire(blocking=False):
+    if not settings.WIRELESS_CONTROLLERS or not _wireless_running.acquire(blocking=False):
         return
 
     async def run() -> None:
@@ -296,9 +296,9 @@ def start() -> bool:
     lifespan). Returns whether it runs."""
     global _started, _stop, _task
     if (
-        not settings.background_sync_enabled
+        not settings.BACKGROUND_SYNC_ENABLED
         or not db.dialect()
-        or not (settings.nautobot_url and settings.nautobot_token)
+        or not (settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
     ):
         return False
     with _start_lock:

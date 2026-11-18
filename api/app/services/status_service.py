@@ -103,7 +103,7 @@ DEVICE_ORDER = ("down", "maintenance", "up")
 def _named(row: dict, tenant: str) -> list[dict]:
     """The tenant's own devices at the site by name (#555), down first; []
     without STATUS_PAGE_TENANT_DEVICES, also from a board built with it."""
-    if not settings.status_page_tenant_devices:
+    if not settings.STATUS_PAGE_TENANT_DEVICES:
         return []
     devices = (row.get("tenant_devices") or {}).get(tenant) or []
     return sorted(

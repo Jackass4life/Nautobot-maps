@@ -83,7 +83,7 @@ def parse_alertmanager(body) -> tuple[list[dict], int]:
         raise WebhookError("Expected an Alertmanager webhook: a JSON object with an alerts list")
     if len(body["alerts"]) > MAX_ALERTS:
         raise WebhookError(f"At most {MAX_ALERTS} alerts per request")
-    names = settings.alertmanager_alertnames
+    names = settings.ALERTMANAGER_ALERTNAMES
     events, skipped = [], 0
     for alert in body["alerts"]:
         labels = alert.get("labels") if isinstance(alert, dict) else None
@@ -98,7 +98,7 @@ def parse_alertmanager(body) -> tuple[list[dict], int]:
             (
                 key
                 for key in (
-                    device_key(labels.get(label)) for label in settings.alertmanager_device_labels
+                    device_key(labels.get(label)) for label in settings.ALERTMANAGER_DEVICE_LABELS
                 )
                 if key
             ),
@@ -176,7 +176,7 @@ def parse_generic(body) -> list[dict]:
 
 def cutoff(now: datetime) -> datetime:
     """Alerts not refreshed since then no longer count (a lost "resolved")."""
-    return now - timedelta(hours=settings.webhook_alert_ttl_hours)
+    return now - timedelta(hours=settings.WEBHOOK_ALERT_TTL_HOURS)
 
 
 async def store(conn: aconnection.Connection, events: list[dict]) -> None:

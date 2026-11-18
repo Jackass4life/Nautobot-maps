@@ -282,7 +282,7 @@ class TestWirelessCheck:
 
     def test_another_workers_check_is_running(self, flask_client, override_settings):
         admin_token = make("admin", "admin")["token"]
-        override_settings(wireless_controllers=(DK, SE))
+        override_settings(WIRELESS_CONTROLLERS=(DK, SE))
         release = adb.hold_lock(admin.WIRELESS_CHECK_LOCK)
         try:
             assert (

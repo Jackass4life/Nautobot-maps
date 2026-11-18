@@ -42,13 +42,13 @@ def api_page_config():
     and Availability's limits, the map's tiles and first view, and the
     board's case links and level definitions."""
     at = availability.now()
-    view = settings.map_default_view
+    view = settings.MAP_DEFAULT_VIEW
     access = auth.access()
     return deps.Json(
         {
             "user": templating.bar_user(),
             "access": access,
-            "nautobot_url": settings.nautobot_url or "",
+            "nautobot_url": settings.NAUTOBOT_URL or "",
             "maintenance": {
                 "recent_days": maintenance.PAGE_RECENT_DAYS,
                 "history_days": maintenance.HISTORY_DEFAULT_DAYS,
@@ -57,18 +57,18 @@ def api_page_config():
             "availability": {
                 "today": f"{at:%Y-%m-%d}",
                 "oldest_day": availability.oldest_day(at),
-                "basis": settings.availability_basis,
+                "basis": settings.AVAILABILITY_BASIS,
                 "target": availability.target_pct(),
             },
             "map": {
-                "tile_url": settings.map_tile_url,
-                "tile_attribution": settings.map_tile_attribution,
+                "tile_url": settings.MAP_TILE_URL,
+                "tile_attribution": settings.MAP_TILE_ATTRIBUTION,
                 "view": {"latitude": view[0], "longitude": view[1], "zoom": view[2]}
                 if view
                 else None,
             },
             "board": {
-                "case_url_template": settings.case_url_template or "",
+                "case_url_template": settings.CASE_URL_TEMPLATE or "",
                 "levels": alerts.alert_level_definitions(),
             },
             "admin": {
@@ -108,11 +108,11 @@ async def api_app_status():
             logger.warning("App status: database unavailable: {}", str(exc) or type(exc).__name__)
     body = metrics.app_status(
         rows,
-        librenms=bool(settings.librenms_url and settings.librenms_api_token),
+        librenms=bool(settings.LIBRENMS_URL and settings.LIBRENMS_API_TOKEN),
         intervals={
-            "INVENTORY_SYNC_INTERVAL_SECONDS": settings.inventory_sync_interval_seconds,
-            "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.librenms_sync_interval_seconds,
-            "WIRELESS_SYNC_INTERVAL_SECONDS": settings.wireless_sync_interval_seconds,
+            "INVENTORY_SYNC_INTERVAL_SECONDS": settings.INVENTORY_SYNC_INTERVAL_SECONDS,
+            "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
+            "WIRELESS_SYNC_INTERVAL_SECONDS": settings.WIRELESS_SYNC_INTERVAL_SECONDS,
         },
         now=time.time(),
         wireless=tuple(

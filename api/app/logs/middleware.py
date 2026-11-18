@@ -57,7 +57,7 @@ class AccessLog:
                 FORMAT,
                 **{
                     "h": client[0],
-                    "user": _header(scope, settings.auth_header_user) or "-",
+                    "user": _header(scope, settings.AUTH_HEADER_USER) or "-",
                     "r": f"{scope.get('method', '-')} {target} "
                     f"HTTP/{scope.get('http_version', '1.1')}",
                     "s": response["status"],

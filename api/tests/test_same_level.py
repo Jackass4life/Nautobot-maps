@@ -16,7 +16,7 @@ from tests.test_integration import mock_nautobot_server  # noqa: F401 - the fixt
 @pytest.fixture
 def synced(pg_database, mock_nautobot_server, monkeypatch, override_settings):
     override_settings(
-        nautobot_url=mock_nautobot_server, nautobot_token="demo-token", librenms_url=""
+        NAUTOBOT_URL=mock_nautobot_server, NAUTOBOT_TOKEN="demo-token", LIBRENMS_URL=""
     )
     asyncio.run(inventory.sync_nautobot(force=True))
     # The test reads the snapshot; no background sync against the mock.
@@ -74,7 +74,7 @@ def test_the_map_knows_when_a_site_went_into_alarm(synced):
 
 
 def test_excluded_statuses_count_nowhere(synced, override_settings):
-    override_settings(alert_board_excluded_device_statuses={"offline"})
+    override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"offline"})
     board, levels = three_views()
     assert board["loc-lon"]["alert_level"] == "ok" and levels["loc-lon"]["level"] == "ok"
     detail = asyncio.run(alerts.get_location_detail("loc-lon", "Data Center"))
@@ -95,7 +95,7 @@ def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, ove
             )
     finally:
         conn.close()
-    override_settings(alert_board_site_location_type="site")
+    override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site")
     board, levels = three_views()
     assert "loc-aar-bld-a-f2" not in board and "loc-aar" in board  # rolled up into its site
     floor = levels["loc-aar-bld-a-f2"]
@@ -166,7 +166,7 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
             )
     finally:
         conn.close()
-    override_settings(alert_board_site_location_type="site", alert_delay_seconds=3600)
+    override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site", ALERT_DELAY_SECONDS=3600)
     caching.cache.clear()
     _, levels = three_views()
     assert levels["loc-aar-bld-a-f2"] == {"level": "ok", "reason": "", "down": 0, "monitored": 1}
@@ -189,7 +189,7 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, override
             )
     finally:
         conn.close()
-    override_settings(alert_board_site_location_type="site", alert_delay_seconds=3600)
+    override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site", ALERT_DELAY_SECONDS=3600)
     caching.cache.clear()
     three_views()  # the board records that dev-aar-2 is pending
     conn = adb.connect()

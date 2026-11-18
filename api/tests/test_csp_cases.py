@@ -17,7 +17,7 @@ CASES = json.loads(
 
 @pytest.mark.parametrize("case", CASES["cases"], ids=lambda case: case["map_tile_url"])
 def test_the_csp_per_tile_server(case):
-    settings = Settings(map_tile_url=case["map_tile_url"])
+    settings = Settings(MAP_TILE_URL=case["map_tile_url"])
     assert security.content_security_policy(settings) == case["csp"]
 
 

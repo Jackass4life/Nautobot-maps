@@ -76,7 +76,7 @@ def test_a_refusal_is_checked_too(flask_client, monkeypatch, override_settings):
         "ANSWER_CHECK",
         lambda route, response: seen.append((route.path, response.status_code)),
     )
-    override_settings(auth_mode="header")
+    override_settings(AUTH_MODE="header")
     assert flask_client.get("/api/v1/tokens").status_code == 401
     # A route of the new stack's nested /api/v1 router names its path within it.
     assert seen == [("/tokens", 401)]

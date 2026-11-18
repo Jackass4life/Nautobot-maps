@@ -71,7 +71,7 @@ def test_after_the_wait_it_builds_anyway(site, monkeypatch):
 
 
 def test_the_stored_board_outlives_the_sync_interval(site, override_settings):
-    override_settings(cache_ttl=300)
+    override_settings(CACHE_TTL=300)
     assert alerts.board_cache_seconds({}) == 300 + alerts.BOARD_TTL_SLACK_SECONDS
 
 
@@ -217,7 +217,7 @@ def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(
     board must not be stored as the finished one (#523)."""
     from app.services import inventory_service as inventory
 
-    override_settings(nautobot_url="", librenms_url="")
+    override_settings(NAUTOBOT_URL="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     caching.cache.clear()
     real_build = alerts.build_alert_board_payload
