@@ -33,7 +33,7 @@ A **status page** answers one question for one customer: "are we affected?". It 
 
 ### What the customer never sees
 
-Other customers, other customers' sites, your own equipment's names, IP addresses, roles, case numbers, who acknowledged what, and the reasons for maintenance. Only counts, unless you turn on [their own devices by name](#the-tenants-own-devices).
+Other customers, other customers' sites, your own equipment's names, IP addresses, roles, case numbers, who acknowledged what, and the reasons for maintenance. Only counts, unless you turn on [their own devices by name](#the-tenants-own-devices). Their [alarm mails](notifications.md#customers) say the same about a site as this page (#763).
 
 **Careful:** the customer's **description** and each **site's description** in Nautobot are shown. Keep internal notes out of both.
 

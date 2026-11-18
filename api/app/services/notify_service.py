@@ -40,6 +40,7 @@ from app.clients import http
 from app.core.settings import settings
 from app.db import aconnection
 from app.db import connection as db
+from app.services import inventory_service as inventory
 from app.services import itsm_service as itsm
 from app.services import status_service as status
 from app.utils import timeutil
@@ -314,8 +315,9 @@ async def customer_events(
     """``(address, payload, minutes)`` for each customer address to mail about *site*
     (#707): those of the active status tokens of the site's tenants (case-folded, as
     the status page matches them), one per address, with the shortest wait of its
-    tokens before an alarm (#729). The payload holds only what the customer's status
-    page shows: no devices, IPs, cases or board."""
+    tokens before an alarm (#729). The payload holds what the customer's status page
+    shows about the site, and only that (#763): ``status.tenant_site``, the page's own
+    entry, with its circuits; no IPs, roles, cases or board."""
     tenants = {tenant.strip().casefold(): tenant for tenant in status.site_tenants(site)}
     if not tenants:
         return []
@@ -349,11 +351,31 @@ async def customer_events(
     links = await _status_links(
         conn, sorted({t.casefold() for _, ts in addresses.values() for t in ts})
     )
+    # The row's level is the one it changed to; each tenant's page entry (#763).
+    row = {**site, "alert_level": to_level}
+    pages = {}
+    for tenant in sorted({t for _, ts in addresses.values() for t in ts}):
+        entry = status.tenant_site(row, tenant, changed_at)
+        if entry is not None:
+            entry["circuits"] = await _site_circuits(conn, tenant, row)
+        pages[tenant] = entry
     found = []
     for lowered, (spelled, its_tenants) in addresses.items():
-        event = customer_event(kind, from_level, to_level, site, changed_at, its_tenants, links)
+        event = customer_event(
+            kind, from_level, to_level, site, changed_at, its_tenants, links, pages
+        )
         found.append((spelled, json.dumps(event, sort_keys=True), waits[lowered]))
     return found
+
+
+async def _site_circuits(conn: aconnection.Connection, tenant: str, row: dict) -> list[dict]:
+    """The tenant's circuits at the site, as its status page lists them (#511, #763)."""
+    circuits = await inventory.read_tenant_circuits(conn, tenant)
+    if not circuits:
+        return []
+    where = {location for circuit in circuits for location in circuit.get("location_ids") or []}
+    parents = await inventory.read_location_parents(conn, where | {row.get("id") or ""})
+    return status.site_circuits([row], circuits, parents).get(row.get("id") or "", [])
 
 
 async def _status_links(conn: aconnection.Connection, keys: list[str]) -> dict[str, str]:
@@ -379,8 +401,11 @@ def customer_event(
     changed_at: str,
     tenants: list[str],
     links: dict[str, str],
+    pages: dict[str, dict | None] | None = None,
 ) -> dict:
-    """A customer mail's content (#707): the site, the change and the status page."""
+    """A customer mail's content (#707): the site, the change, what each of the
+    address's tenants sees about it on its status page (#763) and the page's link."""
+    pages = pages or {}
     site_id = site.get("id") or ""
     return {
         "id": hashlib.sha256(
@@ -396,6 +421,9 @@ def customer_event(
             "address": status.site_address(site),
         },
         "tenants": tenants,
+        # Each tenant's entry from its status page; a tenant with nothing monitored
+        # there has none.
+        "status": [{"tenant": t, **pages[t]} for t in tenants if pages.get(t)],
         "status_pages": [links[t.casefold()] for t in tenants if t.casefold() in links],
     }
 
@@ -525,25 +553,92 @@ def summary_lines(events: list[dict]) -> list[str]:
     return lines
 
 
+# The status page's words for a state (web/utils/status.ts STATE_LABELS, #763).
+STATE_LABEL = {
+    "operational": "Operational",
+    "degraded": "Degraded",
+    "outage": "Outage",
+    "maintenance": "Planned maintenance",
+    "unknown": "No data",
+}
+
+
+def customer_state(event: dict) -> str:
+    """The site's state in the page's words: the (first) tenant's, else the level's.
+    Mails queued before #763 have no "status": the board's level then."""
+    entries = event.get("status") or []
+    state = entries[0]["state"] if entries else status.STATES.get(event["level"], "unknown")
+    return STATE_LABEL.get(state, STATE_LABEL["unknown"])
+
+
 def customer_title(event: dict) -> str:
     site = event["site"]["name"] or event["site"]["id"]
-    level = LEVEL_LABEL.get(event["level"], event["level"])
+    state = customer_state(event)
     if event["type"] == "recovery":
-        return f"✅ {site} recovered (now {level})"
-    return f"🔴 {site} is {level}"
+        return f"✅ {site} recovered: {state}"
+    return f"🔴 {site}: {state}"
+
+
+def _count(total: int, down: int, word: str) -> str:
+    noun = word if total == 1 else f"{word}s"
+    return f"{down} of {total} {noun} down" if down else f"{total} {noun}"
+
+
+def site_devices(entry: dict) -> str:
+    """ "2 of 10 network devices down · 12 access points", as the page says it
+    (web/utils/status.ts siteDevices): nothing down in maintenance or without data."""
+    quiet = entry["state"] in ("maintenance", "unknown")
+    parts = [
+        _count(entry[total], 0 if quiet else entry[down], word)
+        for total, down, word in (
+            ("network_devices", "network_devices_down", "network device"),
+            ("access_points", "access_points_down", "access point"),
+        )
+        if entry[total]
+    ]
+    return " · ".join(parts)
+
+
+def _entry_lines(entry: dict) -> list[str]:
+    """One tenant's status page entry for the site, as lines (#763)."""
+    state = STATE_LABEL.get(entry["state"], STATE_LABEL["unknown"])
+    if entry.get("since"):
+        state += f" since {readable_time(entry['since'])}"
+    elif entry.get("until"):
+        state += f" until {readable_time(entry['until'])}"
+    lines = [f"Status: {state}"]
+    if entry.get("description"):
+        lines.append(f"About: {entry['description']}")
+    if devices := site_devices(entry):
+        lines.append(f"Devices: {devices}")
+    for device in entry.get("devices") or []:
+        when = f" since {readable_time(device['since'])}" if device.get("since") else ""
+        lines.append(f"  {device['name']}: {device['state']}{when}")
+    for circuit in entry.get("circuits") or []:
+        text = " · ".join(
+            part for part in (circuit["cid"], circuit["type"], circuit["bandwidth"]) if part
+        )
+        lines.append(f"Circuit: {text}")
+    return lines
 
 
 def customer_lines(event: dict) -> list[str]:
-    """A customer mail's body (#707): what their status page shows, nothing internal."""
+    """A customer mail's body (#707): what their status page shows about the site
+    (#763), nothing more."""
     lines = [f"Site: {event['site']['name'] or event['site']['id']}"]
     if event["site"]["address"]:
         lines.append(f"Address: {event['site']['address']}")
-    if event["tenants"]:
-        lines.append(f"Customer: {', '.join(event['tenants'])}")
-    lines.append(
-        f"Status: {LEVEL_LABEL.get(event['previous_level'], event['previous_level'])} → "
-        f"{LEVEL_LABEL.get(event['level'], event['level'])}"
-    )
+    entries = event.get("status") or []
+    for entry in entries:
+        if len(event["tenants"]) > 1:
+            lines += ["", f"Customer: {entry['tenant']}"]
+        elif event["tenants"]:
+            lines.append(f"Customer: {entry['tenant']}")
+        lines += _entry_lines(entry)
+    if not entries:
+        if event["tenants"]:
+            lines.append(f"Customer: {', '.join(event['tenants'])}")
+        lines.append(f"Status: {customer_state(event)}")
     lines.append(f"Time: {readable_time(event['changed_at'])}")
     lines += _status_page_lines(event["status_pages"])
     return lines
@@ -557,9 +652,10 @@ def customer_summary_lines(events: list[dict]) -> list[str]:
     lines = []
     for event in events:
         site = event["site"]["name"] or event["site"]["id"]
-        level = LEVEL_LABEL.get(event["level"], event["level"])
         mark = "✅" if event["type"] == "recovery" else "🔴"
-        lines.append(f"{mark} {site}: {level} ({readable_time(event['changed_at'])})")
+        devices = "; ".join(filter(None, (site_devices(e) for e in event.get("status") or [])))
+        line = f"{mark} {site}: {customer_state(event)} ({readable_time(event['changed_at'])})"
+        lines.append(f"{line} · {devices}" if devices else line)
     pages = sorted({page for event in events for page in event["status_pages"]})
     return lines + _status_page_lines(pages)
 
