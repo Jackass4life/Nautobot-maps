@@ -3,8 +3,15 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 # The demo's mock Nautobot (demo/mock_nautobot.py), for the tests ported from the current app.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "demo"))
+
+# Every setting, as the code had them before #760 (it has no defaults now): what the
+# environment doesn't set. In the environment, so they win over a developer's api/.env.
+for _name, _value in dotenv_values(Path(__file__).resolve().parents[1] / "local.env").items():
+    os.environ.setdefault(_name, _value or "")
 
 # Its own variable: TEST_DATABASE_URL is the current app's test database (#588).
 TEST_DATABASE_URL = os.environ.get(

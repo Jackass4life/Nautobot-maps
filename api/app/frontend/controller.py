@@ -39,7 +39,7 @@ def shell(headers: dict | None = None) -> Response:
     """Nuxt's page for any of its routes; always asked again (``no-cache``), so a new
     build shows at once. *headers*: more of them (the status page's no-referrer)."""
     page = build_dir() / "200.html"
-    if not page.is_file():
+    if not settings.WEB_BUILD_DIR or not page.is_file():
         return HTMLResponse(NOT_BUILT, status_code=503)
     return HTMLResponse(
         page.read_text(encoding="utf-8"),
@@ -49,6 +49,8 @@ def shell(headers: dict | None = None) -> Response:
 
 @router.get(ASSETS_PREFIX + "{path:path}", dependencies=[Depends(public)])
 def asset(request: Request, path: str) -> Response:
+    if not settings.WEB_BUILD_DIR:
+        return Response(status_code=404)
     return files.send(request, build_dir() / "_nuxt", path, max_age=ASSET_MAX_AGE)
 
 

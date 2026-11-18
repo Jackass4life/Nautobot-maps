@@ -97,9 +97,9 @@ docker compose up --build -d
 
 - **The database:** the bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` (and the same password in `NAUTOBOT_MAPS_DATABASE_URL`) before the first start: it is fixed when the data volume is created.
 - **Settings:** every setting is in [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
-- **Everything is in `.env`** (#739): every container reads it, and the compose files set nothing. The wireless controllers and criticality rules are JSON in their setting, a company CA is its text (`EXTRA_CA_PEM`); no other files. It holds the passwords: `chmod 600 .env` ([how .env works](docs/configuration.md#how-env-works)).
+- **Everything is in `.env`** (#739): every container reads it, and the compose files set nothing. The API has no defaults (#760): `.env.example` has every setting, and the API won't start while one is missing. The wireless controllers and criticality rules are JSON in their setting, a company CA is its text (`EXTRA_CA_PEM`); no other files. It holds the passwords: `chmod 600 .env` ([how .env works](docs/configuration.md#how-env-works)).
 - **Two containers:** `api` (the API) and `web` (the pages, on port 5000; it passes the API's paths on to `api`). Commands run in `api`: `docker compose exec api python -m app <command>` (`token create`, `status-link`, `wireless-check`, `migrate`).
-- **Without Docker** (for development): build the pages once with [bun](https://bun.sh) 1.4 (`cd web && bun install && bun run generate`), then `cd api && uv sync && uv run python run.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Without Docker** (for development): build the pages once with [bun](https://bun.sh) 1.4 (`cd web && bun install && bun run generate`), then `cd api && cp local.env .env && uv sync && uv run python run.py` (`local.env`: every setting, for this machine). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Add what you need
 

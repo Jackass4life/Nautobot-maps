@@ -22,7 +22,7 @@ docker compose -f development/docker-compose.yml up -d --wait
 uv run --project api python development/seed_nautobot.py
 
 # 3. (Optional) Start nautobot-maps (api + web) alongside Nautobot; their settings are
-#    in development/maps.env
+#    in development/maps.env (the API reads api/local.env first: every setting, #760)
 docker compose -f development/docker-compose.yml --profile full up -d
 
 # 4. Run integration tests against the real Nautobot
