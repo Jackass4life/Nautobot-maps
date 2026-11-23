@@ -616,7 +616,9 @@ jobs:
           # --progress=plain: -q drops the step's own output, the reason.
           if (cd reverse-proxy && docker build --progress=plain --build-arg "DOMAIN=localhost; return 200" . > /tmp/bad-domain.log 2>&1); then exit 1; fi
           grep -q "DOMAIN must be set, without spaces" /tmp/bad-domain.log
-          if docker run --rm nautobot-maps-reverse-proxy:ci > /tmp/no-settings.log 2>&1; then exit 1; fi
+          # The certificate mounted (it is never in the image, #768), the settings not.
+          if docker run --rm -v "$PWD/reverse-proxy/certs:/etc/nginx/ssl:ro" nautobot-maps-reverse-proxy:ci \
+              > /tmp/no-settings.log 2>&1; then exit 1; fi
           tail -n 3 /tmp/no-settings.log
           grep -q "set AUTH_PROXY_SECRET OIDC_ISSUER_URL" /tmp/no-settings.log
 
