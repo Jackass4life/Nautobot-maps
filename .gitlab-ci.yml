@@ -1,0 +1,40 @@
+# GitLab CI (#765): the same tests as GitHub's api, web and e2e jobs, from
+# scripts/ci/test.sh, on a shell runner tagged `shell`.  The runner's one-time setup
+# (Docker or TEST_PG_URL, Chromium's system libraries, outbound HTTPS): CONTRIBUTING.md,
+# "CI on GitLab".  Free ports per job: two pipelines can share a runner.
+stages: [Test]
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  BUN_INSTALL_CACHE_DIR: "$CI_PROJECT_DIR/.cache/bun"
+
+.test:
+  stage: Test
+  tags: [shell]
+  before_script:
+    # uv and bun at the versions in api/pyproject.toml and web/package.json, into
+    # ~/.local/bin and ~/.bun the first time.
+    - scripts/ci/test.sh setup
+  cache:
+    key:
+      files: [api/uv.lock, web/bun.lock]
+    paths: [.cache/uv, .cache/bun]
+
+API Tests:
+  extends: .test
+  script: [scripts/ci/test.sh api]
+  artifacts:
+    when: always
+    reports:
+      codequality: api/ruff-codequality.json
+
+Web Tests:
+  extends: .test
+  script: [scripts/ci/test.sh web]
+
+End-To-End Tests:
+  extends: .test
+  script: [scripts/ci/test.sh e2e]
+  artifacts:
+    when: on_failure
+    paths: [app.log, mock.log]

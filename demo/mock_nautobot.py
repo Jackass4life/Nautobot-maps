@@ -17,6 +17,7 @@ Token auth: any request must carry  Authorization: Token <any non-empty value>
 
 Environment (docs/configuration.md, "Not in .env"): MOCK_SCALE=1200 adds that many
 generated sites (demo/README.md); MOCK_AP_DHCP=1 drops the access points' primary IPs.
+MOCK_HOST / MOCK_PORT: where it listens (default 0.0.0.0:8080).
 """
 
 import os
@@ -1341,4 +1342,6 @@ def api_root(request: Request):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="warning")
+    # MOCK_HOST / MOCK_PORT: CI's own, on a shared runner (#765).
+    host = os.environ.get("MOCK_HOST") or "0.0.0.0"
+    uvicorn.run(app, host=host, port=int(os.environ.get("MOCK_PORT") or 8080), log_level="warning")

@@ -54,6 +54,7 @@ Two kinds of work happen in the API:
 | `e2e/` | Playwright tests that use the real pages in Chromium |
 | `demo/` | A fake Nautobot (`mock_nautobot.py`) to run the app without a real one |
 | `development/` | A real Nautobot 3.x (and a test Active Directory) in Docker, for integration tests |
+| `scripts/ci/` | `scripts/ci/test.sh`: the API, page and browser tests as CI runs them, on GitHub, GitLab or your machine |
 | `docs/` | These guides; the app shows them under **Documentation** |
 
 ## The API, module by module
@@ -242,7 +243,7 @@ After changing the API, regenerate the types: `uv run python scripts/generate_op
 |---|---|---|
 | `api/tests/` | The API's rules, with a real PostgreSQL | `uv run pytest` in `api/` |
 | `web/tests/` | The pages' logic (`web/utils/`) | `bun run test` in `web/` |
-| `e2e/` | The real pages in Chromium, against the fake Nautobot | see [Contributing](../CONTRIBUTING.md) |
+| `e2e/` | The real pages in Chromium, against the fake Nautobot | `scripts/ci/test.sh e2e`, or see [Contributing](../CONTRIBUTING.md) |
 | `reverse-proxy/ci/` | The proxy with real nginx | in CI |
 
 A few rules the code follows, which the tests rely on:

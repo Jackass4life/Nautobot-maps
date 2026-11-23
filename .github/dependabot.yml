@@ -65,6 +65,9 @@ updates:
       # goes with CI's bun-version and web/package.json's packageManager.
       - dependency-name: oven/bun
         update-types: [version-update:semver-major]
+      # uv: one version everywhere (#765), api/pyproject.toml's required-version,
+      # bumped by hand with the devcontainer's.
+      - dependency-name: "*astral-sh/uv"
       # nginx follows its stable line (1.28, even minor versions); a new one is
       # a deliberate change, tested with reverse-proxy/ci (#423).
       - dependency-name: nginx
