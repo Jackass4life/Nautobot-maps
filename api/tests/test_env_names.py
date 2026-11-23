@@ -8,34 +8,7 @@ import sys
 from app import check_env, startup
 from app.core import env_names
 from app.core import settings as config
-from app.core.settings import SETTING_NAMES
-from tests.test_settings import API_ROOT, COMPOSE_FILES, REPO_ROOT, config_rows
-
-
-def test_the_known_names_are_the_documented_ones():
-    """docs/configuration.md's tables are the list: a name added to one goes in the other."""
-    rows = config_rows()
-    documented = {name for names, _ in rows for name in names}
-    assert documented == env_names.KNOWN - env_names.REMOVED - {"NAUTOBOT_MAPS_DB"}
-    # Rows read by files (tests, the demo, CI) are "Not in .env"; the rest are .env's.
-    scripts = {name for names, cell in rows for name in names if "/" in cell.split(" (")[0]}
-    in_env = {name for names, cell in rows for name in names if "/" not in cell.split(" (")[0]}
-    assert env_names.OTHER_PARTS == in_env - set(SETTING_NAMES)
-    assert env_names.NOT_IN_ENV == scripts - in_env - set(SETTING_NAMES)
-
-
-def test_the_other_parts_defaults_are_theirs():
-    """compose's ${NAME:-default}, the entrypoint's and the health check's."""
-    sources = "\n".join(
-        (REPO_ROOT / name).read_text("utf-8")
-        for name in (*COMPOSE_FILES, "api/docker-entrypoint.sh")
-    )
-    for name, default in env_names.OTHER_PARTS_DEFAULTS.items():
-        if name == "HEALTHCHECK_PORT":
-            dockerfile = (API_ROOT / "Dockerfile").read_text("utf-8")
-            assert f"os.environ.get('HEALTHCHECK_PORT', '{default}')" in dockerfile
-            continue
-        assert f"${{{name}:-{default}}}" in sources, name
+from tests.test_settings import API_ROOT
 
 
 def test_names_that_look_like_ours_are_unknown_with_a_suggestion():

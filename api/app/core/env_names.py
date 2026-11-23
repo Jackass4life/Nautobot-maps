@@ -4,8 +4,8 @@ Every container gets the whole ``.env``; the API's settings are ``Settings``' fi
 the rest are read by the other containers, by ``docker compose`` itself, or only by
 tests, the demo and CI. A name nothing reads is a leftover or a typo: the API warns
 at startup about those that look like ours (``unknown()``), and ``python -m
-app.check_env`` lists every one in a file. docs/configuration.md documents each name
-(tests/test_env_names.py keeps the two the same).
+app.check_env`` lists every one in a file. docs/configuration.md documents each name;
+add a new one to both.
 """
 
 import difflib

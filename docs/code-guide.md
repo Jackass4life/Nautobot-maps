@@ -261,7 +261,7 @@ A few rules the code follows, which the tests rely on:
 1. Add a field to `Settings` in `api/app/core/settings.py`, with a comment.
 2. Document it in `docs/configuration.md` and `.env.example`. The compose files pass nothing themselves: every container reads `.env`. A name another part reads (compose, nginx, the web container) goes in `OTHER_PARTS` in `api/app/core/env_names.py` too, or the API warns that nothing reads it.
 
-`api/tests/test_settings.py` fails until both are done.
+Add it to `api/local.env` too: the tests start from it, and the API has no defaults.
 
 **…add an API route.**
 1. Pick the section folder in `api/app/v1/`.
