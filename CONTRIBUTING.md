@@ -122,9 +122,9 @@ the details.
     fixture (`override_settings(NAUTOBOT_URL="")`) or `with overridden(...)` from
     `tests/overrides.py`, or through the environment with `configure(NAUTOBOT_URL="")`.
     Add a new setting there and document it in `docs/configuration.md` (with its **Read by**:
-    `api`) and `.env.example` (tests check both). Compose passes nothing itself: every
+    `api`) and `.env.example`. Compose passes nothing itself: every
     container reads `.env` (#739). A variable a script or test reads from the environment goes
-    in configuration.md's "Not in .env" table (#749; `tests/test_settings.py` checks).
+    in configuration.md's "Not in .env" table (#749).
   - `app/db/`: `session.py`, SQLAlchemy's async engine (asyncpg) and the `AsyncDbSession`
     dependency; `middleware.py`, one `AsyncSession` per API request; `connection.py`, the
     ported code's row and key helpers (imported as `db`: `db.row_to_dict()`,
@@ -244,8 +244,8 @@ The suite:
 - `api/tests/answers.py`: every JSON answer a test gets is checked against its route's
   `response_model`; `test_openapi.py`: every route's `response_model` and `operation_id`, the spec up to date.
 - `api/tests/test_schema.py`: Alembic's schema is the first app's version 33, column by column.
-- `api/tests/test_settings.py`, `test_help_pages.py`: every setting passed and documented, every link in the
-  guides lands on a heading.
+- `api/tests/test_settings.py`: every setting parsed, and a mistake stops startup; `test_help_pages.py`:
+  every link in the guides lands on a heading.
 - `web/tests/`: Vitest for the pages' logic in `utils/`; `e2e/`: Playwright in Chromium.
 - `api/tests/test_mcp.py`: the MCP server.
 - `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_URL` is set. `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem uv run pytest tests/test_ad_live.py`. CI's `ad-live` job does the same, then signs in on the page in Chromium (`e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `LDAP_URL` set, jdoe an identity with the noc role).

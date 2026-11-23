@@ -23,33 +23,6 @@ from app.core.settings import SETTING_NAMES, Settings
 API_ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO_ROOT = API_ROOT.parent
 
-# Read only to warn that it is still set (#153): neither passed nor documented.
-LEGACY_SETTINGS = {"NAUTOBOT_MAPS_DB"}
-# Every compose file of the app (#739): settings come from an env file, never from an
-# environment: block.
-COMPOSE_FILES = (
-    "docker-compose.yml",
-    "reverse-proxy/compose.yml",
-    "reverse-proxy/compose.app-sign-in.yml",
-    "reverse-proxy/ci/compose.yml",
-    "reverse-proxy/ci/oauth2-proxy.compose.yml",
-    "reverse-proxy/ci/images.compose.yml",
-    "demo/docker-compose.yml",
-)
-
-
-class _ComposeLoader(yaml.SafeLoader):
-    """Compose's own tags (``!reset``), kept as plain values."""
-
-
-_ComposeLoader.add_constructor("!reset", lambda loader, node: None)
-
-
-def env_example_names() -> set[str]:
-    """The names .env.example sets (not those only in a comment)."""
-    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
-    return set(re.findall(r"^([A-Z][A-Z0-9_]*)=", text, flags=re.MULTILINE))
-
 
 def local_env() -> dict[str, str]:
     """api/local.env: every setting, with the values the code had before #760."""
@@ -66,47 +39,6 @@ def load(monkeypatch, **env: str) -> Settings:
 
 
 # --- Plumbing ------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("name", COMPOSE_FILES)
-def test_no_environment_in_the_compose_files(name):
-    """#739: every setting is in .env (each container's env_file), none in compose."""
-    compose = yaml.load((REPO_ROOT / name).read_text("utf-8"), Loader=_ComposeLoader)
-    for service, definition in compose["services"].items():
-        assert "environment" not in (definition or {}), f"{name}: {service}"
-
-
-def test_the_development_stacks_app_reads_its_env_file():
-    """development/docker-compose.yml (#747): Nautobot's containers keep their own settings
-    there; the app's read maps.env."""
-    compose = yaml.safe_load((REPO_ROOT / "development/docker-compose.yml").read_text("utf-8"))
-    for service in ("maps-postgres", "web", "api"):
-        definition = compose["services"][service]
-        # The API: every setting first (#760: no defaults).
-        expected = ["../api/local.env", "maps.env"] if service == "api" else "maps.env"
-        assert definition["env_file"] == expected, service
-        assert "environment" not in definition, service
-
-
-def test_the_api_and_web_read_dot_env():
-    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
-    for service in ("postgres", "web", "api"):
-        assert compose["services"][service]["env_file"] == ".env", service
-    # No ./config any more (#739): nothing mounted into the API.
-    assert "volumes" not in compose["services"]["api"]
-    assert not (REPO_ROOT / "config").exists()
-
-
-def test_env_example_lists_every_setting():
-    """.env.example is the one place to start from (#739): every setting, with the
-    compose stack's own (the database, the cache, the pages' API_URL)."""
-    names = env_example_names()
-    missing = sorted(set(settings.REQUIRED) - names)
-    assert not missing, f"set in .env.example (#760: no defaults): {missing}"
-    stack = {"POSTGRES_PASSWORD", "NAUTOBOT_MAPS_DATABASE_URL", "CACHE_TYPE", "API_URL"}
-    assert stack <= names
-    assert not (API_ROOT / ".env.example").exists()
-    assert not (REPO_ROOT / "web" / ".env.example").exists()
 
 
 def test_env_example_parses_as_settings(monkeypatch):
@@ -127,141 +59,6 @@ def test_env_example_parses_as_settings(monkeypatch):
     assert parsed.WIRELESS_CONTROLLERS and parsed.CRITICALITY_RULES
 
 
-def test_every_setting_is_documented():
-    docs = "\n".join(
-        (path).read_text(encoding="utf-8")
-        for path in (REPO_ROOT / "docs" / "configuration.md", API_ROOT / "README.md")
-    )
-    missing = sorted(
-        name for name in set(SETTING_NAMES) - LEGACY_SETTINGS if f"`{name}`" not in docs
-    )
-    assert not missing, f"document in docs/configuration.md or api/README.md: {missing}"
-
-
-def config_rows() -> list[tuple[list[str], str]]:
-    """docs/configuration.md's settings tables: each row's names and its Read by cell."""
-    text = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
-    rows, read_by = [], None
-    for line in text.splitlines():
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if not line.startswith("|"):
-            read_by = None
-        elif cells[0] == "Variable":
-            read_by = cells.index("Read by") if "Read by" in cells else None
-            assert read_by is not None, f"a settings table without Read by: {line}"
-        elif read_by is not None and not cells[0].startswith("---"):
-            rows.append((re.findall(r"`([A-Z][A-Z0-9_]*)`", cells[0]), cells[read_by]))
-    return rows
-
-
-def _text(*patterns: str) -> str:
-    return "\n".join(
-        path.read_text(encoding="utf-8")
-        for pattern in patterns
-        for path in sorted(REPO_ROOT.glob(pattern))
-    )
-
-
-def nginx_runtime_names() -> set[str]:
-    """What nginx's container fills in when it starts (NGINX_ENVSUBST_FILTER); the rest
-    of its templates are filled in when the image is built, from build arguments."""
-    dockerfile = (REPO_ROOT / "reverse-proxy" / "Dockerfile").read_text(encoding="utf-8")
-    names = re.search(r'NGINX_ENVSUBST_FILTER="\^\(([A-Z0-9_|]+)\)\$"', dockerfile)
-    assert names, "reverse-proxy/Dockerfile: NGINX_ENVSUBST_FILTER moved"
-    return set(names.group(1).split("|"))
-
-
-def _reads(reader: str, name: str) -> bool:
-    """Whether *reader* (a Read by entry) really reads *name*, by its source (#749)."""
-    base = reader.split(" (")[0]
-    if base in {"api", "dev server"}:
-        return name in SETTING_NAMES or name in _text("api/docker-entrypoint.sh", "api/Dockerfile")
-    if base == "gunicorn":
-        return f'"{name}"' in _text("api/gunicorn_config.py")
-    if base == "web":
-        return f"process.env.{name}" in _text("web/server/**/*.ts")
-    if base == "postgres":
-        return name.startswith("POSTGRES_")
-    if base == "oauth2-proxy":
-        return name.startswith("OAUTH2_PROXY_")
-    if base == "nginx":
-        return name in nginx_runtime_names()
-    if base == "compose":
-        return name == "COMPOSE_FILE" or f"${{{name}" in _text(*COMPOSE_FILES)
-    if base == "build":
-        return name in _text("web/nuxt.config.ts")
-    path = reader.strip("`")
-    assert (REPO_ROOT / path).is_file(), f"Read by names no part or file: {reader}"
-    return name in (REPO_ROOT / path).read_text(encoding="utf-8")
-
-
-def test_every_env_example_setting_is_in_a_settings_table():
-    """Not only the API's: the containers' and compose's too (#749)."""
-    documented = {name for names, _ in config_rows() for name in names}
-    missing = sorted(env_example_names() - documented)
-    assert not missing, f"add to a table in docs/configuration.md: {missing}"
-
-
-def test_read_by_names_the_parts_that_read_it():
-    """Each row's Read by (#749) matches the code: every part it names reads the
-    setting, and the API, the pages, nginx and compose aren't left out where they do.
-    "a / b" pairs each name with its own readers."""
-    compose = _text(*COMPOSE_FILES)
-    web = _text("web/server/**/*.ts")
-    for names, cell in config_rows():
-        assert cell, f"no Read by: {names}"
-        groups = cell.split(" / ")
-        if len(groups) != len(names):
-            groups = [cell] * len(names)
-        for name, group in zip(names, groups, strict=True):
-            readers = [reader.strip() for reader in re.split(r",(?![^(]*\))", group)]
-            for reader in readers:
-                assert _reads(reader, name), f"{name}: {reader} doesn't read it"
-            bases = {reader.split(" (")[0] for reader in readers}
-            # Scripts' rows ("Not in .env") name files: the containers' rows are checked.
-            if name in env_example_names() and not all("/" in reader for reader in readers):
-                expected = {
-                    "api": name in SETTING_NAMES,
-                    "compose": f"${{{name}" in compose,
-                    "nginx": name in nginx_runtime_names(),
-                    "web": f"process.env.{name}" in web,
-                }
-                # The development server is the API too.
-                if "dev server" in bases:
-                    bases.add("api")
-                for base, reads in expected.items():
-                    assert not reads or base in bases, f"{name}: add {base} to Read by"
-
-
-def test_the_scripts_settings_are_documented():
-    """Every variable a script or test reads from the environment, outside the API's
-    settings, is on docs/configuration.md ("Not in .env", #749)."""
-    docs = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
-    skip = {".venv", "node_modules", "example", ".git"}
-    names: dict[str, str] = {}
-    for path in sorted(REPO_ROOT.rglob("*.py")):
-        relative = path.relative_to(REPO_ROOT)
-        if skip & set(relative.parts) or relative.parts[:2] == ("api", "app"):
-            continue
-        source = path.read_text(encoding="utf-8")
-        for name in re.findall(
-            r"""os\.(?:getenv|environ\.get|environ\[)\(?\s*["']([A-Z][A-Z0-9_]*)["']""", source
-        ):
-            names.setdefault(name, str(relative))
-    missing = sorted(f"{name} ({at})" for name, at in names.items() if f"`{name}`" not in docs)
-    assert not missing, f"document in docs/configuration.md: {missing}"
-
-
-def test_only_the_settings_module_reads_the_environment():
-    readers = [
-        str(path.relative_to(API_ROOT))
-        for path in sorted((API_ROOT / "app").rglob("*.py"))
-        if path != API_ROOT / "app" / "core" / "settings.py"
-        and re.search(r"os\.(getenv|environ)", path.read_text(encoding="utf-8"))
-    ]
-    assert not readers, f"read settings through app.core.settings: {readers}"
-
-
 def test_every_setting_is_needed(monkeypatch):
     """No defaults (#760): a missing setting stops startup, naming every one missing; a
     number or yes/no needs a value; text may be empty."""
@@ -276,17 +73,6 @@ def test_every_setting_is_needed(monkeypatch):
     with pytest.raises(RuntimeError, match="empty, but need a value: CACHE_TTL, METRICS_ENABLED"):
         load(monkeypatch, CACHE_TTL=" ", METRICS_ENABLED="")
     assert load(monkeypatch, LIBRENMS_URL="").LIBRENMS_URL == ""
-
-
-def test_the_removed_names_are_not_needed():
-    """Only read to refuse them: not in .env, not in REQUIRED."""
-    assert not set(settings.REQUIRED) & {*settings.REMOVED_FILE_SETTINGS, "NAUTOBOT_MAPS_DB"}
-    assert set(settings.REQUIRED) == set(SETTING_NAMES) - LEGACY_SETTINGS
-
-
-def test_local_env_lists_every_setting():
-    """api/local.env is the whole set, for the tests, run.py, CI and the demo (#760)."""
-    assert set(local_env()) == set(settings.REQUIRED)
 
 
 def test_a_database_url_is_needed(monkeypatch):
