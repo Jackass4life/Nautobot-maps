@@ -20,6 +20,9 @@ import urllib.request
 import pytest
 
 BASE_URL = os.getenv("E2E_BASE_URL", "").rstrip("/")
+if not BASE_URL and os.getenv("E2E_REQUIRED") == "1":
+    # CI (#765): no app to test is a failure there, not a green run of skips.
+    pytest.fail("E2E_REQUIRED=1 but E2E_BASE_URL is not set", pytrace=False)
 if not BASE_URL:
     pytest.skip("E2E_BASE_URL not set: start the app and point the e2e tests at it", allow_module_level=True)
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright

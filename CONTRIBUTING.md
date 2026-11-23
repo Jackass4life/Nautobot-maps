@@ -45,6 +45,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    export E2E_CUSTOMER_TOKEN="$(cd api && uv run python -m app token create e2e-customer --role customer --expires-days 1 | head -n 1)"
    E2E_BASE_URL=http://127.0.0.1:5055 uv run --project api python -m pytest e2e/ -v
    ```
+   Or run what CI runs, the same script GitHub Actions and GitLab CI call (#765): `scripts/ci/test.sh api|web|e2e|all`. It starts PostgreSQL in Docker, or uses `TEST_PG_URL=postgresql://user:password@host:port` (it creates and drops its own databases there), picks free ports for the mock and the app, and reads every setting from `api/local.env` into its environment (your `api/.env` is not touched). See [CI](#ci).
 5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
 6. **Submit** a pull request against `main` with a clear description of the change.
 
@@ -250,6 +251,21 @@ The suite:
 - `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_URL` is set. `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem uv run pytest tests/test_ad_live.py`. CI's `ad-live` job does the same, then signs in on the page in Chromium (`e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `LDAP_URL` set, jdoe an identity with the noc role).
 - `api/tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
+
+### CI
+
+`scripts/ci/test.sh` (#765) holds the api, web and e2e tests; GitHub Actions (`.github/workflows/ci.yml`) and GitLab CI (`.gitlab-ci.yml`) only install the tools and call it, so a local run does the same. Every check of a part runs even after one fails, and the part then fails; on GitHub a failed check is an annotation and a line in the job summary, on GitLab ruff's findings show in the merge request (Code Quality). GitHub's other jobs (lint, audit, the live integrations, the images and the proxy) are GitHub-only.
+
+The tools' versions are in one place each: uv in `api/pyproject.toml` (`required-version`; also `api/Dockerfile` and `.devcontainer/devcontainer.json`, bumped together), bun in `web/package.json` (`packageManager`), Python in `api/.python-version`, Playwright in `api/uv.lock`.
+
+**CI on GitLab** needs a shell runner tagged `shell`, set up once:
+
+- `curl`, `git`, `unzip` and `procps`.
+- PostgreSQL: Docker, with the `gitlab-runner` user in the `docker` group (that is root on the runner's host: give it a host of its own), or a server for the runner's CI variable `TEST_PG_URL` (`postgresql://user:password@host:port`, a user that may create databases; the jobs create and drop their own).
+- Chromium's system libraries, as root: `sudo "$(command -v uv)" run --project api --group e2e python -m playwright install-deps chromium` in a checkout (or set `PLAYWRIGHT_WITH_DEPS=1` when the runner may use sudo).
+- Outbound HTTPS to astral.sh and github.com (uv), bun.sh (bun), pypi.org and files.pythonhosted.org, registry.npmjs.org, cdn.playwright.dev and playwright.download.prss.microsoft.com (Chromium), and Docker Hub for `postgres:16-alpine`. Behind a proxy: `HTTPS_PROXY` and the company CA (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`) in the runner's environment.
+
+The first pipeline installs uv and bun into the runner user's `~/.local/bin` and `~/.bun`; later ones find them there. Each job uses free ports and its own databases, so two pipelines can run on one runner at once.
 
 ### Screenshots
 

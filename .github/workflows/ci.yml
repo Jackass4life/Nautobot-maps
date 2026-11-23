@@ -35,6 +35,11 @@ jobs:
         if: success() || failure()
         run: uv run --project api --locked ruff format --check --diff .
 
+      - name: Shell scripts (#765)
+        # shellcheck is on GitHub's runners.
+        if: success() || failure()
+        run: shellcheck scripts/ci/*.sh
+
       - name: No committed dependencies
         # node_modules is git-ignored; a `git add -A` after an install once
         # committed 941 files of it (#189).
@@ -47,70 +52,27 @@ jobs:
   # -----------------------------------------------------------------------
   api:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: api
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: api_test
-          POSTGRES_USER: api
-          POSTGRES_PASSWORD: api
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U api -d api_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-    env:
-      DATABASE_URL: "postgresql://api:api@127.0.0.1:5432/api_test"
-      API_TEST_DATABASE_URL: "postgresql://api:api@127.0.0.1:5432/api_test"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up uv
+        # The version: api/pyproject.toml's required-version.
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           working-directory: api
           enable-cache: true
 
-      - name: Install
-        # --locked: fails if uv.lock doesn't match pyproject.toml.
-        run: uv sync --locked
-
-      - name: Ruff lint
-        run: uv run ruff check --output-format=github .
-
-      - name: Ruff format
-        if: success() || failure()
-        run: uv run ruff format --check --diff .
-
-      - name: Every setting, from api/local.env (#760)
-        # The API has no defaults: anything that imports it needs every setting. The
-        # job's env above wins over the file.
-        run: cp local.env .env
-
-      - name: Migrations apply
-        if: success() || failure()
-        run: uv run alembic upgrade head
-
-      - name: Tests
-        if: success() || failure()
-        run: uv run pytest -v
+      # PostgreSQL in Docker, ruff, migrations, pytest: scripts/ci/test.sh (#765),
+      # the same as GitLab's job and a local run.
+      - name: Ruff, migrations and tests
+        run: scripts/ci/test.sh api
 
   # -----------------------------------------------------------------------
-  # The new frontend, web/ (#572): API types current, types, build.
+  # The new frontend, web/ (#572): API types current, types, lint, tests, build.
   # -----------------------------------------------------------------------
   web:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,38 +82,8 @@ jobs:
         with:
           bun-version-file: web/package.json
 
-      - name: Install
-        # Install scripts don't run; `nuxt prepare` makes the generated types.
-        # --bun everywhere: the tools run on bun, as in the image (#635).
-        run: |
-          bun install --frozen-lockfile --ignore-scripts
-          bun --bun x nuxt prepare
-
-      - name: The API types match web/api/openapi.json
-        # The api job checks openapi.json is the API's spec.
-        run: |
-          bun --bun run api:generate
-          git diff --exit-code api/api.schema.ts
-
-      - name: Types
-        if: success() || failure()
-        run: bun --bun run type:check
-
-      - name: Lint (#609)
-        if: success() || failure()
-        run: bun --bun run lint
-
-      - name: Formatting (#669)
-        if: success() || failure()
-        run: bun --bun run format:check
-
-      - name: Unit tests (vitest, #609)
-        if: success() || failure()
-        run: bun --bun run test
-
-      - name: Static build (no inline scripts, #594)
-        if: success() || failure()
-        run: bun --bun run generate
+      - name: API types, types, lint, formatting, unit tests and static build
+        run: scripts/ci/test.sh web
 
   # -----------------------------------------------------------------------
   # Known vulnerabilities in the locked dependencies (#186)
@@ -195,84 +127,33 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: nautobot_maps
-          POSTGRES_USER: nautobot_maps
-          POSTGRES_PASSWORD: nautobot_maps
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U nautobot_maps -d nautobot_maps"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-    env:
-      NAUTOBOT_URL: "http://127.0.0.1:8080"
-      NAUTOBOT_TOKEN: "demo-token"
-      NAUTOBOT_MAPS_DATABASE_URL: "postgresql://nautobot_maps:nautobot_maps@127.0.0.1:5432/nautobot_maps"
-      FLASK_RUN_PORT: "5055"
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up uv
+        # The version: api/pyproject.toml's required-version.
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           working-directory: api
           enable-cache: true
-
-      - name: Install the API, Playwright and Chromium
-        working-directory: api
-        run: |
-          uv sync --locked --group e2e
-          uv run python -m playwright install --with-deps chromium
 
       - name: Set up bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: web/package.json
 
-      - name: Build the pages (#609)
-        working-directory: web
-        run: |
-          bun install --frozen-lockfile --ignore-scripts
-          bun --bun run generate
+      - name: The app on the mock Nautobot, then the browser tests
+        run: scripts/ci/test.sh e2e
 
-      - name: Start the mock Nautobot and the app (#613)
-        run: |
-          # Every setting (#760: no defaults); the job's env wins over the file.
-          cp api/local.env api/.env
-          uv run --project api python demo/mock_nautobot.py > mock.log 2>&1 &
-          (cd api && uv run python -m app migrate)
-          (cd api && uv run python run.py) > app.log 2>&1 &
-          # Ready when the first inventory sync has filled the board.
-          for attempt in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:5055/api/v1/alerts | grep -q '"name"'; then exit 0; fi
-            sleep 1
-          done
-          echo "The app did not become ready within 60s" >&2
-          exit 1
-
-      - name: Run end-to-end tests
-        # Maintenance needs the operator role (#343): a token for the tests that plan some.
-        run: |
-          export E2E_OPERATOR_TOKEN="$(cd api && uv run python -m app token create e2e --role operator --expires-days 1 | head -n 1)"
-          # The Admin page and sharing a status page need the admin role (#530).
-          export E2E_ADMIN_TOKEN="$(cd api && uv run python -m app token create e2e-admin --role admin --expires-days 1 | head -n 1)"
-          # Each role's workspace (#697).
-          export E2E_NOC_TOKEN="$(cd api && uv run python -m app token create e2e-noc --role noc --expires-days 1 | head -n 1)"
-          export E2E_CUSTOMER_TOKEN="$(cd api && uv run python -m app token create e2e-customer --role customer --expires-days 1 | head -n 1)"
-          uv run --project api python -m pytest e2e/ -v
-        env:
-          E2E_BASE_URL: "http://127.0.0.1:5055"
-
-      - name: App and mock logs on failure
+      - name: App and mock logs
         if: failure()
-        run: tail -n 200 app.log mock.log
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-logs
+          path: |
+            app.log
+            mock.log
+          if-no-files-found: ignore
 
   # -----------------------------------------------------------------------
   # Integration tests against a real Nautobot 3.x instance

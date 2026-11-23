@@ -38,6 +38,9 @@ e2e = [
 
 [tool.uv]
 package = false
+# The uv every place uses (#765): CI (setup-uv and scripts/ci/test.sh read it here),
+# api/Dockerfile and the devcontainer.  Bump all three together.
+required-version = "==0.13.7"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
