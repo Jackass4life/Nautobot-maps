@@ -595,6 +595,7 @@ jobs:
 
       - name: What each image holds
         run: |
+          set -x
           # The certs context's CA is trusted by outgoing HTTPS.
           docker run --rm --entrypoint python nautobot-maps-api:ci -c "
           import os, ssl
