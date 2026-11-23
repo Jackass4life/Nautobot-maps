@@ -615,6 +615,7 @@ jobs:
             'test -z "$(ls -A /etc/nginx/ssl)" && ! command -v python3 && test -f /etc/nginx/.config-checked'
           # A build arg that would change nginx.conf's syntax is refused (substitute.py).
           if (cd reverse-proxy && docker build -q --build-arg "DOMAIN=localhost; return 200" . 2>/tmp/bad-domain.log); then exit 1; fi
+          tail -n 25 /tmp/bad-domain.log
           grep -q "DOMAIN must be set, without spaces" /tmp/bad-domain.log
           if docker run --rm nautobot-maps-reverse-proxy:ci > /tmp/no-settings.log 2>&1; then exit 1; fi
           tail -n 3 /tmp/no-settings.log
