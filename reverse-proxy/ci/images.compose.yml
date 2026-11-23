@@ -53,6 +53,9 @@ services:
       - "80:80"
       - "443:443"
     env_file: images.env
+    volumes:
+      # The certificate is never in the image (#768): mounted, as a deployment does.
+      - ../certs:/etc/nginx/ssl:ro
     networks:
       default:
         # The one address the API trusts identity headers from.

@@ -1,4 +1,4 @@
-# Sign-in through oauth2-proxy (#423), http level: included by default.conf.
+# Sign-in through oauth2-proxy (#423), http level: included by nginx.conf.
 
 # An API token (LibreNMS, Alertmanager, scripts, MCP) skips the login: the app
 # checks it.  Matched on the header, so no path is open without one.

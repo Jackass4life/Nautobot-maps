@@ -86,8 +86,6 @@ services:
       context: ./reverse-proxy
       args:
         DOMAIN: ${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
-        # The certificate is mounted (below), never built into the image.
-        INCLUDE_CERTS: "false"
         # The defaults: api:5000, web:3000, oauth2-proxy:4180, Docker's DNS.
     restart: unless-stopped
     logging:
@@ -101,7 +99,8 @@ services:
     env_file: .env
     volumes:
       # The certificate, mounted: a new one needs only a restart, not a build.
-      - ./reverse-proxy/certs:/etc/nginx/certs:ro
+      # tls.cert, tls.privkey (and tls.password for an encrypted key, #768).
+      - ./reverse-proxy/certs:/etc/nginx/ssl:ro
     depends_on:
       - api
       - web

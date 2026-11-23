@@ -1,3 +1,4 @@
-# Your certificate and key (fullchain.pem, privkey.pem): never committed.
+# Your certificate (tls.cert), key (tls.privkey) and the key's password
+# (tls.password): never committed (#768).
 *
 !.gitignore

@@ -1,6 +1,6 @@
 # Sign-in through oauth2-proxy (#423): its locations, included in the HTTPS server.
 
-    set $oauth2_upstream "${OAUTH2_PROXY_UPSTREAM}";
+    set $oauth2_upstream "http://${OAUTH2_PROXY}";
 
     # oauth2-proxy: the login pages and the callback.
     location /oauth2/ {
@@ -42,7 +42,7 @@
     }
 
     location @login {
-        return 302 /oauth2/start?rd=https://${PUBLIC_HOSTNAME}$request_uri;
+        return 302 /oauth2/start?rd=https://${DOMAIN}$request_uri;
     }
 
     # Asked on the status API (#527): staff signed in get their identity, so a

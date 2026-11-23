@@ -1,0 +1,5 @@
+# As nocwatch-reverse-proxy (#768): settings for the listener, the key's password
+# and a certificate bundle never committed.  The certificate itself: certs/.gitignore.
+.env.*
+tls_cert_pass
+*.pfx

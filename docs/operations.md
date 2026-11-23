@@ -150,6 +150,20 @@ docker compose up -d
 
 An empty value is now a value: `ACCESS_POINT_ROLES=` means no access point roles, `AUTH_TRUSTED_PROXIES=` trusts no proxy. A number or yes/no setting needs one (`CACHE_TTL=300`, not `CACHE_TTL=`).
 
+### The proxy's certificate: tls.cert and tls.privkey (#768)
+
+The proxy (`reverse-proxy/`) follows the reference layout now: one `nginx.conf`, and the certificate only ever mounted, under new names. Rename the two files before you start the new proxy, or nginx stops and prints these commands:
+
+```bash
+cd reverse-proxy/certs
+mv fullchain.pem tls.cert
+mv privkey.pem tls.privkey
+cd ../..
+docker compose up -d --build
+```
+
+For a key with a password (XCA's "PEM encrypted" export): put the password in `reverse-proxy/certs/tls.password` (`chmod 600`). `INCLUDE_CERTS` is gone: the image never holds the certificate, so a proxy you run without compose needs the folder mounted on `/etc/nginx/ssl`.
+
 ## Building the API, the pages and the proxy separately (#672)
 
 Each part has its own Dockerfile, built from its own folder. `docker-compose.yml` builds `api` and `web` this way, and `reverse-proxy/compose.yml` the proxy; for a deployment that runs them some other way:
@@ -169,7 +183,8 @@ cd reverse-proxy && docker build -t nautobot-maps-reverse-proxy --build-arg DOMA
 **Reverse proxy** (`reverse-proxy/Dockerfile`): nginx with HTTPS and company sign-in through oauth2-proxy, as the bundled proxy ([sign-in](authentication.md#the-bundled-proxy-https-and-company-sign-in)), or with the app's own sign-in (`SIGN_IN=app`, [AD with the bundled proxy](authentication.md#with-the-bundled-proxy)).
 - Build args: `DOMAIN` (required), `SIGN_IN` (`oauth2-proxy`, or `app`: no oauth2-proxy, the identity headers always empty), `API_HOST`/`API_PORT` (`api`, 5000), `WEB_HOST`/`WEB_PORT` (`web`, 3000), `OAUTH2_PROXY` (`oauth2-proxy:4180`), `RESOLVER` (127.0.0.11, Docker's DNS). The names are looked up as requests come in, so the proxy starts before the others.
 - At run time: `AUTH_PROXY_SECRET` and, with oauth2-proxy, `OIDC_ISSUER_URL` (it stops and says so without them), `OIDC_LOGOUT_URL` (may be empty).
-- The certificate: `reverse-proxy/certs/fullchain.pem` and `privkey.pem` are copied into the image when they are there at build time, or mount them on `/etc/nginx/certs`. An image with the key in it belongs in a private registry only; mounting keeps it out of the image.
+- The certificate is never in the image (#768): mount a folder with `tls.cert`, `tls.privkey` and, for an encrypted key, `tls.password` on `/etc/nginx/ssl` (`-v "$PWD/reverse-proxy/certs:/etc/nginx/ssl:ro"`). Without them it stops and says what is missing.
+- How it is built: `substitute.py` writes the build args into `nginx.conf` and its includes (`proxy-to-*.inc`, `sign-in/<SIGN_IN>/`), then `nginx -t` checks them with a throwaway certificate, so a mistake fails the build. Python is only in that build stage, not in the image.
 - oauth2-proxy runs as its own container: its fixed settings are its command line in `reverse-proxy/compose.yml`, its secrets come from `.env` (`OAUTH2_PROXY_CLIENT_SECRET`, `OAUTH2_PROXY_COOKIE_SECRET`).
 - The API must trust the proxy for sign-in: `AUTH_MODE=header`, `AUTH_REQUIRE_VIEWER=true`, `AUTH_TRUSTED_PROXIES=<the proxy's address>/32`, the same `AUTH_PROXY_SECRET`, and `AUTH_SIGN_OUT_URL=/oauth2/sign_out`.
 

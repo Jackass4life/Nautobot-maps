@@ -5,7 +5,7 @@
 set -eu
 # The paths can be changed for tests only.
 IF_INET6="${IF_INET6:-/proc/net/if_inet6}"
-CONF_DIR="${CONF_DIR:-/etc/nginx/conf.d}"
+CONF_DIR="${CONF_DIR:-/etc/nginx}"   # nginx.conf (#768)
 # No file (IPv6 off in the kernel), or no address in it (off in Docker).
 if grep -q . "$IF_INET6" 2>/dev/null; then
     exit 0

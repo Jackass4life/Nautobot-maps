@@ -442,12 +442,24 @@ jobs:
           set -e
           echo "$out" | tail -n 5
           test "$status" -ne 0
-          echo "$out" | grep -q "missing or empty in reverse-proxy/certs/: fullchain.pem privkey.pem"
+          echo "$out" | grep -q "missing or empty in reverse-proxy/certs/: tls.cert tls.privkey"
 
-      - name: A self-signed certificate
+      - name: The certificate under its old names says how to rename it (#768)
         run: |
           openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
             -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
+          set +e
+          out=$(docker compose run --rm --no-deps nginx 2>&1)
+          status=$?
+          set -e
+          echo "$out" | tail -n 5
+          test "$status" -ne 0
+          echo "$out" | grep -q "mv fullchain.pem tls.cert && mv privkey.pem tls.privkey"
+
+      - name: Renamed as it says; a key without a password (no tls.password)
+        run: |
+          cd reverse-proxy/certs
+          mv fullchain.pem tls.cert && mv privkey.pem tls.privkey
 
       - name: Start the app behind the proxy
         run: docker compose up -d --build --wait --wait-timeout 180
@@ -511,10 +523,13 @@ jobs:
           JWT_SIGNING_SECRET=ci-jwt-secret-not-for-production-0123456789
           EOF
 
-      - name: A self-signed certificate
+      - name: A self-signed certificate, its key encrypted (tls.password, #768)
         run: |
-          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
-            -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
+          openssl req -x509 -newkey rsa:2048 -days 2 -subj "/CN=localhost" \
+            -passout pass:ci-key-password -keyout reverse-proxy/certs/tls.privkey \
+            -out reverse-proxy/certs/tls.cert
+          grep -q "ENCRYPTED PRIVATE KEY" reverse-proxy/certs/tls.privkey
+          echo ci-key-password > reverse-proxy/certs/tls.password
 
       - name: Start the app behind the proxy
         run: docker compose up -d --build --wait --wait-timeout 180
@@ -551,7 +566,7 @@ jobs:
           openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=CI Company CA" \
             -keyout /tmp/ca.key -out certs/company-ca.crt
           openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
-            -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
+            -keyout reverse-proxy/certs/tls.privkey -out reverse-proxy/certs/tls.cert
 
       - name: Build the three images (the request's commands)
         run: |
@@ -566,7 +581,7 @@ jobs:
         # ones must go first. IF_INET6=/dev/null (empty) is the script's own test hook:
         # the runners have IPv6, a kernel without it can't be had here.
         run: |
-          (cd reverse-proxy && docker build --no-cache --progress=plain --target check \
+          (cd reverse-proxy && docker build --no-cache --progress=plain --target config \
             --build-arg DOMAIN=localhost --build-arg IF_INET6=/dev/null . 2>&1 | tee /tmp/no-ipv6.log)
           grep -q "no IPv6 on this host: listening on IPv4 only" /tmp/no-ipv6.log
           grep -q "test is successful" /tmp/no-ipv6.log
@@ -593,11 +608,13 @@ jobs:
           # The proxy needs DOMAIN, and says which settings are missing at start.
           if (cd reverse-proxy && docker build -q . 2>/tmp/no-domain.log); then exit 1; fi
           grep -q "Set --build-arg DOMAIN" /tmp/no-domain.log
-          # INCLUDE_CERTS=false (reverse-proxy/compose.yml): no key in the image, even when there.
-          (cd reverse-proxy && docker build -q -t proxy-no-certs:ci --build-arg DOMAIN=localhost \
-            --build-arg INCLUDE_CERTS=false .)
-          docker run --rm --entrypoint sh proxy-no-certs:ci -c 'test -z "$(ls -A /etc/nginx/certs)"'
-          docker run --rm --entrypoint sh nautobot-maps-reverse-proxy:ci -c 'test -s /etc/nginx/certs/privkey.pem'
+          # No certificate or key in the image (#768), even with them in reverse-proxy/certs/,
+          # and no Python (only substitute.py's build stage has it).
+          docker run --rm --entrypoint sh nautobot-maps-reverse-proxy:ci -c \
+            'test -z "$(ls -A /etc/nginx/ssl)" && ! command -v python3 && test -f /etc/nginx/.config-checked'
+          # A build arg that would change nginx.conf's syntax is refused (substitute.py).
+          if (cd reverse-proxy && docker build -q --build-arg "DOMAIN=localhost; return 200" . 2>/tmp/bad-domain.log); then exit 1; fi
+          grep -q "DOMAIN must be set, without spaces" /tmp/bad-domain.log
           if docker run --rm nautobot-maps-reverse-proxy:ci > /tmp/no-settings.log 2>&1; then exit 1; fi
           tail -n 3 /tmp/no-settings.log
           grep -q "set AUTH_PROXY_SECRET OIDC_ISSUER_URL" /tmp/no-settings.log

@@ -50,7 +50,7 @@ Two kinds of work happen in the API:
 | `web/composables/` | Shared state: `usePageConfig` (who is signed in, settings), `useCan` (permissions), `useTheme` |
 | `web/api/` | The generated API description and types; never edit them by hand |
 | `web/server/` | The small server in the `web` image: security headers, and passing API paths on |
-| `reverse-proxy/` | The nginx image: `templates/` (the nginx configuration), `entrypoint/` (start checks), `ci/` (its tests) |
+| `reverse-proxy/` | The nginx image: `nginx.conf` (the whole configuration) with its includes, `substitute.py` (fills in the build args), `entrypoint/` (start checks), `ci/` (its tests) |
 | `e2e/` | Playwright tests that use the real pages in Chromium |
 | `demo/` | A fake Nautobot (`mock_nautobot.py`) to run the app without a real one |
 | `development/` | A real Nautobot 3.x (and a test Active Directory) in Docker, for integration tests |
@@ -229,13 +229,14 @@ After changing the API, regenerate the types: `uv run python scripts/generate_op
 
 ## The reverse proxy
 
-`reverse-proxy/` builds an nginx image. At start, nginx fills in its configuration from `templates/` with the settings (`PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, …).
+`reverse-proxy/` builds an nginx image. At build time `substitute.py` fills in the build args (`DOMAIN`, the ports, …) and `nginx -t` checks the result; at start, nginx fills in the secrets (`AUTH_PROXY_SECRET`, …). The certificate is mounted at start, never in the image.
 
-- `default.conf.template` decides which paths need sign-in. The status page and its files don't, because customers have no company login.
-- `proxy-to-api.inc.template` and `proxy-to-web.inc.template` pass requests on, with the signed-in user's headers.
+- `nginx.conf` is the whole configuration and decides which paths need sign-in. The status page and its files don't, because customers have no company login.
+- `proxy-to-api.inc` and `proxy-to-web.inc` pass requests on, with the signed-in user's headers.
 - `sign-in/` has two variants: oauth2-proxy (company sign-in such as GitLab or Entra ID), or the app's own sign-in.
 - `entrypoint/` scripts refuse to start without a certificate or required settings, with a clear log line.
 - `ci/smoke.py` tests the real nginx against a stub sign-in.
+- `listener.py` (started with `start_listener.sh`) prints every request it gets, secrets masked: put it where the API would be to see what nginx sends.
 
 ## Tests
 
