@@ -154,6 +154,7 @@ pg_database() {
   local name="ci_${1}_$JOB_ID"
   _pg_admin create "$PG_URL" "$name" || return 1
   PG_DATABASES+=("$name")
+  # shellcheck disable=SC2034 # test.sh reads it
   PG_DATABASE_URL="$PG_URL/$name"
 }
 
