@@ -4,7 +4,7 @@
 # where nobody is, so a client can never send its own.  The web image ignores
 # them; the API trusts them only from this proxy's address (AUTH_TRUSTED_PROXIES),
 # so none counts when the web image forwards a request itself (API_URL).
-# $web_upstream: the server's (default.conf), looked up as the request comes in.
+# $web_upstream: the server's (nginx.conf), looked up as the request comes in.
 proxy_pass $web_upstream;
 proxy_http_version 1.1;
 proxy_set_header Host $host;

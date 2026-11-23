@@ -47,7 +47,7 @@ def test_the_code_guide_names_only_files_that_exist():
             "web",
             "web/pages",
             "reverse-proxy",
-            "reverse-proxy/templates",
+            "reverse-proxy/entrypoint",
         )
     ]
     named = {

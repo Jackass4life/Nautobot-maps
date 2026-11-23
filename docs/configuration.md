@@ -129,7 +129,7 @@ Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-pro
 | `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | compose | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
 | `PROXY_SUBNET` / `PROXY_IP` | compose | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
 
-The certificate goes in `reverse-proxy/certs/` as `fullchain.pem` and `privkey.pem` ([your own certificate](authentication.md#your-own-certificate)).
+The certificate goes in `reverse-proxy/certs/` as `tls.cert` and `tls.privkey`, and `tls.password` for a key with a passphrase; nginx gets the folder mounted on `/etc/nginx/ssl` ([your own certificate](authentication.md#your-own-certificate)).
 
 ## The containers
 

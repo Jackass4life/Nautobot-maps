@@ -1,7 +1,13 @@
-# The image takes templates/, entrypoint/ and certs/ (#672); not the CI files.
+# The image takes nginx.conf, its includes, substitute.py and entrypoint/ (#672, #768);
+# not the CI files, the debugging listener or the certificate (mounted at run time).
 ci/
+certs/
 compose.yml
+compose.app-sign-in.yml
 Dockerfile
 .dockerignore
+listener.py
+start_listener.sh
 # Settings stay outside the image (#739): .env is never in it.
 .env
+.env.*
