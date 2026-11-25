@@ -5,15 +5,15 @@ import re
 from app.services import guide_service as guide
 
 
-def test_every_guide_renders_with_a_title(flask_client, frontend_build):
+def test_every_guide_renders_with_a_title(client, frontend_build):
     # The page is on Nuxt (#463): it reads /api/help/<slug>.
     assert [item["slug"] for item in guide.contents()] == [slug for slug, _ in guide.PAGES]
     for item in guide.contents():
-        assert flask_client.get(item["href"]).status_code == 200, item
-        answer = flask_client.get(f"/api/v1/help/{item['slug']}").get_json()
+        assert client.get(item["href"]).status_code == 200, item
+        answer = client.get(f"/api/v1/help/{item['slug']}").json()
         assert answer["title"] == item["title"] and answer["html"].startswith("<h1")
         assert answer["contents"] == guide.contents()
-    assert flask_client.get("/api/v1/help/nope").status_code == 404
+    assert client.get("/api/v1/help/nope").status_code == 404
 
 
 def test_the_guides_in_the_order_the_app_is_set_up():
@@ -135,12 +135,12 @@ def test_no_markup_or_inline_style_gets_through(monkeypatch, tmp_path):
         assert not re.search(r"<[^>]+\sstyle=", guide.page(slug)["html"]), slug
 
 
-def test_images_and_unknown_pages(flask_client, frontend_build):
-    image = flask_client.get("/help/images/map.png")
-    assert image.status_code == 200 and image.mimetype == "image/png"
-    assert flask_client.get("/help/images/../../app.py").status_code == 404
-    assert flask_client.get("/help/images/..%2F..%2Fapp.py").status_code == 404
-    assert flask_client.get("/help/nope").status_code == 404
+def test_images_and_unknown_pages(client, frontend_build):
+    image = client.get("/help/images/map.png")
+    assert image.status_code == 200 and image.headers["content-type"].split(";")[0] == "image/png"
+    assert client.get("/help/images/../../app.py").status_code == 404
+    assert client.get("/help/images/..%2F..%2Fapp.py").status_code == 404
+    assert client.get("/help/nope").status_code == 404
 
 
 def test_the_docs_go_into_the_image():
@@ -161,13 +161,13 @@ def test_the_docs_go_into_the_image():
         assert file in root_files or top == "docs", file
 
 
-def test_an_image_without_the_docs_says_so(flask_client, monkeypatch, tmp_path):
+def test_an_image_without_the_docs_says_so(client, monkeypatch, tmp_path):
     """An API image built without the docs context (api/Dockerfile, #672): every guide
     is missing, and the page says how to include them, not "No such guide"."""
     from app.services import guide_service as guide
 
     monkeypatch.setattr(guide, "ROOT", tmp_path)
-    answer = flask_client.get("/api/v1/help/overview")
+    answer = client.get("/api/v1/help/overview")
     assert answer.status_code == 404
-    assert answer.get_json() == {"error": guide.NOT_INCLUDED}
+    assert answer.json() == {"error": guide.NOT_INCLUDED}
     assert "--build-context docs=.." in guide.NOT_INCLUDED

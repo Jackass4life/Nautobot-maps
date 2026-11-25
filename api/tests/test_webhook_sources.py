@@ -61,9 +61,9 @@ def site(pg_database, monkeypatch, clock, override_settings):
 
 
 @pytest.fixture
-def flask_client(site):
+def client(site):
     caching.cache.clear()
-    with http_client.FlaskStyleClient() as test_client:
+    with http_client.make() as test_client:
         yield test_client
 
 
@@ -175,15 +175,15 @@ class TestParsing:
 
 
 class TestTheBoard:
-    def test_firing_marks_a_device_down_until_resolved(self, flask_client):
+    def test_firing_marks_a_device_down_until_resolved(self, client):
         token = make("am", "operator")["token"]
         assert board_row()["alert_level"] == "medium", "acc2 is Offline in Nautobot: 1 of 3"
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/alertmanager",
             json={"alerts": [am_alert("core.example.com:9100")]},
             headers=bearer(token),
         )
-        assert response.get_json() == {"firing": 1, "resolved": 0, "skipped": 0, "matched": 1}
+        assert response.json() == {"firing": 1, "resolved": 0, "skipped": 0, "matched": 1}
         row = board_row()
         assert row["alert_level"] == "critical", "the core router is down"
         core = next(d for d in row["down_devices"] if d["device_name"] == "core")
@@ -191,23 +191,21 @@ class TestTheBoard:
         assert core["down_reason"] == "alertmanager: Target down"
         resolved = {"alerts": [am_alert("core.example.com:9100", status="resolved")]}
         assert (
-            flask_client.post(
-                "/api/v1/alertmanager", json=resolved, headers=bearer(token)
-            ).get_json()["resolved"]
+            client.post("/api/v1/alertmanager", json=resolved, headers=bearer(token)).json()[
+                "resolved"
+            ]
             == 1
         )
         assert board_row()["alert_level"] == "medium"
 
-    def test_generic_by_ip_and_an_unknown_device(self, flask_client):
+    def test_generic_by_ip_and_an_unknown_device(self, client):
         token = make("hook", "operator")["token"]
         body = [
             {"device": "10.0.0.2", "status": "down", "source": "kuma"},
             {"device": "nobody", "status": "down"},
         ]
         assert (
-            flask_client.post("/api/v1/device-status", json=body, headers=bearer(token)).get_json()[
-                "matched"
-            ]
+            client.post("/api/v1/device-status", json=body, headers=bearer(token)).json()["matched"]
             == 1
         )
         row = board_row()
@@ -232,13 +230,13 @@ class TestTheBoard:
 
 
 class TestRebuild:
-    def test_a_webhook_rebuilds_once_without_a_librenms_push(self, flask_client, monkeypatch):
+    def test_a_webhook_rebuilds_once_without_a_librenms_push(self, client, monkeypatch):
         from app.services import scheduler
 
         calls = []
         monkeypatch.setattr(scheduler, "rebuild_after_push", lambda **kwargs: calls.append(kwargs))
         token = make("am", "operator")["token"]
-        flask_client.post(
+        client.post(
             "/api/v1/device-status",
             json={"device": "acc1", "status": "down"},
             headers=bearer(token),
@@ -265,31 +263,30 @@ class TestRebuild:
 
 
 class TestAccess:
-    def test_operator_only(self, flask_client, monkeypatch):
+    def test_operator_only(self, client, monkeypatch):
         viewer = make("reader", "viewer")["token"]
         body = {"alerts": [am_alert()]}
-        assert flask_client.post("/api/v1/alertmanager", json=body).status_code == 403, (
+        assert client.post("/api/v1/alertmanager", json=body).status_code == 403, (
             "no token, AUTH_MODE=disabled"
         )
         assert (
-            flask_client.post("/api/v1/alertmanager", json=body, headers=bearer(viewer)).status_code
+            client.post("/api/v1/alertmanager", json=body, headers=bearer(viewer)).status_code
             == 403
         )
         assert (
-            flask_client.post("/api/v1/device-status", json={}, headers=bearer(viewer)).status_code
-            == 403
+            client.post("/api/v1/device-status", json={}, headers=bearer(viewer)).status_code == 403
         )
 
-    def test_bad_bodies(self, flask_client):
+    def test_bad_bodies(self, client):
         token = make("am", "operator")["token"]
         assert (
-            flask_client.post("/api/v1/alertmanager", data="x", headers=bearer(token)).status_code
+            client.post("/api/v1/alertmanager", content="x", headers=bearer(token)).status_code
             == 400
         )
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/device-status", json={"status": "down"}, headers=bearer(token)
         )
-        assert response.status_code == 400 and "device" in response.get_json()["error"]
+        assert response.status_code == 400 and "device" in response.json()["error"]
 
 
 class TestReviewFixes:

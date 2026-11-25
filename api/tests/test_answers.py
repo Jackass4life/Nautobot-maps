@@ -30,16 +30,16 @@ def test_every_json_route_shows_its_answer():
     assert without == WITHOUT_MODEL
 
 
-def test_every_model_has_its_own_name(flask_client):
+def test_every_model_has_its_own_name(client):
     # Two models of one name get FastAPI's module path as theirs
     # ("nautobot_maps__api__answers__board__Site"): in /api/docs and the
     # frontend's types (#463), each has a plain name of its own.
-    names = flask_client.get("/api/openapi.json").get_json()["components"]["schemas"]
+    names = client.get("/api/openapi.json").json()["components"]["schemas"]
     assert [name for name in names if "__" in name] == []
 
 
-def test_errors_are_shown_as_the_app_sends_them(flask_client):
-    spec = flask_client.get("/api/openapi.json").get_json()
+def test_errors_are_shown_as_the_app_sends_them(client):
+    spec = client.get("/api/openapi.json").json()
     error = {"$ref": "#/components/schemas/Error"}
     schemas = spec["components"]["schemas"]
     assert "HTTPValidationError" not in schemas and "ValidationError" not in schemas
@@ -68,7 +68,7 @@ def test_errors_are_shown_as_the_app_sends_them(flask_client):
     }
 
 
-def test_a_refusal_is_checked_too(flask_client, monkeypatch, override_settings):
+def test_a_refusal_is_checked_too(client, monkeypatch, override_settings):
 
     seen = []
     monkeypatch.setattr(
@@ -77,13 +77,13 @@ def test_a_refusal_is_checked_too(flask_client, monkeypatch, override_settings):
         lambda route, response: seen.append((route.path, response.status_code)),
     )
     override_settings(AUTH_MODE="header")
-    assert flask_client.get("/api/v1/tokens").status_code == 401
+    assert client.get("/api/v1/tokens").status_code == 401
     # A route of the new stack's nested /api/v1 router names its path within it.
     assert seen == [("/tokens", 401)]
 
 
-def test_the_answer_is_in_the_spec(flask_client):
-    spec = flask_client.get("/api/openapi.json").get_json()
+def test_the_answer_is_in_the_spec(client):
+    spec = client.get("/api/openapi.json").json()
     health = spec["paths"]["/healthz"]["get"]["responses"]
     assert health["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/Health"

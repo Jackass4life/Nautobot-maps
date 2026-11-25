@@ -18,9 +18,9 @@ from tests.overrides import overridden
 ACCESS = "app.access"
 
 
-def test_one_access_log_line_with_the_same_fields(asgi_client, caplog):
+def test_one_access_log_line_with_the_same_fields(client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
-        asgi_client.get(
+        client.get(
             "/api/v1/app-status?x=1",
             headers={settings.AUTH_HEADER_USER: "olga", "User-Agent": "probe/1"},
         )
@@ -32,20 +32,20 @@ def test_one_access_log_line_with_the_same_fields(asgi_client, caplog):
     assert atoms["part"] == "api"
     record = lines[0]
     message = record.getMessage()
-    assert message.startswith('testclient "olga" "GET /api/v1/app-status?x=1 HTTP/1.1" 200 ')
+    assert message.startswith('127.0.0.1 "olga" "GET /api/v1/app-status?x=1 HTTP/1.1" 200 ')
     assert message.endswith('ms "probe/1"')
 
 
-def test_successful_health_checks_are_still_left_out(asgi_client, caplog):
+def test_successful_health_checks_are_still_left_out(client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
-        asgi_client.get("/healthz")
+        client.get("/healthz")
     (record,) = [record for record in caplog.records if record.name == ACCESS]
     assert not logs.keep_access_line({"extra": record.loguru_extra})
 
 
-def test_a_page_request_is_the_web_part(asgi_client, caplog):
+def test_a_page_request_is_the_web_part(client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
-        asgi_client.get("/alerts")
+        client.get("/alerts")
     (record,) = [record for record in caplog.records if record.name == ACCESS]
     assert record.loguru_extra["part"] == "web"
 
@@ -146,28 +146,28 @@ class TestStartupLog:
 class TestTheCurrentAppsPaths:
     """#613: /api/<path> answers 308 to /api/v1/<path>, method and body kept."""
 
-    def test_a_moved_route(self, asgi_client):
-        moved = asgi_client.get("/api/app-status?x=1&y=%20", follow_redirects=False)
+    def test_a_moved_route(self, client):
+        moved = client.get("/api/app-status?x=1&y=%20", follow_redirects=False)
         assert moved.status_code == 308
         assert moved.headers["location"] == "/api/v1/app-status?x=1&y=%20"
-        assert asgi_client.get("/api/app-status").status_code == 200  # followed
+        assert client.get("/api/app-status", follow_redirects=True).status_code == 200
 
-    def test_a_webhook_keeps_its_method_and_body(self, asgi_client):
-        moved = asgi_client.post("/api/alertmanager", json={"alerts": []}, follow_redirects=False)
+    def test_a_webhook_keeps_its_method_and_body(self, client):
+        moved = client.post("/api/alertmanager", json={"alerts": []}, follow_redirects=False)
         assert moved.status_code == 308
         assert moved.headers["location"] == "/api/v1/alertmanager"
 
-    def test_a_path_with_a_parameter(self, asgi_client):
-        moved = asgi_client.get("/api/status/abc%20def", follow_redirects=False)
+    def test_a_path_with_a_parameter(self, client):
+        moved = client.get("/api/status/abc%20def", follow_redirects=False)
         assert moved.status_code == 308
         assert moved.headers["location"] == "/api/v1/status/abc%20def"
 
     @pytest.mark.parametrize("path", ["/api/openapi.json", "/api/healthz"])
-    def test_routes_of_their_own_stay(self, asgi_client, path):
-        assert asgi_client.get(path, follow_redirects=False).status_code == 200
+    def test_routes_of_their_own_stay(self, client, path):
+        assert client.get(path, follow_redirects=False).status_code == 200
 
-    def test_no_route_is_still_404(self, asgi_client):
-        missing = asgi_client.get("/api/nope", follow_redirects=False)
+    def test_no_route_is_still_404(self, client):
+        missing = client.get("/api/nope", follow_redirects=False)
         assert missing.status_code == 404 and missing.json() == {"error": "Not found"}
 
 

@@ -3,11 +3,12 @@ it.  Everything a browser, a script or a proxy relied on must be the same."""
 
 from app.auth.permissions import Permission
 from tests import db as adb
+from tests import http_client
 
 
-def test_security_headers_and_gzip_once(asgi_client):
+def test_security_headers_and_gzip_once(client):
     # The API as OpenAPI: big enough to compress, served without a frontend build.
-    response = asgi_client.get("/api/openapi.json", headers={"Accept-Encoding": "gzip"})
+    response = client.get("/api/openapi.json", headers={"Accept-Encoding": "gzip"})
     for name in (
         "content-security-policy",
         "x-content-type-options",
@@ -20,11 +21,9 @@ def test_security_headers_and_gzip_once(asgi_client):
     assert "uvicorn" not in response.headers.get("server", "")
 
 
-def test_a_change_from_another_site_is_still_refused(asgi_client, override_settings):
+def test_a_change_from_another_site_is_still_refused(client, override_settings):
     override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-    response = asgi_client.post(
-        "/api/v1/notifications/test", headers={"Sec-Fetch-Site": "cross-site"}
-    )
+    response = client.post("/api/v1/notifications/test", headers={"Sec-Fetch-Site": "cross-site"})
     assert response.status_code == 403 and response.json() == {
         "error": "Changes from another site are refused"
     }
@@ -67,8 +66,8 @@ def test_json_exactly_as_flask_wrote_it():
     )
 
 
-def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
-    plain = asgi_client.get("/api/v1/endpoints", headers={"Accept-Encoding": "identity"})
+def test_moved_routes_keep_headers_gzip_head_and_405(client):
+    plain = client.get("/api/v1/endpoints", headers={"Accept-Encoding": "identity"})
     assert plain.status_code == 200 and plain.headers.get("content-encoding") is None
     for name in (
         "content-security-policy",
@@ -78,50 +77,49 @@ def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
     ):
         assert len(plain.headers.get_list(name)) == 1, name
     assert "Accept-Encoding" in plain.headers["vary"]
-    zipped = asgi_client.get("/api/v1/endpoints", headers={"Accept-Encoding": "gzip"})
+    zipped = client.get("/api/v1/endpoints", headers={"Accept-Encoding": "gzip"})
     assert zipped.headers["content-encoding"] == "gzip" and zipped.json() == plain.json()
-    assert asgi_client.head("/healthz").status_code == 200
-    wrong = asgi_client.post("/healthz")
+    assert client.head("/healthz").status_code == 200
+    wrong = client.post("/healthz")
     assert wrong.status_code == 405 and wrong.json() == {"error": "Method not allowed"}
     assert {method.strip() for method in wrong.headers["allow"].split(",")} == {"GET", "HEAD"}
-    head = asgi_client.head("/api/v1/app-status")
+    head = client.head("/api/v1/app-status")
     assert (
         head.status_code == 200
         and head.content == b""
         and head.headers["content-type"] == "application/json"
     )
-    metrics = asgi_client.get("/metrics")
+    metrics = client.get("/metrics")
     assert metrics.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
-    assert asgi_client.get("/api/v1/app-status").headers["cache-control"] == "no-store"
+    assert client.get("/api/v1/app-status").headers["cache-control"] == "no-store"
 
 
-def test_the_sign_in_check_applies_to_moved_routes(flask_client, override_settings):
+def test_the_sign_in_check_applies_to_moved_routes(client, override_settings):
     """Through the whole stack from 127.0.0.1, as a proxy would send."""
     from tests.test_app import auth_config
 
     override_settings(AUTH_REQUIRE_VIEWER=True)
     with auth_config(mode="header", viewer_groups={"noc"}):
-        anonymous = flask_client.get("/api/v1/app-status")
-        assert anonymous.status_code == 401 and anonymous.get_json() == {
+        anonymous = client.get("/api/v1/app-status")
+        assert anonymous.status_code == 401 and anonymous.json() == {
             "error": "Authentication required"
         }
-        nobody = flask_client.get(
+        nobody = client.get(
             "/api/v1/app-status", headers={"X-Forwarded-User": "x", "X-Forwarded-Groups": "other"}
         )
         assert nobody.status_code == 403
-        assert nobody.get_json() == {"error": "Insufficient permissions", "required_role": "viewer"}
-        viewer = flask_client.get(
+        assert nobody.json() == {"error": "Insufficient permissions", "required_role": "viewer"}
+        viewer = client.get(
             "/api/v1/app-status", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc"}
         )
         assert viewer.status_code == 200
         # Probes and Prometheus send no identity.
-        assert flask_client.get("/healthz").status_code == 200
-        assert flask_client.get("/metrics").status_code == 200
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/metrics").status_code == 200
         # Identity headers from an untrusted address count for nothing.
-        untrusted = flask_client.get(
+        untrusted = http_client.make(address=("10.9.9.9", 50000)).get(
             "/api/v1/app-status",
             headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc"},
-            environ_base={"REMOTE_ADDR": "10.9.9.9"},
         )
         assert untrusted.status_code == 401
 
@@ -150,41 +148,41 @@ def _mini_app():
 
 def test_the_shared_pieces_refuse_like_flask(override_settings):
     from app.v1 import deps
-    from tests.http_client import FlaskStyleClient
     from tests.test_app import auth_config
 
     app, router = _mini_app()
     assert deps.required_role(router.routes[0]) == "operator"
-    flask_client = FlaskStyleClient(app)
+    # A crash answers 500 without its detail: the client gets the answer, not the exception.
+    client = http_client.make(app, raise_server_exceptions=False)
     # AUTH_MODE=disabled: a write needs ALLOW_UNAUTHENTICATED_WRITES.
-    refused = flask_client.post("/api/v1/x")
+    refused = client.post("/api/v1/x")
     assert (
         refused.status_code == 403
-        and refused.get_json()["error"] == "Authentication required for this change"
+        and refused.json()["error"] == "Authentication required for this change"
     )
     override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-    assert flask_client.post("/api/v1/x?count=3").get_json() == {"count": 3}
+    assert client.post("/api/v1/x?count=3").json() == {"count": 3}
     # From another site: refused before the route.
-    cross = flask_client.post("/api/v1/x", headers={"Sec-Fetch-Site": "cross-site"})
-    assert cross.status_code == 403 and cross.get_json() == {
+    cross = client.post("/api/v1/x", headers={"Sec-Fetch-Site": "cross-site"})
+    assert cross.status_code == 403 and cross.json() == {
         "error": "Changes from another site are refused"
     }
     # Bad input: 400 with a sentence, not FastAPI's 422 list.
-    bad = flask_client.post("/api/v1/x?count=many")
-    assert bad.status_code == 400 and bad.get_json()["error"].startswith("count:")
+    bad = client.post("/api/v1/x?count=many")
+    assert bad.status_code == 400 and bad.json()["error"].startswith("count:")
     # A crash: 500, nothing of it in the answer.
-    crash = flask_client.get("/api/v1/boom")
-    assert crash.status_code == 500 and crash.get_json() == {"error": "Internal server error"}
+    crash = client.get("/api/v1/boom")
+    assert crash.status_code == 500 and crash.json() == {"error": "Internal server error"}
     with auth_config(mode="header", operator_groups={"ops"}):
-        anonymous = flask_client.post("/api/v1/x")
-        assert anonymous.status_code == 401 and anonymous.get_json() == {
+        anonymous = client.post("/api/v1/x")
+        assert anonymous.status_code == 401 and anonymous.json() == {
             "error": "Authentication required"
         }
-        no_role = flask_client.post(
+        no_role = client.post(
             "/api/v1/x", headers={"X-Forwarded-User": "v", "X-Forwarded-Groups": "nope"}
         )
-        assert no_role.status_code == 403 and no_role.get_json()["required_role"] == "operator"
-        operator = flask_client.post(
+        assert no_role.status_code == 403 and no_role.json()["required_role"] == "operator"
+        operator = client.post(
             "/api/v1/x", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
         )
         assert operator.status_code == 200
@@ -195,13 +193,13 @@ def test_the_shared_pieces_refuse_like_flask(override_settings):
 # ---------------------------------------------------------------------------
 
 
-def test_the_status_page_is_fastapis_with_its_own_referrer_policy(flask_client, frontend_build):
-    page = flask_client.get("/status/Acme%20Corp")
+def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client, frontend_build):
+    page = client.get("/status/Acme%20Corp")
     assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
     assert page.headers.get_list("referrer-policy") == ["no-referrer"]
     assert len(page.headers.get_list("content-security-policy")) == 1
     # Its files: the Nuxt build's (#463).
-    assert flask_client.get("/_nuxt/entry.abc123.js").status_code == 200
+    assert client.get("/_nuxt/entry.abc123.js").status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -209,30 +207,32 @@ def test_the_status_page_is_fastapis_with_its_own_referrer_policy(flask_client, 
 # ---------------------------------------------------------------------------
 
 
-def test_a_window_id_that_is_not_a_number_is_still_a_404(flask_client, override_settings):
+def test_a_window_id_that_is_not_a_number_is_still_a_404(client, override_settings):
     override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-    response = flask_client.post("/api/v1/maintenance/abc/end")
-    assert response.status_code == 404 and response.get_json() == {"error": "Not found"}
+    response = client.post("/api/v1/maintenance/abc/end")
+    assert response.status_code == 404 and response.json() == {"error": "Not found"}
 
 
-def test_a_body_is_json_only_when_it_says_so(flask_client, override_settings):
+def test_a_body_is_json_only_when_it_says_so(client, override_settings):
     """As Flask's get_json(silent=True): a JSON body sent as text/plain (what a
     cross-site form could send) is no body at all."""
     override_settings(
         ALLOW_UNAUTHENTICATED_WRITES=True, NAUTOBOT_MAPS_DATABASE_URL="postgresql://unused/x"
     )
-    as_text = flask_client.post(
-        "/api/v1/maintenance", data='{"site_id": "x"}', content_type="text/plain"
+    as_text = client.post(
+        "/api/v1/maintenance", content='{"site_id": "x"}', headers={"Content-Type": "text/plain"}
     )
-    assert as_text.status_code == 400 and as_text.get_json() == {"error": "Expected a JSON object"}
-    broken = flask_client.post(
-        "/api/v1/maintenance", data="{not json", content_type="application/json"
+    assert as_text.status_code == 400 and as_text.json() == {"error": "Expected a JSON object"}
+    broken = client.post(
+        "/api/v1/maintenance", content="{not json", headers={"Content-Type": "application/json"}
     )
-    assert broken.status_code == 400 and broken.get_json() == {"error": "Expected a JSON object"}
-    ids = flask_client.post(
-        "/api/v1/maintenance/end", data='{"ids": []}', content_type="application/merge-patch+json"
+    assert broken.status_code == 400 and broken.json() == {"error": "Expected a JSON object"}
+    ids = client.post(
+        "/api/v1/maintenance/end",
+        content='{"ids": []}',
+        headers={"Content-Type": "application/merge-patch+json"},
     )
-    assert ids.status_code == 400 and "ids must be a list" in ids.get_json()["error"]
+    assert ids.status_code == 400 and "ids must be a list" in ids.json()["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -267,13 +267,13 @@ def test_forms_are_read_as_flask_read_them(override_settings):
     from fastapi.testclient import TestClient
 
     override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-    flask_client = TestClient(_form_app([]), base_url="http://localhost", client=("127.0.0.1", 1))
-    assert flask_client.post("/api/v1/form", data={"hostname": "sw1"}).json() == {"hostname": "sw1"}
-    multipart = flask_client.post(
+    client = TestClient(_form_app([]), base_url="http://localhost", client=("127.0.0.1", 1))
+    assert client.post("/api/v1/form", data={"hostname": "sw1"}).json() == {"hostname": "sw1"}
+    multipart = client.post(
         "/api/v1/form", data={"device_id": "42"}, files={"note": ("n.txt", b"x")}
     )
     assert multipart.json() == {"device_id": "42"}, "fields, not uploaded files"
-    assert flask_client.post("/api/v1/form", json={"hostname": "sw1"}).json() == {}
+    assert client.post("/api/v1/form", json={"hostname": "sw1"}).json() == {}
 
 
 def test_a_refused_caller_never_gets_its_body_read(monkeypatch):
@@ -282,22 +282,22 @@ def test_a_refused_caller_never_gets_its_body_read(monkeypatch):
     from fastapi.testclient import TestClient
 
     seen = []
-    flask_client = TestClient(_form_app(seen), base_url="http://localhost", client=("127.0.0.1", 1))
-    refused = flask_client.post("/api/v1/form", data={"hostname": "sw1"})
+    client = TestClient(_form_app(seen), base_url="http://localhost", client=("127.0.0.1", 1))
+    refused = client.post("/api/v1/form", data={"hostname": "sw1"})
     assert refused.status_code == 403 and seen == []
-    cross = flask_client.post(
+    cross = client.post(
         "/api/v1/form", data={"hostname": "sw1"}, headers={"Sec-Fetch-Site": "cross-site"}
     )
     assert cross.status_code == 403 and seen == []
 
 
-def test_a_new_token_is_never_compressed_on_fastapi(flask_client, monkeypatch, pg_database):
+def test_a_new_token_is_never_compressed_on_fastapi(client, monkeypatch, pg_database):
     from app.frontend import compression
     from app.services import token_service as tokens
 
     monkeypatch.setattr(compression, "MIN_BYTES", 10)
     admin = adb.run(tokens.create, {"name": "boot", "role": "admin"}, "test")["token"]
-    created = flask_client.post(
+    created = client.post(
         "/api/v1/tokens",
         json={"name": "s", "role": "viewer"},
         headers={"Accept-Encoding": "gzip", "Authorization": f"Bearer {admin}"},

@@ -9,7 +9,6 @@ import logging
 import httpx
 import pytest
 
-from app.clients import caching
 from app.db import connection as db
 from app.db import session
 from app.services import alerts_service as alerts
@@ -20,7 +19,6 @@ from app.services import scheduler
 from app.services import status_service as status
 from app.utils import timeutil
 from tests import db as adb
-from tests import http_client
 from tests.test_app import auth_config
 
 NOW = "2026-10-09T12:00:00Z"
@@ -441,54 +439,42 @@ class TestScheduler:
 
 
 class TestTestEndpoint:
-    @pytest.fixture
-    def flask_client(self):
-        caching.cache.clear()
-        with http_client.FlaskStyleClient() as test_client:
-            yield test_client
-
-    def test_needs_the_admin_role(self, flask_client, channels):
-        assert (
-            flask_client.post("/api/v1/notifications/test").status_code == 403
-        )  # AUTH_MODE=disabled
+    def test_needs_the_admin_role(self, client, channels):
+        assert client.post("/api/v1/notifications/test").status_code == 403  # AUTH_MODE=disabled
         with auth_config(mode="header", operator_groups={"ops"}, admin_groups={"admins"}):
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
-            assert (
-                flask_client.post("/api/v1/notifications/test", headers=operator).status_code == 403
-            )
+            assert client.post("/api/v1/notifications/test", headers=operator).status_code == 403
             admin = {"X-Forwarded-User": "ada", "X-Forwarded-Groups": "admins"}
-            resp = flask_client.post("/api/v1/notifications/test", headers=admin)
+            resp = client.post("/api/v1/notifications/test", headers=admin)
         assert resp.status_code == 200
-        assert resp.get_json() == {"results": {"webhook": "ok", "teams": "ok", "email": "ok"}}
+        assert resp.json() == {"results": {"webhook": "ok", "teams": "ok", "email": "ok"}}
         assert json.loads(channels["posts"][0]["body"])["type"] == "test"
 
-    def test_reports_errors_without_secrets(
-        self, flask_client, channels, monkeypatch, override_settings
-    ):
+    def test_reports_errors_without_secrets(self, client, channels, monkeypatch, override_settings):
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
 
         def broken(url, **kwargs):
             raise httpx.ConnectError(f"cannot reach {url}")
 
         monkeypatch.setattr(notify, "_post", broken)
-        resp = flask_client.post("/api/v1/notifications/test")
+        resp = client.post("/api/v1/notifications/test")
         assert resp.status_code == 502
-        results = resp.get_json()["results"]
+        results = resp.json()["results"]
         assert results["webhook"] == "error: ConnectError" and results["email"] == "ok"
-        assert "secret-token" not in resp.get_data(as_text=True)
+        assert "secret-token" not in resp.text
 
-    def test_no_channel(self, flask_client, override_settings):
+    def test_no_channel(self, client, override_settings):
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
         override_settings(NOTIFY_WEBHOOK_URL="", NOTIFY_TEAMS_WEBHOOK_URL="", SMTP_HOST="")
-        resp = flask_client.post("/api/v1/notifications/test")
+        resp = client.post("/api/v1/notifications/test")
         assert (
             resp.status_code == 400
-            and "NOTIFY_EMAIL_TO together with SMTP_HOST" in resp.get_json()["error"]
+            and "NOTIFY_EMAIL_TO together with SMTP_HOST" in resp.json()["error"]
         )
         override_settings(NOTIFY_EMAIL_TO=["noc@example.com"])
-        resp = flask_client.post("/api/v1/notifications/test")
+        resp = client.post("/api/v1/notifications/test")
         assert (
-            resp.get_json()["error"]
+            resp.json()["error"]
             == "NOTIFY_EMAIL_TO is set, but SMTP_HOST is not: email needs a mail server"
         )
 

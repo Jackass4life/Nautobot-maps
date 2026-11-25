@@ -88,12 +88,10 @@ import logging  # noqa: E402
 
 import pytest  # noqa: E402
 from alembic.config import Config  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
 from loguru import logger  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 from alembic import command  # noqa: E402
-from app.api import app  # noqa: E402
 from app.db import session  # noqa: E402
 from app.logs import config as logs  # noqa: E402
 from app.models import Base  # noqa: E402
@@ -238,7 +236,13 @@ def clean_tables():
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
+    """The whole app, from 127.0.0.1 with an empty cache (tests/http_client.py; another
+    address or options: ``http_client.make(address=(ip, port), ...)``)."""
+    from app.clients import caching
+    from tests import http_client
+
+    caching.cache.clear()
+    with http_client.make() as c:
         yield c
 
 
@@ -391,17 +395,6 @@ def board(pg_database, monkeypatch, override_settings):
     return clock
 
 
-@pytest.fixture
-def flask_client():
-    """The current app's tests' client (tests/http_client.py): Flask's test response names."""
-    from app.clients import caching
-    from tests import http_client
-
-    caching.cache.clear()
-    with http_client.FlaskStyleClient() as c:
-        yield c
-
-
 @pytest.fixture(autouse=True)
 def _answers_match_the_api_spec(monkeypatch):
     """Every answer checked against the model the spec shows for it (#449)."""
@@ -413,17 +406,6 @@ def _answers_match_the_api_spec(monkeypatch):
     yield
     if answers.problems:
         pytest.fail("Answers that don't match the API spec:\n" + "\n".join(answers.problems))
-
-
-@pytest.fixture
-def asgi_client():
-    """The whole app as production serves it (the current app's fixture)."""
-    from app.api import app as whole_app
-    from app.clients import caching
-
-    caching.cache.clear()
-    with TestClient(whole_app, base_url="http://localhost") as c:
-        yield c
 
 
 @pytest.fixture

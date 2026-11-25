@@ -233,7 +233,7 @@ The end-to-end tests against an app you started yourself (e.g. to watch it in a 
 **Writing one**
 
 - Add tests for new functionality, and only tests that catch a real bug (wrong behaviour, security, data loss).
-- Calling the API: the `client` fixture (FastAPI's `TestClient`; `client.get("/api/v1/...").json()`). Older files use `flask_client`, the first app's tests' client; new tests use `client`.
+- Calling the API: the `client` fixture (FastAPI's `TestClient`; `client.get("/api/v1/...").json()`), from 127.0.0.1 (a trusted proxy by default) to `http://localhost`, redirects not followed, no Accept or gzip unless the test sends them. From another address, or with other options: `http_client.make(address=("10.9.9.9", 50000))` (`from tests import http_client`; `raise_server_exceptions=False` to see a crash's 500 answer).
 - Settings: `override_settings(AUTH_MODE="header")` for the test's duration. `configure(X="v")` sets them through the environment, for a test of how a setting is read.
 - The database: `tests/db.py` (`from tests import db as adb`): `adb.sql("SELECT ...", params)` for rows, `adb.call(fn, *args)` to run a service function, `adb.run(fn)` for one with a session. Every table is emptied after each test.
 - Nautobot, LibreNMS and the controllers: patch `request` in `app.clients.http` (imported as `upstream_http`; failures as httpx raises them in `tests/upstream.py`); `test_wireless.py`'s `controllers` fixture fakes the wireless controllers; `board` gives a board built from the database only, at a clock you set (`board["now"]`).

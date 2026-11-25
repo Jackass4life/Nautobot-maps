@@ -227,29 +227,27 @@ class TestApi:
         ]
 
     @pytest.fixture
-    def flask_client(self, monkeypatch, rows):
+    def client(self, monkeypatch, rows):
         monkeypatch.setattr(
             alerts, "board", adb.async_of(lambda trigger="request", **kwargs: {"alerts": rows})
         )
-        with http_client.FlaskStyleClient() as test_client:
+        with http_client.make() as test_client:
             yield test_client
 
-    def test_json(self, flask_client):
-        data = flask_client.get("/api/v1/locations/coordinate-check").get_json()
+    def test_json(self, client):
+        data = client.get("/api/v1/locations/coordinate-check").json()
         assert data["counts"] == {"invalid": 0, "zero": 0, "swapped": 1, "far": 0, "missing": 1}
         assert [item["site_id"] for item in data["sites"]] == ["swapped", "nowhere"]
-        scoped = flask_client.get(
-            "/api/v1/locations/coordinate-check?tenant=acme%20corp"
-        ).get_json()
+        scoped = client.get("/api/v1/locations/coordinate-check?tenant=acme%20corp").json()
         assert [item["site_id"] for item in scoped["sites"]] == ["nowhere"]
 
-    def test_csv(self, flask_client):
-        resp = flask_client.get("/api/v1/locations/coordinate-check.csv")
+    def test_csv(self, client):
+        resp = client.get("/api/v1/locations/coordinate-check.csv")
         assert (
-            resp.mimetype == "text/csv"
+            resp.headers["content-type"].split(";")[0] == "text/csv"
             and "coordinate-check.csv" in resp.headers["Content-Disposition"]
         )
-        rows = list(csv.DictReader(io.StringIO(resp.get_data(as_text=True).lstrip("﻿"))))
+        rows = list(csv.DictReader(io.StringIO(resp.text.lstrip("﻿"))))
         assert [row["site_id"] for row in rows] == ["swapped", "nowhere"]
         assert (
             rows[1]["latitude"] == ""
@@ -262,14 +260,10 @@ class TestApi:
             and rows[0]["compared_with"] == "all sites"
         )
         assert rows[1]["km_from_centre"] == "" and rows[1]["compared_with"] == ""
-        scoped = flask_client.get(
-            "/api/v1/locations/coordinate-check.csv?tenant=Acme%20Corp"
-        ).get_data(as_text=True)
+        scoped = client.get("/api/v1/locations/coordinate-check.csv?tenant=Acme%20Corp").text
         assert "nowhere" in scoped and "swapped" not in scoped
 
-    def test_metrics_read_the_stored_board_only(
-        self, flask_client, monkeypatch, rows, override_settings
-    ):
+    def test_metrics_read_the_stored_board_only(self, client, monkeypatch, rows, override_settings):
         """A scrape never builds the board (#368 review): no stored board, no gauge."""
         override_settings(METRICS_ENABLED=True)
         monkeypatch.setattr(
@@ -278,10 +272,10 @@ class TestApi:
             adb.async_of(lambda *args, **kwargs: pytest.fail("a scrape built the board")),
         )
         monkeypatch.setattr(caching, "get", lambda key: None)
-        assert "coordinate_problems" not in flask_client.get("/metrics").get_data(as_text=True)
+        assert "coordinate_problems" not in client.get("/metrics").text
         monkeypatch.setattr(
             caching, "get", lambda key: {"alerts": rows} if key == alerts.BOARD_CACHE_KEY else None
         )
-        body = flask_client.get("/metrics").get_data(as_text=True)
+        body = client.get("/metrics").text
         assert 'nautobot_maps_sites_coordinate_problems{problem="missing"} 1' in body
         assert 'nautobot_maps_sites_coordinate_problems{problem="zero"} 0' in body

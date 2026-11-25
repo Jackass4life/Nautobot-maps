@@ -86,8 +86,8 @@ def lnms(pg_database, monkeypatch, override_settings):
 
 
 @pytest.fixture
-def flask_client(lnms):
-    with http_client.FlaskStyleClient() as test_client:
+def client(lnms):
+    with http_client.make() as test_client:
         yield test_client
 
 
@@ -114,15 +114,15 @@ def pending() -> bool:
 
 
 class TestPush:
-    def test_down_then_up_shows_on_the_board_at_once(self, flask_client, lnms):
+    def test_down_then_up_shows_on_the_board_at_once(self, client, lnms):
         auth_headers = operator_token()
         assert board_row()["down_device_count"] == 0
         lnms.devices[1001]["status"] = 0
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers
         )
         assert response.status_code == 200
-        assert response.get_json() == {
+        assert response.json() == {
             "updated": True,
             "device": {"device_id": 1001, "hostname": "sw1.corp.example", "status": "down"},
         }
@@ -132,25 +132,25 @@ class TestPush:
 
         # A recovery right after the outage is not swallowed as a duplicate.
         lnms.devices[1001]["status"] = 1
-        recovered = flask_client.post(
+        recovered = client.post(
             "/api/v1/librenms/alert", data={"hostname": "sw1.corp.example"}, headers=auth_headers
         )
-        assert recovered.get_json()["device"]["status"] == "up"
+        assert recovered.json()["device"]["status"] == "up"
         assert board_row()["down_device_count"] == 0
 
-    def test_the_push_names_the_device_its_status_comes_from_librenms(self, flask_client, lnms):
+    def test_the_push_names_the_device_its_status_comes_from_librenms(self, client, lnms):
         # A "recovered" push for a device LibreNMS still has down changes nothing wrong.
         lnms.devices[1002]["status"] = 0
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/librenms/alert?device_id=1002&state=0", headers=operator_token()
         )
-        assert response.get_json()["device"]["status"] == "down"
+        assert response.json()["device"]["status"] == "down"
 
-    def test_repeated_pushes_refresh_again(self, flask_client, lnms):
+    def test_repeated_pushes_refresh_again(self, client, lnms):
         auth_headers = operator_token()
         for _ in range(2):
             assert (
-                flask_client.post(
+                client.post(
                     "/api/v1/librenms/alert", json={"device_id": 1000}, headers=auth_headers
                 ).status_code
                 == 200
@@ -261,53 +261,53 @@ class TestPush:
             conn.close()
         assert "lower(hostname)" in db.row_to_dict(row)["indexdef"]
 
-    def test_unknown_device_is_not_an_error(self, flask_client, lnms):
-        response = flask_client.post(
+    def test_unknown_device_is_not_an_error(self, client, lnms):
+        response = client.post(
             "/api/v1/librenms/alert", json={"hostname": "nope.example"}, headers=operator_token()
         )
         assert response.status_code == 200
-        assert response.get_json() == {"updated": False, "device": None}
+        assert response.json() == {"updated": False, "device": None}
         assert lnms.rebuilds == [] and not pending()
 
     @pytest.mark.parametrize(
         "body",
         [{}, {"device_id": ""}, {"device_id": True}, {"hostname": ["x"]}, {"hostname": "x" * 256}],
     )
-    def test_missing_device(self, flask_client, body):
-        response = flask_client.post("/api/v1/librenms/alert", json=body, headers=operator_token())
+    def test_missing_device(self, client, body):
+        response = client.post("/api/v1/librenms/alert", json=body, headers=operator_token())
         assert (
             response.status_code == 400
-            and response.get_json()["error"] == "device_id or hostname is required"
+            and response.json()["error"] == "device_id or hostname is required"
         )
 
-    def test_librenms_failure_is_a_502_without_secrets(self, flask_client, lnms, caplog):
+    def test_librenms_failure_is_a_502_without_secrets(self, client, lnms, caplog):
         lnms.fail = httpx.ConnectError(
             "https://librenms.test/api/v0/devices/1000 lnms-secret refused"
         )
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/librenms/alert", json={"device_id": 1000}, headers=operator_token()
         )
         assert response.status_code == 502
-        text = response.get_data(as_text=True) + caplog.text
+        text = response.text + caplog.text
         assert (
             "librenms.test" not in text
             and "lnms-secret" not in text
             and "ConnectError" in caplog.text
         )
 
-    def test_not_configured(self, flask_client, override_settings):
+    def test_not_configured(self, client, override_settings):
         override_settings(LIBRENMS_URL="")
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/librenms/alert", json={"device_id": 1000}, headers=operator_token()
         )
         assert response.status_code == 409
 
-    def test_needs_an_operator(self, flask_client, lnms):
+    def test_needs_an_operator(self, client, lnms):
         assert (
-            flask_client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code == 403
+            client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code == 403
         )  # disabled mode
         viewer = adb.run(tokens.create, {"name": "reader", "role": "viewer"}, "admin")["token"]
-        refused = flask_client.post(
+        refused = client.post(
             "/api/v1/librenms/alert",
             json={"device_id": 1000},
             headers={"Authorization": f"Bearer {viewer}"},
@@ -315,18 +315,15 @@ class TestPush:
         assert refused.status_code == 403
         with auth_config(mode="header", operator_groups={"ops"}):
             assert (
-                flask_client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code
-                == 401
+                client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code == 401
             )
         assert lnms.calls == []
 
 
 class TestRebuild:
-    def test_the_next_tick_rebuilds_for_a_pending_push(self, flask_client, lnms, monkeypatch):
+    def test_the_next_tick_rebuilds_for_a_pending_push(self, client, lnms, monkeypatch):
         lnms.devices[1001]["status"] = 0
-        flask_client.post(
-            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
-        )
+        client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token())
         built = []
         monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
         monkeypatch.setattr(scheduler, "rebuild_board", adb.async_of(lambda: built.append(True)))
@@ -336,12 +333,8 @@ class TestRebuild:
             "nothing pending: no rebuild"
         )
 
-    def test_a_failed_rebuild_keeps_the_push_for_the_next_tick(
-        self, flask_client, lnms, monkeypatch
-    ):
-        flask_client.post(
-            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
-        )
+    def test_a_failed_rebuild_keeps_the_push_for_the_next_tick(self, client, lnms, monkeypatch):
+        client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token())
 
         def broken():
             raise RuntimeError("board build failed")
@@ -351,9 +344,9 @@ class TestRebuild:
             asyncio.run(scheduler.tick())
         assert pending()
 
-    def test_a_push_during_the_rebuild_stays_pending(self, flask_client, lnms, monkeypatch):
+    def test_a_push_during_the_rebuild_stays_pending(self, client, lnms, monkeypatch):
         auth_headers = operator_token()
-        flask_client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers)
+        client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers)
 
         async def rebuild_while_another_push_comes():
             await inventory.librenms_push_refresh("1002")
