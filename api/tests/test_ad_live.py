@@ -24,10 +24,10 @@ ACCOUNTS = {
 
 
 @pytest.fixture
-def live(configure, pg_database):
+def live(override_settings, pg_database):
     adb.sql("TRUNCATE roles, permissions, identities, identities_to_roles CASCADE")
     adb.call(role_service.seed_defaults)
-    configure(
+    override_settings(
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
         LDAP_URL=LIVE_URL,
@@ -50,15 +50,17 @@ def test_the_password_decides(live):
     assert ad_service.authenticate("*", "Jane-Pass-2026!x", live) is None
 
 
-def test_the_certificate_is_checked(live, configure, tmp_path):
+def test_the_certificate_is_checked(live, override_settings, tmp_path):
     """Another CA's certificate (here: the system's CAs only) is refused."""
-    configure(EXTRA_CA_PEM=open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read())
+    override_settings(
+        EXTRA_CA_PEM=open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read()
+    )
     with pytest.raises(ad_service.DirectoryUnavailable):
         ad_service.authenticate("jdoe", "Jane-Pass-2026!x", settings)
 
 
-def test_a_wrong_service_account_is_the_setups_fault(live, configure):
-    configure(LDAP_BIND_PASSWORD="not-it")
+def test_a_wrong_service_account_is_the_setups_fault(live, override_settings):
+    override_settings(LDAP_BIND_PASSWORD="not-it")
     with pytest.raises(ad_service.DirectoryUnavailable):
         ad_service.authenticate("jdoe", "Jane-Pass-2026!x", settings)
 

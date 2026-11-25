@@ -17,11 +17,11 @@ from tests.test_auth import PROXY, as_user, me
 
 
 @pytest.fixture
-def signed_in(configure, pg_database):
+def signed_in(override_settings, pg_database):
     """Header mode with the roles in the database, as a migrated one has them."""
     adb.sql("TRUNCATE roles, permissions, identities, identities_to_roles CASCADE")
     adb.call(role_service.seed_defaults)
-    configure(AUTH_MODE="header", AUTH_VIEWER_GROUPS="staff", AUTH_ADMIN_GROUPS="netadmins")
+    override_settings(AUTH_MODE="header", AUTH_VIEWER_GROUPS="staff", AUTH_ADMIN_GROUPS="netadmins")
 
 
 @pytest.fixture
@@ -59,8 +59,8 @@ def test_without_an_identity_the_groups_role_logged_once(signed_in, via_proxy, c
     assert caplog.text.count("Signed in without an identity: 'bob' (role from groups: viewer)") == 1
 
 
-def test_without_an_identity_no_access_when_groups_are_off(signed_in, via_proxy, configure):
-    configure(
+def test_without_an_identity_no_access_when_groups_are_off(signed_in, via_proxy, override_settings):
+    override_settings(
         AUTH_MODE="header",
         AUTH_VIEWER_GROUPS="staff",
         AUTH_GROUP_ROLES="false",
@@ -72,13 +72,13 @@ def test_without_an_identity_no_access_when_groups_are_off(signed_in, via_proxy,
     assert "ask an admin to add you" in refused.json()["detail"]
     assert via_proxy.get("/api/v1/me", headers=headers).json()["error"] == "No access"
     # Without AUTH_REQUIRE_VIEWER reads are open to anyone (#592): those, no more.
-    configure(AUTH_REQUIRE_VIEWER="false")
+    override_settings(AUTH_REQUIRE_VIEWER="false")
     answer = me(via_proxy, headers)
     assert answer["role"] is None and answer["access"]["label"] == "No identity"
     assert "alerts:ack" not in answer["access"]["permissions"]
     refused = via_proxy.post("/api/v1/alert-acks", json={}, headers=headers)
     assert refused.status_code == 403 and refused.json()["error"] == "No access"
-    configure(AUTH_MODE="header", AUTH_GROUP_ROLES="false", AUTH_REQUIRE_VIEWER="true")
+    override_settings(AUTH_MODE="header", AUTH_GROUP_ROLES="false", AUTH_REQUIRE_VIEWER="true")
     # Added: in (a fresh lookup; the running app's within 30 s).
     assert run("create", "bob", "--role", "viewer") == 0
     identities.forget()
@@ -207,9 +207,9 @@ def test_the_api(signed_in, via_proxy):
     assert via_proxy.post("/api/v1/identities", json=[], headers=admin).status_code == 400
 
 
-def test_a_browser_gets_a_page_saying_so(signed_in, via_proxy, configure):
+def test_a_browser_gets_a_page_saying_so(signed_in, via_proxy, override_settings):
     """No identity, AUTH_GROUP_ROLES=false: a page, not JSON, with the way out."""
-    configure(
+    override_settings(
         AUTH_MODE="header",
         AUTH_GROUP_ROLES="false",
         AUTH_REQUIRE_VIEWER="true",

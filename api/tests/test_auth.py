@@ -14,8 +14,8 @@ def as_user(user: str, groups: str = "", **extra: str) -> dict[str, str]:
 
 
 @pytest.fixture
-def header_mode(configure):
-    configure(
+def header_mode(override_settings):
+    override_settings(
         AUTH_MODE="header",
         AUTH_VIEWER_GROUPS="staff",
         AUTH_OPERATOR_GROUPS="noc, Ops",
@@ -39,7 +39,7 @@ def me(client, headers=None):
     return client.get("/api/v1/me", headers=headers or {}).json()
 
 
-def test_disabled_mode_opens_reads_and_the_boards_changes(client, configure):
+def test_disabled_mode_opens_reads_and_the_boards_changes(client, override_settings):
     """As the current app (#188): nobody is signed in; reads and the board's own
     changes are open, administrative ones need ALLOW_UNAUTHENTICATED_WRITES."""
     answer = me(client)
@@ -61,7 +61,7 @@ def test_disabled_mode_opens_reads_and_the_boards_changes(client, configure):
     assert refused.status_code == 403
     assert refused.json()["error"] == "Authentication required for this change"
     assert "ALLOW_UNAUTHENTICATED_WRITES=true" in refused.json()["detail"]
-    configure(ALLOW_UNAUTHENTICATED_WRITES="true")
+    override_settings(ALLOW_UNAUTHENTICATED_WRITES="true")
     assert me(client)["can_administer"] is True
     assert client.post("/api/v1/tokens", json={"name": "x", "role": "viewer"}).status_code == 201
 
@@ -85,8 +85,8 @@ def test_groups_separated_by_semicolons_too(header_mode, via_proxy):
     assert me(via_proxy, as_user("alice", "staff; noc"))["groups"] == ["staff", "noc"]
 
 
-def test_default_role_for_users_in_no_group(header_mode, configure, via_proxy):
-    configure(AUTH_DEFAULT_ROLE="Viewer")
+def test_default_role_for_users_in_no_group(header_mode, override_settings, via_proxy):
+    override_settings(AUTH_DEFAULT_ROLE="Viewer")
     assert me(via_proxy, as_user("bob"))["role"] == "viewer"
     assert me(via_proxy)["role"] is None  # not signed in: no default role
 
@@ -113,8 +113,8 @@ def test_headers_from_an_untrusted_peer_are_ignored(header_mode, direct):
     )
 
 
-def test_trusted_proxies_setting(header_mode, configure, direct):
-    configure(AUTH_TRUSTED_PROXIES="10.9.0.0/16, 172.16.0.1")
+def test_trusted_proxies_setting(header_mode, override_settings, direct):
+    override_settings(AUTH_TRUSTED_PROXIES="10.9.0.0/16, 172.16.0.1")
     assert me(direct, as_user("carol", "noc"))["role"] == "operator"
 
 
@@ -123,8 +123,8 @@ def test_ipv4_mapped_peer(header_mode):
         assert me(c, as_user("dave", "noc"))["role"] == "operator"
 
 
-def test_proxy_secret(header_mode, configure, via_proxy):
-    configure(AUTH_PROXY_SECRET="s3cret")
+def test_proxy_secret(header_mode, override_settings, via_proxy):
+    override_settings(AUTH_PROXY_SECRET="s3cret")
     assert me(via_proxy, as_user("erin", "noc"))["username"] is None
     assert (
         me(via_proxy, as_user("erin", "noc", **{"X-Auth-Proxy-Secret": "wrong"}))["username"]
@@ -161,9 +161,9 @@ def test_writes_need_operator(header_mode, via_proxy):
     )
 
 
-def test_reads_public_unless_require_viewer(header_mode, configure, via_proxy):
+def test_reads_public_unless_require_viewer(header_mode, override_settings, via_proxy):
     assert via_proxy.get("/api/v1/items").status_code == 200
-    configure(AUTH_REQUIRE_VIEWER="true")
+    override_settings(AUTH_REQUIRE_VIEWER="true")
     assert via_proxy.get("/api/v1/items").status_code == 401
     nobody = via_proxy.get("/api/v1/items", headers=as_user("nobody"))
     assert nobody.status_code == 403
@@ -193,8 +193,8 @@ def test_reads_public_unless_require_viewer(header_mode, configure, via_proxy):
         ({}, 201),  # scripts send neither
     ],
 )
-def test_cross_site_writes(client, configure, headers, status):
-    configure(CORS_ORIGINS="http://localhost:3000")
+def test_cross_site_writes(client, override_settings, headers, status):
+    override_settings(CORS_ORIGINS="http://localhost:3000")
     response = client.post("/api/v1/items", json={"name": f"x{uuid.uuid4().hex}"}, headers=headers)
     assert response.status_code == status
     if status == 403:
@@ -205,17 +205,17 @@ def test_cross_site_reads_are_not_refused(client):
     assert client.get("/api/v1/items", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 200
 
 
-def test_settings_are_validated(configure):
+def test_settings_are_validated(override_settings):
     with pytest.raises(ValueError):
-        configure(AUTH_MODE="sometimes")
+        override_settings(AUTH_MODE="sometimes")
 
 
-def test_cors_allows_cookies_from_web(configure):
+def test_cors_allows_cookies_from_web(override_settings):
     # A cookie-based sign-in proxy in front of an API on another origin (#582). CORS is
     # installed only with CORS_ORIGINS (#594): the app's own pages share its origin.
     from app.api import create_app
 
-    configure(CORS_ORIGINS="http://localhost:3000")
+    override_settings(CORS_ORIGINS="http://localhost:3000")
     with TestClient(create_app()) as client:
         response = client.options(
             "/api/v1/items",
@@ -226,13 +226,13 @@ def test_cors_allows_cookies_from_web(configure):
 
 
 def test_the_spec_and_docs_follow_the_sign_in_rules(
-    header_mode, configure, via_proxy, frontend_build
+    header_mode, override_settings, via_proxy, frontend_build
 ):
     """As the current app's /api/openapi.json and /api/docs (#592 review); /api/docs is the
     web page (frontend_build: CI's api job has no web build)."""
     assert via_proxy.get("/api/openapi.json").status_code == 200
     assert via_proxy.get("/api/docs").status_code == 200
-    configure(AUTH_REQUIRE_VIEWER="true")
+    override_settings(AUTH_REQUIRE_VIEWER="true")
     for path in ("/api/openapi.json", "/api/docs"):
         assert via_proxy.get(path).status_code == 401, path
         assert via_proxy.get(path, headers=as_user("v", "staff")).status_code == 200, path
@@ -252,13 +252,13 @@ PRIORITY = ("admin", "operator", "noc", "customer", "viewer")
 
 
 @pytest.mark.parametrize("first", range(len(PRIORITY)))
-def test_the_first_role_in_order_wins_and_roles_never_merge(configure, first):
+def test_the_first_role_in_order_wins_and_roles_never_merge(override_settings, first):
     """In groups for several roles, a user gets the first of admin, operator, noc,
     customer, viewer: with every lower one too, still that one."""
     from app.core.settings import settings
     from app.services import auth_service
 
-    configure(**{f"AUTH_{role.upper()}_GROUPS": f"g-{role}" for role in PRIORITY})
+    override_settings(**{f"AUTH_{role.upper()}_GROUPS": f"g-{role}" for role in PRIORITY})
     groups = [f"G-{role}" for role in PRIORITY[first:]]
     assert auth_service.role_from_groups(groups, settings) == PRIORITY[first]
     assert auth_service.role_from_groups(["other"], settings) == ""
@@ -271,10 +271,10 @@ def test_the_first_role_in_order_wins_and_roles_never_merge(configure, first):
         ("noc-duty", "noc", "/api/v1/alerts", "/api/v1/locations/coordinate-check"),
     ],
 )
-def test_a_user_in_a_customer_or_noc_group(configure, via_proxy, group, role, may, may_not):
+def test_a_user_in_a_customer_or_noc_group(override_settings, via_proxy, group, role, may, may_not):
     """Signed in through the proxy (with AUTH_REQUIRE_VIEWER): that role, and the
     matrix's permissions, end to end."""
-    configure(
+    override_settings(
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
         AUTH_CUSTOMER_GROUPS="kam",
@@ -288,11 +288,11 @@ def test_a_user_in_a_customer_or_noc_group(configure, via_proxy, group, role, ma
     assert refused.status_code == 403 and refused.json()["current_role"] == role
 
 
-def test_the_old_dov_groups_still_give_noc(configure, via_proxy):
+def test_the_old_dov_groups_still_give_noc(override_settings, via_proxy):
     """AUTH_DOV_GROUPS, the NOC role's setting until 0.5.1 (#703), when AUTH_NOC_GROUPS
     is empty; AUTH_NOC_GROUPS wins when both are set."""
-    configure(AUTH_MODE="header", AUTH_DOV_GROUPS="noc-duty")
+    override_settings(AUTH_MODE="header", AUTH_DOV_GROUPS="noc-duty")
     assert me(via_proxy, as_user("olga", "noc-duty"))["role"] == "noc"
-    configure(AUTH_MODE="header", AUTH_DOV_GROUPS="noc-duty", AUTH_NOC_GROUPS="wall")
+    override_settings(AUTH_MODE="header", AUTH_DOV_GROUPS="noc-duty", AUTH_NOC_GROUPS="wall")
     assert me(via_proxy, as_user("olga", "noc-duty"))["role"] != "noc"
     assert me(via_proxy, as_user("olga", "wall"))["role"] == "noc"

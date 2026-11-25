@@ -144,8 +144,10 @@ def test_every_command_is_documented():
 class TestRoles:
     """``python -m app roles`` (#691): who may do what, and which groups give it."""
 
-    def test_every_role_its_permissions_and_groups(self, configure, capsys):
-        configure(AUTH_NOC_GROUPS="noc-duty", AUTH_CUSTOMER_GROUPS="KAM", AUTH_OPERATOR_GROUPS="")
+    def test_every_role_its_permissions_and_groups(self, override_settings, capsys):
+        override_settings(
+            AUTH_NOC_GROUPS="noc-duty", AUTH_CUSTOMER_GROUPS="KAM", AUTH_OPERATOR_GROUPS=""
+        )
         assert cli.main(["roles"]) == 0
         out = capsys.readouterr().out
         for role in ("admin", "operator", "noc", "customer", "viewer"):
@@ -154,8 +156,10 @@ class TestRoles:
         assert "operator (NWO (operator)), opens /nwo; groups: no groups set" in out
         assert "  criticality:override" in out and "  tenant:status:view" in out
 
-    def test_the_role_some_groups_give(self, configure, capsys):
-        configure(AUTH_NOC_GROUPS="noc", AUTH_CUSTOMER_GROUPS="kam", AUTH_VIEWER_GROUPS="staff")
+    def test_the_role_some_groups_give(self, override_settings, capsys):
+        override_settings(
+            AUTH_NOC_GROUPS="noc", AUTH_CUSTOMER_GROUPS="kam", AUTH_VIEWER_GROUPS="staff"
+        )
         assert cli.main(["roles", "--groups", "staff,KAM"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("customer (Customer), opens /customer")

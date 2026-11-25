@@ -49,10 +49,10 @@ def test_admin_holds_every_permission_also_new_ones():
     assert permissions.role_permissions("operator") == permissions.ALL - {Permission.ADMIN}
 
 
-def test_a_route_scope_with_a_path_parameter(configure):
+def test_a_route_scope_with_a_path_parameter(override_settings):
     """``authorize("tenant:{tenant}:view")``: a role's wildcard covers every tenant;
     the refusal names the scope as filled in."""
-    configure(AUTH_MODE="header")
+    override_settings(AUTH_MODE="header")
     original = permissions.ROLES["customer"]
     permissions.ROLES["customer"] = permissions.RoleDef(
         original.label, original.landing, original.scopes | {"tenant:acme:view"}

@@ -103,7 +103,7 @@ the details.
     `settings.NAUTOBOT_URL` inside the function that needs it, never at import (`tests/test_layout.py`
     checks); tests change them with the `override_settings`
     fixture (`override_settings(NAUTOBOT_URL="")`) or `with overridden(...)` from
-    `tests/overrides.py`, or through the environment with `configure(NAUTOBOT_URL="")`.
+    `tests/overrides.py`, read as `.env` is (#780).
     Add a new setting there and document it in `docs/configuration.md` (with its **Read by**:
     `api`) and `.env.example`. Compose passes nothing itself: every
     container reads `.env` (#739). A variable a script or test reads from the environment goes
@@ -234,7 +234,7 @@ The end-to-end tests against an app you started yourself (e.g. to watch it in a 
 
 - Add tests for new functionality, and only tests that catch a real bug (wrong behaviour, security, data loss).
 - Calling the API: the `client` fixture (FastAPI's `TestClient`; `client.get("/api/v1/...").json()`), from 127.0.0.1 (a trusted proxy by default) to `http://localhost`, redirects not followed, no Accept or gzip unless the test sends them. From another address, or with other options: `http_client.make(address=("10.9.9.9", 50000))` (`from tests import http_client`; `raise_server_exceptions=False` to see a crash's 500 answer).
-- Settings: `override_settings(AUTH_MODE="header")` for the test's duration. `configure(X="v")` sets them through the environment, for a test of how a setting is read.
+- Settings: `override_settings(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")` for the test's duration; `with overridden(...)` (`tests/overrides.py`) for a block or a module-scoped fixture. Values are read as `.env` is (#780): text parsed, derived settings worked out again, and a combination startup refuses is refused here too, so a test can't run with settings no deployment could have.
 - The database: `tests/db.py` (`from tests import db as adb`): `adb.sql("SELECT ...", params)` for rows, `adb.call(fn, *args)` to run a service function, `adb.run(fn)` for one with a session. Every table is emptied after each test.
 - Nautobot, LibreNMS and the controllers: patch `request` in `app.clients.http` (imported as `upstream_http`; failures as httpx raises them in `tests/upstream.py`); `test_wireless.py`'s `controllers` fixture fakes the wireless controllers; `board` gives a board built from the database only, at a clock you set (`board["now"]`).
 - "Now": `app.utils.timeutil` (patch `timeutil.iso_utc_now`), never `datetime.now()` in the code.

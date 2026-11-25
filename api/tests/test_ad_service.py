@@ -56,6 +56,7 @@ def ad(override_settings, directory):
         LDAP_BASE_DN=BASE,
         LDAP_BIND_DN=SERVICE[0],
         LDAP_BIND_PASSWORD=SERVICE[1],
+        JWT_SIGNING_SECRET="s" * 40,
     )
     return lambda username, password: ad_service.authenticate(username, password, settings)
 
