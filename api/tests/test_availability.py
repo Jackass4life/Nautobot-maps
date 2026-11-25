@@ -566,14 +566,14 @@ class TestPages:
 
     @pytest.mark.parametrize("role", ["admin", "operator", "viewer", "noc", "customer"])
     def test_a_read_never_makes_a_link_and_shows_links_only_to_nwo_and_admins(
-        self, client, role, configure, monkeypatch
+        self, client, role, override_settings, monkeypatch
     ):
         """#687: a link id opens a tenant's page; reading the report never makes one, and
         only status:links:view (NWO, admin) sees those there are."""
         from app.services import auth_service, status_link_service
         from app.services.auth_service import CurrentUser
 
-        configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
+        override_settings(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
         user = CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
 
         async def resolve(request, settings):  # type: ignore[no-untyped-def]

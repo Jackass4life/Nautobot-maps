@@ -1135,12 +1135,12 @@ class TestTenantStatusByName:
     the tenant's name, for tenant:status:view; no link id shown or made."""
 
     @pytest.fixture
-    def as_role(self, configure, monkeypatch):  # type: ignore[no-untyped-def]
+    def as_role(self, override_settings, monkeypatch):  # type: ignore[no-untyped-def]
         from app.services import auth_service
         from app.services.auth_service import CurrentUser
 
         def apply(role: str) -> None:
-            configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
+            override_settings(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
             user = CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
 
             async def resolve(request, settings):  # type: ignore[no-untyped-def]

@@ -233,9 +233,9 @@ class TestSignIn:
         )
         assert refused.status_code == 403 and refused.json()["current_role"] == "viewer"
 
-    def test_header_mode_token_from_any_address_wins_over_headers(self, configure, clock):
+    def test_header_mode_token_from_any_address_wins_over_headers(self, override_settings, clock):
         operator = make()["token"]
-        configure(AUTH_MODE="header", AUTH_OPERATOR_GROUPS="ops")
+        override_settings(AUTH_MODE="header", AUTH_OPERATOR_GROUPS="ops")
         with TestClient(app, client=UNTRUSTED) as untrusted:
             # Not from a trusted proxy: identity headers are ignored, the token is not.
             assert item(untrusted, "a", headers=bearer(operator)).status_code == 201
@@ -258,8 +258,8 @@ class TestSignIn:
                 assert response.json() == {"error": "Invalid, expired or revoked API token"}
         assert client.get("/api/healthz", headers=bearer("nmt_wrong")).status_code == 200
 
-    def test_a_bearer_value_that_is_not_ours_is_ignored(self, configure, clock):
-        configure(AUTH_MODE="header", AUTH_OPERATOR_GROUPS="ops")
+    def test_a_bearer_value_that_is_not_ours_is_ignored(self, override_settings, clock):
+        override_settings(AUTH_MODE="header", AUTH_OPERATOR_GROUPS="ops")
         headers = {
             "Authorization": "Bearer eyJhbGciOi.proxy.token",
             "X-Forwarded-User": "olga",
@@ -268,9 +268,9 @@ class TestSignIn:
         with TestClient(app, client=("127.0.0.1", 1)) as proxied:
             assert item(proxied, headers=headers).status_code == 201
 
-    def test_require_viewer_accepts_a_token(self, configure, clock):
+    def test_require_viewer_accepts_a_token(self, override_settings, clock):
         viewer = make("reader", "viewer")["token"]
-        configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
+        override_settings(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
         with TestClient(app, client=UNTRUSTED) as untrusted:
             assert untrusted.get("/api/v1/items").status_code == 401
             assert untrusted.get("/api/v1/items", headers=bearer(viewer)).status_code == 200
@@ -488,9 +488,9 @@ def test_bearer_parsing(header, expected):
 
 
 @pytest.fixture
-def writes_allowed(configure):
+def writes_allowed(override_settings):
     # AUTH_MODE=disabled with writes open: only the cross-site check stands in the way.
-    configure(ALLOW_UNAUTHENTICATED_WRITES="true")
+    override_settings(ALLOW_UNAUTHENTICATED_WRITES="true")
 
 
 @pytest.mark.parametrize(

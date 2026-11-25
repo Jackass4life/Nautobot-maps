@@ -29,7 +29,7 @@ def test_an_unknown_setting_is_refused():
         override(NAUTOBOT_ULR="x")
 
 
-def test_one_object_that_every_module_sees_change(configure):
+def test_one_object_that_every_module_sees_change(override_settings):
     """#754: overrides and reloads change the shared object, never replace it, so a
     module that imported it at its top sees the new values."""
     from app.core import settings as module
@@ -39,12 +39,12 @@ def test_one_object_that_every_module_sees_change(configure):
     with overridden(CASE_URL_TEMPLATE="https://itsm.example/{case}"):
         assert module.settings is shared
         assert availability_service.settings.CASE_URL_TEMPLATE == "https://itsm.example/{case}"
-    configure(CACHE_TTL="42")
+    override_settings(CACHE_TTL="42")
     assert module.settings is shared
     assert availability_service.settings.CACHE_TTL == 42
 
 
-def test_an_override_survives_a_reload_from_the_environment(configure):
+def test_an_override_survives_a_reload_from_the_environment(override_settings):
     with overridden(NAUTOBOT_URL="http://kept"):
-        configure(CACHE_TTL="7")
+        override_settings(CACHE_TTL="7")
         assert (settings.NAUTOBOT_URL, settings.CACHE_TTL) == ("http://kept", 7)

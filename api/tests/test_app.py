@@ -3443,10 +3443,12 @@ class TestInventoryCacheSync:
 # Tests: criticality_rules.json loading
 # ---------------------------------------------------------------------------
 class TestCriticalityRules:
-    def test_rules_from_the_setting(self, configure):
+    def test_rules_from_the_setting(self, override_settings):
         """CRITICALITY_RULES (#739, JSON) gives each location type its keywords, read at
         call time."""
-        configure(CRITICALITY_RULES='{"Datacenter": ["Core", "firewall"], "office": ["router"]}')
+        override_settings(
+            CRITICALITY_RULES='{"Datacenter": ["Core", "firewall"], "office": ["router"]}'
+        )
         assert alerts.get_critical_keywords("datacenter") == ("core", "firewall")
         assert alerts.get_critical_keywords("Office") == ("router",)
 

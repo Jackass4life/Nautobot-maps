@@ -43,10 +43,10 @@ def directory(monkeypatch):
 
 
 @pytest.fixture
-def signed_in_mode(configure, pg_database, directory):
+def signed_in_mode(override_settings, pg_database, directory):
     adb.sql("TRUNCATE roles, permissions, identities, identities_to_roles CASCADE")
     adb.call(role_service.seed_defaults)
-    configure(
+    override_settings(
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
         LDAP_URL="ldaps://fake-ad",
@@ -160,10 +160,12 @@ def test_sign_out(signed_in_mode, client):
     assert client.get("/api/v1/alerts").status_code == 401
 
 
-def test_a_browser_not_signed_in_goes_to_sign_in(signed_in_mode, client, configure, tmp_path):
+def test_a_browser_not_signed_in_goes_to_sign_in(
+    signed_in_mode, client, override_settings, tmp_path
+):
     # A build of its own: the API's CI job doesn't build web/.
     (tmp_path / "200.html").write_text("<!DOCTYPE html><p>shell</p>")
-    configure(WEB_BUILD_DIR=str(tmp_path))
+    override_settings(WEB_BUILD_DIR=str(tmp_path))
     page = client.get(
         "/alerts?tenant=Acme", headers={"Accept": "text/html"}, follow_redirects=False
     )
@@ -210,8 +212,8 @@ def test_no_password_in_the_log(signed_in_mode, client, caplog):
     assert "AD sign-in: 'jdoe'" in caplog.text
 
 
-def test_off_without_ldap_url(configure, client):
-    configure(AUTH_MODE="header")
+def test_off_without_ldap_url(override_settings, client):
+    override_settings(AUTH_MODE="header")
     assert login(client).status_code == 404
     assert client.get("/auth", headers={"Accept": "text/html"}).status_code == 404
 

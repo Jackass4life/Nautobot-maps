@@ -24,8 +24,8 @@ def empty_cache():
 
 
 @pytest.fixture
-def nautobot_set(configure):
-    configure(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
+def nautobot_set(override_settings):
+    override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
 
 
 def status_error(status: int) -> httpx.HTTPStatusError:
@@ -120,7 +120,7 @@ class TestResponseCache:
         time.sleep(1.1)
         assert caching.get("expiring-key") is None
 
-    def test_backends(self, configure):
+    def test_backends(self, override_settings):
         assert caching.backend_for("SimpleCache", "", 42).default_timeout == 42
         assert type(caching.backend_for("NullCache", "", 1)).__name__ == "NullCache"
         redis_cache = caching.backend_for("RedisCache", "redis://127.0.0.1:1/0", 7)
@@ -130,12 +130,12 @@ class TestResponseCache:
             caching.backend_for("RedisCache", "", 1)
         with pytest.raises(ValueError, match="SimpleCache, RedisCache or NullCache"):
             caching.backend_for("MemcachedCache", "", 1)
-        configure(CACHE_TTL="42")
+        override_settings(CACHE_TTL="42")
         caching.init()
         try:
             assert caching.cache.backend.default_timeout == 42
         finally:
-            configure(CACHE_TTL="300")
+            override_settings(CACHE_TTL="300")
             caching.init()
 
     def test_invalidating_the_board_drops_its_keys(self):
@@ -148,8 +148,8 @@ class TestResponseCache:
 
 
 class TestNautobotRequests:
-    def test_needs_url_and_token(self, configure):
-        configure(NAUTOBOT_URL="", NAUTOBOT_TOKEN="")
+    def test_needs_url_and_token(self, override_settings):
+        override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="")
         with pytest.raises(RuntimeError, match="NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"):
             nautobot.get("dcim/locations/")
 
@@ -166,14 +166,14 @@ class TestNautobotRequests:
         ("value", "expected"),
         [("false", False), ("true", True)],
     )
-    def test_verify_ssl(self, nautobot_set, configure, value, expected):
-        configure(NAUTOBOT_VERIFY_SSL=value)
+    def test_verify_ssl(self, nautobot_set, override_settings, value, expected):
+        override_settings(NAUTOBOT_VERIFY_SSL=value)
         with patch.object(upstream_http, "request", return_value=ok_response()) as mock_get:
             nautobot.get("dcim/locations/", {"limit": 1})
         assert mock_get.call_args.kwargs["verify"] == expected
 
-    def test_accept_header_includes_version_when_set(self, nautobot_set, configure):
-        configure(NAUTOBOT_API_VERSION="3.0")
+    def test_accept_header_includes_version_when_set(self, nautobot_set, override_settings):
+        override_settings(NAUTOBOT_API_VERSION="3.0")
         with patch.object(upstream_http, "request", return_value=ok_response()) as mock_get:
             nautobot.get("dcim/locations/")
         assert mock_get.call_args.kwargs["headers"]["Accept"] == "application/json; version=3.0"
@@ -212,14 +212,14 @@ class TestNautobotRequests:
 
 
 class TestLibreNMS:
-    def test_not_configured_reads_nothing(self, configure):
-        configure(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
+    def test_not_configured_reads_nothing(self, override_settings):
+        override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
         with patch.object(upstream_http, "request") as mock_get:
             assert librenms.fetch_inventory() == [] and librenms.get("devices") == {}
         mock_get.assert_not_called()
 
-    def test_request_shape_and_device(self, configure):
-        configure(LIBRENMS_URL="https://librenms.example.com/", LIBRENMS_API_TOKEN="tok")
+    def test_request_shape_and_device(self, override_settings):
+        override_settings(LIBRENMS_URL="https://librenms.example.com/", LIBRENMS_API_TOKEN="tok")
         response = MagicMock()
         response.json.return_value = {"devices": [{"device_id": 7, "hostname": "sw1"}]}
         with patch.object(upstream_http, "request", return_value=response) as mock_get:
@@ -228,8 +228,8 @@ class TestLibreNMS:
         assert (method, url) == ("GET", "https://librenms.example.com/api/v0/devices/sw%201%2Fa")
         assert kwargs["headers"] == {"X-Auth-Token": "tok"} and kwargs["timeout"] == 15
 
-    def test_an_unknown_device_is_none(self, configure):
-        configure(LIBRENMS_URL="https://librenms.example.com", LIBRENMS_API_TOKEN="tok")
+    def test_an_unknown_device_is_none(self, override_settings):
+        override_settings(LIBRENMS_URL="https://librenms.example.com", LIBRENMS_API_TOKEN="tok")
         with patch.object(upstream_http, "request", side_effect=status_error(404)):
             assert librenms.fetch_device("nope") is None
 
@@ -279,16 +279,16 @@ class TestUpstreamRetries:
         yield waited
         upstream_http.close()
 
-    def test_transient_503_is_retried(self, flaky_server, configure, waits):
+    def test_transient_503_is_retried(self, flaky_server, override_settings, waits):
         url, script, seen = flaky_server
-        configure(NAUTOBOT_URL=url, NAUTOBOT_TOKEN="token")
+        override_settings(NAUTOBOT_URL=url, NAUTOBOT_TOKEN="token")
         script.append((503, {}))
         assert nautobot.fetch_all_pages("dcim/devices/", use_cache=False) == [{"id": "d1"}]
         assert len(seen) == 2 and waits == [1]
 
-    def test_gives_up_after_three_retries(self, flaky_server, configure, waits):
+    def test_gives_up_after_three_retries(self, flaky_server, override_settings, waits):
         url, script, seen = flaky_server
-        configure(NAUTOBOT_URL=url, NAUTOBOT_TOKEN="token")
+        override_settings(NAUTOBOT_URL=url, NAUTOBOT_TOKEN="token")
         script.extend([(502, {})] * 10)
         with pytest.raises(httpx.HTTPStatusError) as raised:
             nautobot.fetch_all_pages("dcim/devices/", use_cache=False)
@@ -296,9 +296,9 @@ class TestUpstreamRetries:
         assert len(seen) == 4  # the request and three retries
         assert waits == [1, 2, 4]
 
-    def test_client_errors_and_writes_are_not_retried(self, flaky_server, configure):
+    def test_client_errors_and_writes_are_not_retried(self, flaky_server, override_settings):
         url, script, seen = flaky_server
-        configure(NAUTOBOT_URL=url, NAUTOBOT_TOKEN="token")
+        override_settings(NAUTOBOT_URL=url, NAUTOBOT_TOKEN="token")
         script.append((404, {}))
         with pytest.raises(httpx.HTTPStatusError):
             nautobot.get("dcim/devices/x/", use_cache=False)
@@ -309,9 +309,9 @@ class TestUpstreamRetries:
             upstream_http.request("POST", f"{url}/api/extras/roles/", json={}, timeout=5)
         assert [method for method, _ in seen] == ["GET", "POST"]
 
-    def test_librenms_is_retried_too(self, flaky_server, configure, waits):
+    def test_librenms_is_retried_too(self, flaky_server, override_settings, waits):
         url, script, seen = flaky_server
-        configure(LIBRENMS_URL=url, LIBRENMS_API_TOKEN="tok")
+        override_settings(LIBRENMS_URL=url, LIBRENMS_API_TOKEN="tok")
         script.append((429, {"Retry-After": "0"}))
         assert librenms.fetch_inventory() == []
         assert len(seen) == 2 and waits == [0]
@@ -358,7 +358,7 @@ class TestUpstreamRetries:
         assert other[0] is upstream_http.client(True)
         assert upstream_http.client(False) is not upstream_http.client(True)
 
-    def test_extra_ca_pem_is_trusted_with_the_systems(self, configure):
+    def test_extra_ca_pem_is_trusted_with_the_systems(self, override_settings):
         """#739: EXTRA_CA_PEM's certificates join the system's CAs; verify=False still
         skips the check, and a new CA gets a new client."""
         pem = open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read()
@@ -370,5 +370,5 @@ class TestUpstreamRetries:
         assert upstream_http._ssl(True, "") is True
         assert upstream_http._ssl(False, first) is False
         plain = upstream_http.client(True)
-        configure(EXTRA_CA_PEM=first)
+        override_settings(EXTRA_CA_PEM=first)
         assert upstream_http.client(True) is not plain

@@ -247,11 +247,11 @@ def _refused(response) -> bool:  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture
-def as_role(configure, monkeypatch):  # type: ignore[no-untyped-def]
+def as_role(override_settings, monkeypatch):  # type: ignore[no-untyped-def]
     """Requests as *role* (header mode, AUTH_REQUIRE_VIEWER), or as nobody without it."""
 
     def apply(role: str) -> None:
-        configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER=str(role != ANONYMOUS).lower())
+        override_settings(AUTH_MODE="header", AUTH_REQUIRE_VIEWER=str(role != ANONYMOUS).lower())
         if role == ANONYMOUS:
             user = CurrentUser(auth_mode="header")
         else:
@@ -407,7 +407,7 @@ def _callers():  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.parametrize(("mode", "role"), list(_callers()))
-def test_the_pages_are_told_exactly_what_the_api_allows(configure, mode, role):
+def test_the_pages_are_told_exactly_what_the_api_allows(override_settings, mode, role):
     """access.permissions (#693) against the real check, route by route: a change is
     allowed by permission_problem exactly when its permissions are in the set, so a page
     never shows a button the API refuses, nor hides one it allows; a read is allowed
@@ -415,7 +415,7 @@ def test_the_pages_are_told_exactly_what_the_api_allows(configure, mode, role):
     whose changes aren't, e.g. the criticality list: the set names what can be used.)"""
     from app.core.settings import settings
 
-    configure(**MODES[mode])
+    override_settings(**MODES[mode])
     if role is None:
         user = CurrentUser(auth_mode=settings.AUTH_MODE)
     else:
@@ -535,14 +535,14 @@ def test_every_menu_page_needs_a_permission():
 
 @pytest.mark.parametrize("mode", list(MODES))
 @pytest.mark.parametrize("role", [None, "viewer", "operator", "admin"])
-def test_can_write_and_can_administer_as_before(configure, mode, role):
+def test_can_write_and_can_administer_as_before(override_settings, mode, role):
     """The deprecated flags (#693) answer as before for the old roles: can_write the
     board's own changes, can_administer a POST needing admin."""
     from app.core.settings import settings
 
     if role and not mode.startswith("header"):
         return
-    configure(**MODES[mode])
+    override_settings(**MODES[mode])
     user = (
         CurrentUser(auth_mode=settings.AUTH_MODE)
         if role is None

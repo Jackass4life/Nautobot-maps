@@ -15,14 +15,14 @@ BIG_JS = "console.log('x');\n" * 200  # over 1 KiB
 
 
 @pytest.fixture
-def built(tmp_path, configure):
+def built(tmp_path, override_settings):
     """A build of web/ as `bun run generate` leaves it."""
     (tmp_path / "_nuxt").mkdir()
     (tmp_path / "200.html").write_text(SHELL, encoding="utf-8")
     (tmp_path / "_nuxt" / "entry.js").write_text(BIG_JS, encoding="utf-8")
     (tmp_path / "_nuxt" / "logo.png").write_bytes(b"\x89PNG" + b"\0" * 2000)
     (tmp_path / "secret.txt").write_text("outside _nuxt", encoding="utf-8")
-    configure(WEB_BUILD_DIR=str(tmp_path))
+    override_settings(WEB_BUILD_DIR=str(tmp_path))
     return tmp_path
 
 
@@ -33,8 +33,8 @@ def test_a_page_is_the_shell(client, built):
     assert response.headers["content-type"].startswith("text/html")
 
 
-def test_not_built_says_how(client, configure, tmp_path):
-    configure(WEB_BUILD_DIR=str(tmp_path / "missing"))
+def test_not_built_says_how(client, override_settings, tmp_path):
+    override_settings(WEB_BUILD_DIR=str(tmp_path / "missing"))
     response = client.get("/")
     assert response.status_code == 503 and "bun run generate" in response.text
 
@@ -68,8 +68,8 @@ def test_a_symlink_out_is_not_followed(client, built):
     assert client.get("/_nuxt/link.txt").status_code == 404
 
 
-def test_assets_are_public_with_require_viewer(client, built, configure):
-    configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
+def test_assets_are_public_with_require_viewer(client, built, override_settings):
+    override_settings(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
     assert client.get("/_nuxt/entry.js").status_code == 200
     assert client.get("/").status_code == 401
 
@@ -88,11 +88,11 @@ def test_every_answer_has_the_security_headers(client, built, path):
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
-def test_the_tile_host_is_in_the_csp(client, configure):
-    configure(MAP_TILE_URL="https://tiles.example.com/{z}/{x}/{y}.png")
+def test_the_tile_host_is_in_the_csp(client, override_settings):
+    override_settings(MAP_TILE_URL="https://tiles.example.com/{z}/{x}/{y}.png")
     csp = client.get("/api/v1/me").headers["content-security-policy"]
     assert "img-src 'self' data: https://tiles.example.com;" in csp
-    configure(MAP_TILE_URL="/tiles/{z}/{x}/{y}.png")
+    override_settings(MAP_TILE_URL="/tiles/{z}/{x}/{y}.png")
     assert "img-src 'self' data:;" in client.get("/api/v1/me").headers["content-security-policy"]
 
 
@@ -126,8 +126,8 @@ class TestGzip:
         response = client.head("/api/openapi.json", headers={"Accept-Encoding": "gzip"})
         assert response.headers["content-encoding"] == "gzip" and response.content == b""
 
-    def test_switched_off(self, client, configure):
-        configure(COMPRESS_RESPONSES="false")
+    def test_switched_off(self, client, override_settings):
+        override_settings(COMPRESS_RESPONSES="false")
         response = self.big(client, **{"Accept-Encoding": "gzip"})
         assert "content-encoding" not in response.headers and "vary" not in response.headers
 
