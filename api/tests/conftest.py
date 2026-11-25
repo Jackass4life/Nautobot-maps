@@ -20,9 +20,10 @@ TEST_DATABASE_URL = os.environ.get(
 )
 
 
-def _provision(url: str) -> None:
+def _provision(url: str) -> str | None:
     """Create the test database when it doesn't exist yet (an existing devcontainer
-    volume has only the current app's): one connection to the server's postgres DB."""
+    volume has only the current app's): one connection to the server's postgres DB.
+    Why there is no server, when there is none."""
     import asyncio
 
     import asyncpg
@@ -49,11 +50,29 @@ def _provision(url: str) -> None:
 
     try:
         asyncio.run(create())
-    except (OSError, asyncpg.PostgresError):
-        pass  # no server, or no rights: the migration fixture says what is wrong
+    except OSError as exc:
+        # No server: every test would fail on its own with ConnectionRefusedError (#776).
+        return f"{type(exc).__name__}: {exc}"
+    except asyncpg.PostgresError:
+        pass  # no rights: the migration fixture says what is wrong
+    return None
 
 
-_provision(TEST_DATABASE_URL)
+_NO_SERVER = _provision(TEST_DATABASE_URL)
+
+
+def pytest_sessionstart(session) -> None:
+    from sqlalchemy import make_url
+
+    if _NO_SERVER and not session.config.option.collectonly:
+        url = make_url(TEST_DATABASE_URL).render_as_string(hide_password=True)
+        pytest.exit(
+            f"No PostgreSQL at {url} ({_NO_SERVER}). Start one, set API_TEST_DATABASE_URL, "
+            "or run scripts/ci/test.sh pytest (a throwaway one, with TEST_PG_URL or Docker).",
+            returncode=4,
+        )
+
+
 # Must be set before `app` is imported: the engine is built from settings at import.
 # Both names: NAUTOBOT_MAPS_DATABASE_URL wins over DATABASE_URL.
 os.environ["NAUTOBOT_MAPS_DATABASE_URL"] = os.environ["DATABASE_URL"] = TEST_DATABASE_URL

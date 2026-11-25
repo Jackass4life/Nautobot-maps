@@ -23,29 +23,12 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    (cd web && bun install && bun run generate)          # the pages, for the development server
    ```
 3. **Make** your changes in small, focused commits.
-4. **Test** your changes:
+4. **Test** your changes, the way CI does (see [Tests](#tests)):
    ```bash
-   (cd api && uv run pytest && uv run ruff check . && uv run ruff format --check .)
-   (cd web && bun run format:check && bun run lint && bun run type:check && bun run test)
+   scripts/ci/test.sh pytest tests/test_board_once.py   # while you work: only the API tests you name
+   scripts/ci/test.sh all                               # before the PR: API, pages and end-to-end
    uv run --project api ruff check . && uv run --project api ruff format --check .   # the files outside api/ and web/, as CI
    ```
-   For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
-   ```bash
-   (cd api && uv sync --group e2e && uv run python -m playwright install chromium)
-   cp -n api/local.env api/.env                                 # every setting (#760); the exports below win
-   uv run --project api python demo/mock_nautobot.py &         # :8080
-   export NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x NAUTOBOT_MAPS_DATABASE_URL=postgresql://...
-   (cd api && uv run python -m app migrate && FLASK_RUN_PORT=5055 uv run python run.py) &
-   # Planning maintenance needs the operator role: an API token for the tests.
-   export E2E_OPERATOR_TOKEN="$(cd api && uv run python -m app token create e2e --role operator --expires-days 1 | head -n 1)"
-   # The Admin page needs the admin role (#530).
-   export E2E_ADMIN_TOKEN="$(cd api && uv run python -m app token create e2e-admin --role admin --expires-days 1 | head -n 1)"
-   # Each role's workspace: /noc and /customer (#697).
-   export E2E_NOC_TOKEN="$(cd api && uv run python -m app token create e2e-noc --role noc --expires-days 1 | head -n 1)"
-   export E2E_CUSTOMER_TOKEN="$(cd api && uv run python -m app token create e2e-customer --role customer --expires-days 1 | head -n 1)"
-   E2E_BASE_URL=http://127.0.0.1:5055 uv run --project api python -m pytest e2e/ -v
-   ```
-   Or run what CI runs, the same script GitHub Actions and GitLab CI call (#765): `scripts/ci/test.sh api|web|e2e|all`. It starts PostgreSQL in Docker, or uses `TEST_PG_URL=postgresql://user:password@host:port` (it creates and drops its own databases there), picks free ports for the mock and the app, and reads every setting from `api/local.env` into its environment (your `api/.env` is not touched). See [CI](#ci).
 5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
 6. **Submit** a pull request against `main` with a clear description of the change.
 
@@ -230,12 +213,32 @@ CI fails when a lock file doesn't match, or when `pip-audit` (any known vulnerab
 
 ### Tests
 
-- Add tests for new functionality.
-- Ensure all existing tests pass before submitting a pull request.
-- `uv run pytest` in `api/` makes its own PostgreSQL database (`fastapi_nuxt_test` on the
-  local server, or `API_TEST_DATABASE_URL`), migrated with Alembic and emptied after each test;
-  without a database server the tests that need one fail.
-- Both unit tests (mocked) and integration tests are welcome.
+The tests need PostgreSQL and nothing else: Nautobot, LibreNMS, the wireless controllers, AD and Redis are faked, and the settings come from `api/local.env` (a deployment's `.env` doesn't reach them; #774).
+
+**Running them**
+
+| What | Command |
+|---|---|
+| Some API tests, while you work | `scripts/ci/test.sh pytest tests/test_x.py -k name` (any pytest arguments) |
+| The same in the dev container (its PostgreSQL is running) | `uv run pytest tests/test_x.py -k name` in `api/` |
+| Everything CI runs for the API: ruff, migrations, pytest | `scripts/ci/test.sh api` |
+| The pages: types, lint, formatting, vitest, build | `scripts/ci/test.sh web` |
+| End to end: the app on the mock Nautobot, Playwright in Chromium | `scripts/ci/test.sh e2e` |
+| All of it | `scripts/ci/test.sh all` |
+
+`scripts/ci/test.sh` (#765) is what GitHub Actions and GitLab CI run. It uses a throwaway PostgreSQL: `TEST_PG_URL=postgresql://user:password@host:port` (it creates and drops its own databases there) or else a Docker container. It picks free ports and reads every setting from `api/local.env` into its environment; your `api/.env` is not touched. `uv run pytest` makes its own database (`fastapi_nuxt_test` on the local server, or `API_TEST_DATABASE_URL`), migrated with Alembic and emptied after each test; with no server reachable it stops at once and says so (#776).
+
+The end-to-end tests against an app you started yourself (e.g. to watch it in a browser): `E2E_BASE_URL=http://127.0.0.1:5055 uv run --project api python -m pytest e2e/`, with an API token per role in `E2E_*_TOKEN` (`e2e/test_e2e.py`'s docstring; `scripts/ci/test.sh`'s `e2e_start` and `e2e_tokens` do it all).
+
+**Writing one**
+
+- Add tests for new functionality, and only tests that catch a real bug (wrong behaviour, security, data loss).
+- Calling the API: the `client` fixture (FastAPI's `TestClient`; `client.get("/api/v1/...").json()`). Older files use `flask_client`, the first app's tests' client; new tests use `client`.
+- Settings: `override_settings(AUTH_MODE="header")` for the test's duration. `configure(X="v")` sets them through the environment, for a test of how a setting is read.
+- The database: `tests/db.py` (`from tests import db as adb`): `adb.sql("SELECT ...", params)` for rows, `adb.call(fn, *args)` to run a service function, `adb.run(fn)` for one with a session. Every table is emptied after each test.
+- Nautobot, LibreNMS and the controllers: patch `request` in `app.clients.http` (imported as `upstream_http`; failures as httpx raises them in `tests/upstream.py`); `test_wireless.py`'s `controllers` fixture fakes the wireless controllers; `board` gives a board built from the database only, at a clock you set (`board["now"]`).
+- "Now": `app.utils.timeutil` (patch `timeutil.iso_utc_now`), never `datetime.now()` in the code.
+- Every JSON answer a test gets is checked against its route's `response_model` automatically.
 
 The suite:
 
