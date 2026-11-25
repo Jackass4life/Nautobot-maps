@@ -238,7 +238,9 @@ def clean_tables():
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
+    from tests import http_client
+
+    with http_client.make() as c:
         yield c
 
 

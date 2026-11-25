@@ -512,9 +512,9 @@ def test_a_bodyless_change_from_another_site_is_refused(client, writes_allowed, 
 def test_the_apps_own_pages_and_scripts_still_can(client, writes_allowed, clock):
     for headers in (
         {"Sec-Fetch-Site": "same-origin"},
-        {"Origin": "http://testserver"},
+        {"Origin": "http://localhost"},
         # A proxy may pass the Host without the browser's port.
-        {"Origin": "http://testserver:8443"},
+        {"Origin": "http://localhost:8443"},
         # curl, scripts, webhooks: no browser headers.
         {},
     ):

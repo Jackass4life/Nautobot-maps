@@ -83,6 +83,19 @@ class Response:
         return "content-length" not in self.headers
 
 
+def make(app=None, address=ADDRESS, **kwargs) -> TestClient:
+    """The tests' client: the whole app, from 127.0.0.1 (a trusted proxy by default) or
+    *address*; redirects not followed, no Accept (an API path answers JSON, a page HTML),
+    no gzip unless a test asks for it."""
+    if app is None:
+        from app.api import app
+    options = {"base_url": BASE_URL, "client": address, "follow_redirects": False}
+    client = TestClient(app, **{**options, **kwargs})
+    client.headers.pop("accept", None)
+    client.headers.pop("accept-encoding", None)
+    return client
+
+
 class FlaskStyleClient:
     def __init__(self, app=None):
         if app is None:

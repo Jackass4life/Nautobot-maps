@@ -184,8 +184,8 @@ def test_reads_public_unless_require_viewer(header_mode, configure, via_proxy):
         ({"Origin": "null"}, 403),
         # The host alone (#592, as the current app): behind the proxy the app sees
         # http:// for the browser's https://, and the Host may lack the port.
-        ({"Origin": "https://testserver"}, 201),
-        ({"Origin": "http://testserver:8443"}, 201),
+        ({"Origin": "https://localhost"}, 201),
+        ({"Origin": "http://localhost:8443"}, 201),
         ({"Origin": "https://elsewhere.example"}, 403),
         # web/'s origin (CORS_ORIGINS), other origin than the API but allowed
         ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:3000"}, 201),
