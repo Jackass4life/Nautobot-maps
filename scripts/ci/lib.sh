@@ -215,6 +215,12 @@ load_local_env() {
   set +a
 }
 
+# Nothing that only the server has (#774): the tests run before deploy, also when the
+# settings come from the deployment's .env.  Redis and AD come up with the server.
+use_test_services() {
+  export CACHE_TYPE=SimpleCache CACHE_REDIS_URL= LDAP_URL=
+}
+
 ruff_check() {
   case "$CI_PLATFORM" in
     github) uv run ruff check --output-format=github . ;;

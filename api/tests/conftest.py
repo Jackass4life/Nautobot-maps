@@ -60,6 +60,10 @@ os.environ["NAUTOBOT_MAPS_DATABASE_URL"] = os.environ["DATABASE_URL"] = TEST_DAT
 # No background scheduler from the app's startup: it would tick against the database while
 # tests empty it (the current app's tests never started gunicorn's). Its own tests turn it on.
 os.environ["BACKGROUND_SYNC_ENABLED"] = "false"
+# Nothing that only the server has (#774): the tests run before deploy, also with the
+# deployment's .env loaded. Redis and AD come up with the server; tests that need
+# either fake them.
+os.environ.update(CACHE_TYPE="SimpleCache", CACHE_REDIS_URL="", LDAP_URL="")
 
 import logging  # noqa: E402
 

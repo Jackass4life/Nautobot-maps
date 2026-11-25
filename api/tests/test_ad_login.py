@@ -1,5 +1,7 @@
-"""Sign-in with AD and the app's own token (#717): ldap3's fake directory here (it
-checks a bind's password as AD does); a real Samba AD in the PR's live check."""
+"""Sign-in with AD and the app's own token (#717): the login, not the directory (#774).
+ad_service.authenticate is faked, so these hold for any AD service with its interface
+(a user, None, or DirectoryUnavailable); this repo's ldap3 one: test_ad_service.py, a
+real Samba AD: test_ad_live.py."""
 
 import logging
 import time
@@ -7,8 +9,6 @@ import time
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from ldap3 import MOCK_SYNC, Connection, Server
-from ldap3.core.exceptions import LDAPBindError, LDAPSocketOpenError
 
 from app.api import app
 from app.core import settings as config
@@ -26,33 +26,19 @@ USERS = {
 
 @pytest.fixture
 def directory(monkeypatch):
-    """A fake AD: the service account, jdoe and bob; ``state["down"]`` breaks it."""
-    fake = Server("fake-ad")
-    state = {"down": False, "binds": []}
-    setup = Connection(fake, client_strategy=MOCK_SYNC)
-    setup.strategy.add_entry(f"CN=svc,{BASE}", {"cn": "svc", "userPassword": "Svc-Pass-1!"})
-    for name, (password, display) in USERS.items():
-        setup.strategy.add_entry(
-            f"CN={display},CN=Users,{BASE}",
-            {
-                "sAMAccountName": name.upper() if name == "jdoe" else name,
-                "cn": display,
-                "displayName": display,
-                "userPassword": password,
-                "objectClass": "user",
-            },
-        )
+    """A pretend AD: jdoe and bob with their passwords; ``state["down"]`` breaks it."""
+    state = {"down": False, "asked": []}
 
-    def connect(target, user, password, settings):
+    def authenticate(username, password, settings):
+        state["asked"].append(username)
         if state["down"]:
-            raise LDAPSocketOpenError("down")
-        state["binds"].append(user)
-        conn = Connection(fake, user, password, client_strategy=MOCK_SYNC)
-        if not conn.bind():
-            raise LDAPBindError("invalidCredentials")
-        return conn
+            raise ad_service.DirectoryUnavailable("down")
+        name = username.strip().lower()
+        if name not in USERS or USERS[name][0] != password:
+            return None
+        return ad_service.AdUser(unique_name=name, common_name=USERS[name][1], dn="")
 
-    monkeypatch.setattr(ad_service, "connect", connect)
+    monkeypatch.setattr(ad_service, "authenticate", authenticate)
     return state
 
 
@@ -110,12 +96,11 @@ def test_sign_in_and_be_the_identity(signed_in_mode, client):
     assert client.get("/api/v1/page-config").json()["user"]["sign_out_url"] == "/auth?signed_out=1"
 
 
-def test_a_form_and_the_name_as_people_type_it(signed_in_mode, client):
-    for name in ("jdoe", "JDoe", "NMAPS\\jdoe", "jdoe@nmaps.test"):
-        answer = client.post(
-            "/api/v1/auth/login", data={"username": name, "password": "Jane-Pass-1!"}
-        )
-        assert answer.status_code == 200, name
+def test_a_form(signed_in_mode, client):
+    answer = client.post(
+        "/api/v1/auth/login", data={"username": "jdoe", "password": "Jane-Pass-1!"}
+    )
+    assert answer.status_code == 200
 
 
 def test_wrong_password_and_unknown_user_answer_the_same(signed_in_mode, client, directory):
@@ -123,13 +108,6 @@ def test_wrong_password_and_unknown_user_answer_the_same(signed_in_mode, client,
     unknown = login(client, username="nobody")
     assert wrong.status_code == unknown.status_code == 401
     assert wrong.json() == unknown.json() == {"error": "Wrong user name or password"}
-    # No anonymous bind with an empty password.
-    directory["binds"].clear()
-    assert login(client, password="").status_code == 401
-    assert directory["binds"] == []
-    # A filter in the name is a name, not a filter.
-    assert login(client, username="*").status_code == 401
-    assert login(client, username="j*)(|(cn=*").status_code == 401
 
 
 def test_no_identity_no_access(signed_in_mode, client):

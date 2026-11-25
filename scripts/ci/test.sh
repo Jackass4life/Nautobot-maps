@@ -37,6 +37,7 @@ part_api() {
   need "PostgreSQL" start_postgres
   need "Test database" pg_database api
   load_local_env
+  use_test_services
   export DATABASE_URL="$PG_DATABASE_URL" API_TEST_DATABASE_URL="$PG_DATABASE_URL"
   check "Ruff lint" ruff_check
   check "Ruff format" uv run ruff format --check --diff .
@@ -126,6 +127,7 @@ part_e2e() {
   need "PostgreSQL" start_postgres
   need "Database" pg_database e2e
   load_local_env
+  use_test_services
   need "Start the mock Nautobot and the app" e2e_start
   need "Tokens" e2e_tokens
   # E2E_REQUIRED: a missing E2E_BASE_URL fails instead of skipping every test.
