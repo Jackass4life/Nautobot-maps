@@ -556,14 +556,14 @@ class TestSiteDevices:
         assert "old-sw" not in {
             d["id"] for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))
         }
-        with http_client.FlaskStyleClient() as client:
+        with http_client.make() as client:
             body = client.get(
                 "/api/v1/maintenance/devices?site_id=loc-lon&include_non_operational=1"
             ).json()
         assert "old-sw" in {d["id"] for d in body["devices"]}
 
     def test_endpoint(self, site):
-        with http_client.FlaskStyleClient() as client:
+        with http_client.make() as client:
             assert client.get("/api/v1/maintenance/devices").status_code == 400
             body = client.get("/api/v1/maintenance/devices?site_id=loc-lon").json()
         assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
@@ -812,7 +812,7 @@ class TestApi:
     @pytest.fixture
     def client(self, site):
         caching.cache.clear()
-        with http_client.FlaskStyleClient() as test_client:
+        with http_client.make() as test_client:
             yield test_client
 
     def test_operator_creates_lists_and_ends(self, client):
@@ -823,14 +823,9 @@ class TestApi:
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            assert client.post("/api/v1/maintenance", json=body, headers=viewer).status_code == 403
             assert (
-                client.post("/api/v1/maintenance", json=body, headers=viewer).status_code
-                == 403
-            )
-            assert (
-                client.get("/api/v1/alerts", headers=viewer).json()["alerts"][0][
-                    "alert_level"
-                ]
+                client.get("/api/v1/alerts", headers=viewer).json()["alerts"][0]["alert_level"]
                 == "critical"
             )
             created = client.post("/api/v1/maintenance", json=body, headers=operator)
@@ -839,34 +834,20 @@ class TestApi:
             assert window_row["created_by"] == "olga" and window_row["state"] == "active"
             # The cached board was dropped: maintenance shows at once.
             assert (
-                client.get("/api/v1/alerts", headers=viewer).json()["alerts"][0][
-                    "alert_level"
-                ]
+                client.get("/api/v1/alerts", headers=viewer).json()["alerts"][0]["alert_level"]
                 == "maintenance"
             )
-            listed = client.get(
-                "/api/v1/maintenance?site_id=loc-lon", headers=viewer
-            ).json()["windows"]
+            listed = client.get("/api/v1/maintenance?site_id=loc-lon", headers=viewer).json()[
+                "windows"
+            ]
             assert [w["id"] for w in listed] == [window_row["id"]]
-            ended = client.post(
-                f"/api/v1/maintenance/{window_row['id']}/end", headers=operator
-            )
+            ended = client.post(f"/api/v1/maintenance/{window_row['id']}/end", headers=operator)
             assert ended.status_code == 200 and ended.json()["window"]["state"] == "ended"
+            assert client.get("/api/v1/maintenance", headers=viewer).json()["windows"] == []
             assert (
-                client.get("/api/v1/maintenance", headers=viewer).json()["windows"] == []
+                len(client.get("/api/v1/maintenance?all=1", headers=viewer).json()["windows"]) == 1
             )
-            assert (
-                len(
-                    client.get("/api/v1/maintenance?all=1", headers=viewer).json()[
-                        "windows"
-                    ]
-                )
-                == 1
-            )
-            assert (
-                client.post("/api/v1/maintenance/999/end", headers=operator).status_code
-                == 404
-            )
+            assert client.post("/api/v1/maintenance/999/end", headers=operator).status_code == 404
 
     def test_sites_carry_the_tenants_descriptions(self, client, monkeypatch):
         # The picker finds a tenant by its description too (#497): one map
@@ -914,9 +895,9 @@ class TestApi:
                 "reason": "Core upgrade",
                 "duration_minutes": 60,
             }
-            windows = client.post(
-                "/api/v1/maintenance", json=body, headers=operator
-            ).json()["windows"]
+            windows = client.post("/api/v1/maintenance", json=body, headers=operator).json()[
+                "windows"
+            ]
             listed = client.get("/api/v1/maintenance", headers=viewer).json()
             assert {w["site_id"]: w["site_name"] for w in listed["windows"]} == {
                 "loc-lon": "London HQ",
@@ -944,9 +925,7 @@ class TestApi:
             )
             for bad in bad_bodies:
                 assert (
-                    client.post(
-                        "/api/v1/maintenance/end", json=bad, headers=operator
-                    ).status_code
+                    client.post("/api/v1/maintenance/end", json=bad, headers=operator).status_code
                     == 400
                 ), bad
             resp = client.post(
@@ -965,20 +944,17 @@ class TestApi:
             finally:
                 alerts.build_alert_board_payload = original
             assert built == [], "a no-op end must not drop the board"
-            assert (
-                client.get("/api/v1/maintenance", headers=viewer).json()["windows"] == []
-            )
+            assert client.get("/api/v1/maintenance", headers=viewer).json()["windows"] == []
             assert (
                 len(
-                    client.get(
-                        "/api/v1/maintenance?recent_days=7", headers=viewer
-                    ).json()["windows"]
+                    client.get("/api/v1/maintenance?recent_days=7", headers=viewer).json()[
+                        "windows"
+                    ]
                 )
                 == 2
             )
             assert (
-                client.get("/api/v1/maintenance?recent_days=x", headers=viewer).status_code
-                == 400
+                client.get("/api/v1/maintenance?recent_days=x", headers=viewer).status_code == 400
             )
 
     def test_history_and_its_export(self, client, monkeypatch, override_settings):
@@ -1007,9 +983,7 @@ class TestApi:
             )
             assert nz9.json()["windows"] == []
             assert (
-                client.get(
-                    "/api/v1/maintenance/history?tz=Mars/Base", headers=viewer
-                ).status_code
+                client.get("/api/v1/maintenance/history?tz=Mars/Base", headers=viewer).status_code
                 == 400
             )
             assert {w["site_id"]: w["site_name"] for w in data["windows"]} == {
@@ -1026,7 +1000,9 @@ class TestApi:
                 "/api/v1/maintenance/history.csv?site_id=loc-lon&from=2026-10-01&to=2026-10-09",
                 headers=viewer,
             )
-            assert resp.status_code == 200 and resp.mimetype == "text/csv"
+            assert (
+                resp.status_code == 200 and resp.headers["content-type"].split(";")[0] == "text/csv"
+            )
             assert (
                 'filename="maintenance-2026-10-01_2026-10-09-loc-lon.csv"'
                 in resp.headers["Content-Disposition"]
@@ -1046,9 +1022,7 @@ class TestApi:
                 ),
             )
             monkeypatch.setattr(maintenance, "HISTORY_LIMIT", 1)
-            only = client.get(
-                "/api/v1/maintenance/history?tenant=Acme", headers=viewer
-            ).json()
+            only = client.get("/api/v1/maintenance/history?tenant=Acme", headers=viewer).json()
             assert [w["site_id"] for w in only["windows"]] == ["loc-lon"] and only[
                 "truncated"
             ] is False
@@ -1062,9 +1036,7 @@ class TestApi:
                 "from=2025-01-01&to=2026-10-01",
             ):
                 assert (
-                    client.get(
-                        f"/api/v1/maintenance/history?{bad}", headers=viewer
-                    ).status_code
+                    client.get(f"/api/v1/maintenance/history?{bad}", headers=viewer).status_code
                     == 400
                 ), bad
             # The viewer role when the board needs it (AUTH_REQUIRE_VIEWER).
@@ -1080,7 +1052,7 @@ class TestApi:
         assert resp.status_code == 400 and resp.json()["error"] == "reason is required"
         assert (
             client.post(
-                "/api/v1/maintenance", data="[1]", content_type="application/json"
+                "/api/v1/maintenance", content="[1]", headers={"Content-Type": "application/json"}
             ).status_code
             == 400
         )

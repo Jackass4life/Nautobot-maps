@@ -137,7 +137,7 @@ def test_no_markup_or_inline_style_gets_through(monkeypatch, tmp_path):
 
 def test_images_and_unknown_pages(client, frontend_build):
     image = client.get("/help/images/map.png")
-    assert image.status_code == 200 and image.mimetype == "image/png"
+    assert image.status_code == 200 and image.headers["content-type"].split(";")[0] == "image/png"
     assert client.get("/help/images/../../app.py").status_code == 404
     assert client.get("/help/images/..%2F..%2Fapp.py").status_code == 404
     assert client.get("/help/nope").status_code == 404

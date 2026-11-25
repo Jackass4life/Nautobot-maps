@@ -87,7 +87,7 @@ class TestApi:
     def client(self, site):
         build()
         caching.cache.clear()
-        with http_client.FlaskStyleClient() as test_client:
+        with http_client.make() as test_client:
             yield test_client
 
     def test_acknowledge_and_remove(self, client):
@@ -101,23 +101,19 @@ class TestApi:
         assert all(d["acknowledged"]["note"] == "On it" for d in row["down_devices"]), (
             "the cached board was dropped"
         )
-        removed = client.post(
-            "/api/v1/alert-acks/remove", json={"site_id": "loc-lon"}
-        ).json()["changed"]
+        removed = client.post("/api/v1/alert-acks/remove", json={"site_id": "loc-lon"}).json()[
+            "changed"
+        ]
         assert sorted(removed) == ["acc1", "core"]
 
     def test_bad_requests(self, client):
-        assert client.post("/api/v1/alert-acks", data="x").status_code == 400
+        assert client.post("/api/v1/alert-acks", content="x").status_code == 400
         assert client.post("/api/v1/alert-acks", json={}).status_code == 400
         for bad in ("acc1", "", 0, False, [], ["  "], [1]):
-            resp = client.post(
-                "/api/v1/alert-acks", json={"site_id": "loc-lon", "device_ids": bad}
-            )
+            resp = client.post("/api/v1/alert-acks", json={"site_id": "loc-lon", "device_ids": bad})
             assert resp.status_code == 400, bad
         for bad_note in (0, False, [], {}):
-            resp = client.post(
-                "/api/v1/alert-acks", json={"site_id": "loc-lon", "note": bad_note}
-            )
+            resp = client.post("/api/v1/alert-acks", json={"site_id": "loc-lon", "note": bad_note})
             assert resp.status_code == 400, bad_note
         assert events() == [], "bad input never acknowledges everything"
         resp = client.post(
@@ -137,9 +133,7 @@ class TestApi:
                 == 403
             )
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
-            resp = client.post(
-                "/api/v1/alert-acks", json={"site_id": "loc-lon"}, headers=operator
-            )
+            resp = client.post("/api/v1/alert-acks", json={"site_id": "loc-lon"}, headers=operator)
             assert resp.status_code == 200
         conn = adb.connect()
         try:

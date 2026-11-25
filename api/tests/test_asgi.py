@@ -3,11 +3,12 @@ it.  Everything a browser, a script or a proxy relied on must be the same."""
 
 from app.auth.permissions import Permission
 from tests import db as adb
+from tests import http_client
 
 
-def test_security_headers_and_gzip_once(asgi_client):
+def test_security_headers_and_gzip_once(client):
     # The API as OpenAPI: big enough to compress, served without a frontend build.
-    response = asgi_client.get("/api/openapi.json", headers={"Accept-Encoding": "gzip"})
+    response = client.get("/api/openapi.json", headers={"Accept-Encoding": "gzip"})
     for name in (
         "content-security-policy",
         "x-content-type-options",
@@ -20,11 +21,9 @@ def test_security_headers_and_gzip_once(asgi_client):
     assert "uvicorn" not in response.headers.get("server", "")
 
 
-def test_a_change_from_another_site_is_still_refused(asgi_client, override_settings):
+def test_a_change_from_another_site_is_still_refused(client, override_settings):
     override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-    response = asgi_client.post(
-        "/api/v1/notifications/test", headers={"Sec-Fetch-Site": "cross-site"}
-    )
+    response = client.post("/api/v1/notifications/test", headers={"Sec-Fetch-Site": "cross-site"})
     assert response.status_code == 403 and response.json() == {
         "error": "Changes from another site are refused"
     }
@@ -67,8 +66,8 @@ def test_json_exactly_as_flask_wrote_it():
     )
 
 
-def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
-    plain = asgi_client.get("/api/v1/endpoints", headers={"Accept-Encoding": "identity"})
+def test_moved_routes_keep_headers_gzip_head_and_405(client):
+    plain = client.get("/api/v1/endpoints", headers={"Accept-Encoding": "identity"})
     assert plain.status_code == 200 and plain.headers.get("content-encoding") is None
     for name in (
         "content-security-policy",
@@ -78,21 +77,21 @@ def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
     ):
         assert len(plain.headers.get_list(name)) == 1, name
     assert "Accept-Encoding" in plain.headers["vary"]
-    zipped = asgi_client.get("/api/v1/endpoints", headers={"Accept-Encoding": "gzip"})
+    zipped = client.get("/api/v1/endpoints", headers={"Accept-Encoding": "gzip"})
     assert zipped.headers["content-encoding"] == "gzip" and zipped.json() == plain.json()
-    assert asgi_client.head("/healthz").status_code == 200
-    wrong = asgi_client.post("/healthz")
+    assert client.head("/healthz").status_code == 200
+    wrong = client.post("/healthz")
     assert wrong.status_code == 405 and wrong.json() == {"error": "Method not allowed"}
     assert {method.strip() for method in wrong.headers["allow"].split(",")} == {"GET", "HEAD"}
-    head = asgi_client.head("/api/v1/app-status")
+    head = client.head("/api/v1/app-status")
     assert (
         head.status_code == 200
         and head.content == b""
         and head.headers["content-type"] == "application/json"
     )
-    metrics = asgi_client.get("/metrics")
+    metrics = client.get("/metrics")
     assert metrics.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
-    assert asgi_client.get("/api/v1/app-status").headers["cache-control"] == "no-store"
+    assert client.get("/api/v1/app-status").headers["cache-control"] == "no-store"
 
 
 def test_the_sign_in_check_applies_to_moved_routes(client, override_settings):
@@ -118,10 +117,9 @@ def test_the_sign_in_check_applies_to_moved_routes(client, override_settings):
         assert client.get("/healthz").status_code == 200
         assert client.get("/metrics").status_code == 200
         # Identity headers from an untrusted address count for nothing.
-        untrusted = client.get(
+        untrusted = http_client.make(address=("10.9.9.9", 50000)).get(
             "/api/v1/app-status",
             headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc"},
-            environ_base={"REMOTE_ADDR": "10.9.9.9"},
         )
         assert untrusted.status_code == 401
 
@@ -150,12 +148,12 @@ def _mini_app():
 
 def test_the_shared_pieces_refuse_like_flask(override_settings):
     from app.v1 import deps
-    from tests.http_client import FlaskStyleClient
     from tests.test_app import auth_config
 
     app, router = _mini_app()
     assert deps.required_role(router.routes[0]) == "operator"
-    client = FlaskStyleClient(app)
+    # A crash answers 500 without its detail: the client gets the answer, not the exception.
+    client = http_client.make(app, raise_server_exceptions=False)
     # AUTH_MODE=disabled: a write needs ALLOW_UNAUTHENTICATED_WRITES.
     refused = client.post("/api/v1/x")
     assert (
@@ -222,15 +220,17 @@ def test_a_body_is_json_only_when_it_says_so(client, override_settings):
         ALLOW_UNAUTHENTICATED_WRITES=True, NAUTOBOT_MAPS_DATABASE_URL="postgresql://unused/x"
     )
     as_text = client.post(
-        "/api/v1/maintenance", data='{"site_id": "x"}', content_type="text/plain"
+        "/api/v1/maintenance", content='{"site_id": "x"}', headers={"Content-Type": "text/plain"}
     )
     assert as_text.status_code == 400 and as_text.json() == {"error": "Expected a JSON object"}
     broken = client.post(
-        "/api/v1/maintenance", data="{not json", content_type="application/json"
+        "/api/v1/maintenance", content="{not json", headers={"Content-Type": "application/json"}
     )
     assert broken.status_code == 400 and broken.json() == {"error": "Expected a JSON object"}
     ids = client.post(
-        "/api/v1/maintenance/end", data='{"ids": []}', content_type="application/merge-patch+json"
+        "/api/v1/maintenance/end",
+        content='{"ids": []}',
+        headers={"Content-Type": "application/merge-patch+json"},
     )
     assert ids.status_code == 400 and "ids must be a list" in ids.json()["error"]
 

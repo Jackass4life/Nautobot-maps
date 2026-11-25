@@ -87,7 +87,7 @@ def lnms(pg_database, monkeypatch, override_settings):
 
 @pytest.fixture
 def client(lnms):
-    with http_client.FlaskStyleClient() as test_client:
+    with http_client.make() as test_client:
         yield test_client
 
 
@@ -315,8 +315,7 @@ class TestPush:
         assert refused.status_code == 403
         with auth_config(mode="header", operator_groups={"ops"}):
             assert (
-                client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code
-                == 401
+                client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code == 401
             )
         assert lnms.calls == []
 
@@ -324,9 +323,7 @@ class TestPush:
 class TestRebuild:
     def test_the_next_tick_rebuilds_for_a_pending_push(self, client, lnms, monkeypatch):
         lnms.devices[1001]["status"] = 0
-        client.post(
-            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
-        )
+        client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token())
         built = []
         monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
         monkeypatch.setattr(scheduler, "rebuild_board", adb.async_of(lambda: built.append(True)))
@@ -336,12 +333,8 @@ class TestRebuild:
             "nothing pending: no rebuild"
         )
 
-    def test_a_failed_rebuild_keeps_the_push_for_the_next_tick(
-        self, client, lnms, monkeypatch
-    ):
-        client.post(
-            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
-        )
+    def test_a_failed_rebuild_keeps_the_push_for_the_next_tick(self, client, lnms, monkeypatch):
+        client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token())
 
         def broken():
             raise RuntimeError("board build failed")

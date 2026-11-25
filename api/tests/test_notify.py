@@ -9,7 +9,6 @@ import logging
 import httpx
 import pytest
 
-from app.clients import caching
 from app.db import connection as db
 from app.db import session
 from app.services import alerts_service as alerts
@@ -20,7 +19,6 @@ from app.services import scheduler
 from app.services import status_service as status
 from app.utils import timeutil
 from tests import db as adb
-from tests import http_client
 from tests.test_app import auth_config
 
 NOW = "2026-10-09T12:00:00Z"
@@ -441,30 +439,18 @@ class TestScheduler:
 
 
 class TestTestEndpoint:
-    @pytest.fixture
-    def client(self):
-        caching.cache.clear()
-        with http_client.FlaskStyleClient() as test_client:
-            yield test_client
-
     def test_needs_the_admin_role(self, client, channels):
-        assert (
-            client.post("/api/v1/notifications/test").status_code == 403
-        )  # AUTH_MODE=disabled
+        assert client.post("/api/v1/notifications/test").status_code == 403  # AUTH_MODE=disabled
         with auth_config(mode="header", operator_groups={"ops"}, admin_groups={"admins"}):
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
-            assert (
-                client.post("/api/v1/notifications/test", headers=operator).status_code == 403
-            )
+            assert client.post("/api/v1/notifications/test", headers=operator).status_code == 403
             admin = {"X-Forwarded-User": "ada", "X-Forwarded-Groups": "admins"}
             resp = client.post("/api/v1/notifications/test", headers=admin)
         assert resp.status_code == 200
         assert resp.json() == {"results": {"webhook": "ok", "teams": "ok", "email": "ok"}}
         assert json.loads(channels["posts"][0]["body"])["type"] == "test"
 
-    def test_reports_errors_without_secrets(
-        self, client, channels, monkeypatch, override_settings
-    ):
+    def test_reports_errors_without_secrets(self, client, channels, monkeypatch, override_settings):
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
 
         def broken(url, **kwargs):

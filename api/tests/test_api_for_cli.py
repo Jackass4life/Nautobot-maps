@@ -69,7 +69,7 @@ def client(pg_database, clock):
             )
     finally:
         conn.close()
-    with http_client.FlaskStyleClient() as test_client:
+    with http_client.make() as test_client:
         yield test_client
 
 
@@ -102,9 +102,7 @@ class TestStatusLinks:
         # Read back, and a name with a slash in it.
         read = client.get("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
         assert read.json() == answer.json()
-        nord = client.post(
-            "/api/v1/status-links/Nord%20A%2FS", headers=bearer(operator)
-        ).json()
+        nord = client.post("/api/v1/status-links/Nord%20A%2FS", headers=bearer(operator)).json()
         assert nord == {"tenant": "Nord A/S", "status_link": f"/status/{link_of('Nord A/S')}"}
 
     def test_reading_never_makes_a_link(self, client):
@@ -112,9 +110,7 @@ class TestStatusLinks:
         missing = client.get("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
         assert missing.status_code == 404
         assert missing.json() == {"error": "No status link for tenant 'Acme Corp' yet"}
-        assert client.get("/api/v1/status-links", headers=bearer(operator)).json() == {
-            "links": []
-        }
+        assert client.get("/api/v1/status-links", headers=bearer(operator)).json() == {"links": []}
         assert links() == 0
 
     def test_nwo_and_admins_only_and_only_known_tenants(self, client):
@@ -137,9 +133,7 @@ class TestStatusLinks:
                 path.replace("Acme%20Corp", "Acme"), headers=bearer(operator)
             )
             assert unknown.status_code == 404, path
-            assert unknown.json() == {
-                "error": "no tenant 'Acme' in Nautobot (as of the last sync)"
-            }
+            assert unknown.json() == {"error": "no tenant 'Acme' in Nautobot (as of the last sync)"}
         assert links() == 0, "a typo makes no link"
 
     def test_the_list(self, client):
@@ -155,9 +149,9 @@ class TestStatusLinks:
 
     def test_delete_cuts_the_link_off_at_once(self, client):
         operator = make("op", "operator")["token"]
-        old = client.post(
-            "/api/v1/status-links/Acme%20Corp", headers=bearer(operator)
-        ).json()["status_link"]
+        old = client.post("/api/v1/status-links/Acme%20Corp", headers=bearer(operator)).json()[
+            "status_link"
+        ]
         # Its page opens (no board here: 503, "try again"), never the 404 of no page.
         assert client.get(f"/api/v1{old}", headers=bearer(operator)).status_code != 404
         deleted = client.delete("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
@@ -168,16 +162,16 @@ class TestStatusLinks:
         again = client.delete("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
         assert again.status_code == 404
         # A new one is another link.
-        new = client.post(
-            "/api/v1/status-links/Acme%20Corp", headers=bearer(operator)
-        ).json()["status_link"]
+        new = client.post("/api/v1/status-links/Acme%20Corp", headers=bearer(operator)).json()[
+            "status_link"
+        ]
         assert new != old
 
     def test_replace_a_leaked_link(self, client):
         admin_token = make("admin", "admin")["token"]
-        old = client.post(
-            "/api/v1/status-links/Acme%20Corp", headers=bearer(admin_token)
-        ).json()["status_link"]
+        old = client.post("/api/v1/status-links/Acme%20Corp", headers=bearer(admin_token)).json()[
+            "status_link"
+        ]
         replaced = client.post(
             "/api/v1/status-links/Acme%20Corp/replace", headers=bearer(admin_token)
         ).json()
@@ -325,13 +319,10 @@ class TestStatusTokensForNwo:
         # Revoke a status token, not an admin's.
         boss = client.post(f"/api/v1/tokens/{admins['id']}/revoke", headers=bearer(operator))
         assert boss.status_code == 403
-        revoked = client.post(
-            f"/api/v1/tokens/{token['id']}/revoke", headers=bearer(operator)
-        )
+        revoked = client.post(f"/api/v1/tokens/{token['id']}/revoke", headers=bearer(operator))
         assert revoked.status_code == 200 and revoked.json()["token"]["state"] == "revoked"
         assert (
-            client.post("/api/v1/tokens/99999/revoke", headers=bearer(operator)).status_code
-            == 404
+            client.post("/api/v1/tokens/99999/revoke", headers=bearer(operator)).status_code == 404
         )
         # Purge stays an admin's.
         assert (
@@ -342,10 +333,7 @@ class TestStatusTokensForNwo:
     def test_a_viewer_makes_no_token_and_an_admin_every_one(self, client):
         viewer, admin_token = make("v", "viewer")["token"], make("boss", "admin")["token"]
         body = {"name": "acme-key", "role": "status", "tenant": "Acme Corp"}
-        assert (
-            client.post("/api/v1/tokens", json=body, headers=bearer(viewer)).status_code
-            == 403
-        )
+        assert client.post("/api/v1/tokens", json=body, headers=bearer(viewer)).status_code == 403
         assert client.get("/api/v1/tokens", headers=bearer(viewer)).status_code == 403
         made = client.post(
             "/api/v1/tokens", json={"name": "ops", "role": "operator"}, headers=bearer(admin_token)
@@ -353,9 +341,7 @@ class TestStatusTokensForNwo:
         assert made.status_code == 201
         roles = {
             t["role"]
-            for t in client.get("/api/v1/tokens", headers=bearer(admin_token)).json()[
-                "tokens"
-            ]
+            for t in client.get("/api/v1/tokens", headers=bearer(admin_token)).json()["tokens"]
         }
         assert roles == {"admin", "operator", "viewer"}
 

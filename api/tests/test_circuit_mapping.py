@@ -58,7 +58,7 @@ def test_groups_worst_first_with_their_sites(client, synced):
 def test_csv_one_row_per_circuit_formula_safe(client, synced):
     resp = client.get("/api/v1/circuit-mapping.csv")
     assert resp.status_code == 200
-    assert resp.mimetype == "text/csv"
+    assert resp.headers["content-type"].split(";")[0] == "text/csv"
     assert 'filename="circuit-mapping.csv"' in resp.headers["Content-Disposition"]
     lines = resp.text.splitlines()
     assert lines[0] == "\ufeff" + (
@@ -123,8 +123,7 @@ def test_a_site_off_the_map_links_through_its_building(
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
     asyncio.run(inventory.sync_nautobot(force=True))
     by_cid = {
-        c["cid"]: c["sites"]
-        for c in client.get("/api/v1/circuit-mapping").json()["circuits"]
+        c["cid"]: c["sites"] for c in client.get("/api/v1/circuit-mapping").json()["circuits"]
     }
     assert by_cid["C-1"] == [{"id": "loc-ode-b", "name": "Odense", "on_map": True}]
     assert by_cid["C-2"] == [

@@ -91,7 +91,7 @@ def client(monkeypatch, override_settings):
         alerts, "get_alert_board_data", adb.async_of(lambda **kwargs: json.loads(json.dumps(board)))
     )
     caching.cache.clear()
-    with http_client.FlaskStyleClient() as test_client:
+    with http_client.make() as test_client:
         yield test_client
 
 
@@ -124,9 +124,7 @@ def legacy(client, method, params=None, request_id=1, version="2025-11-25", head
 
 
 def call(client, name, arguments=None, **kwargs):
-    response = modern(
-        client, "tools/call", {"name": name, "arguments": arguments or {}}, **kwargs
-    )
+    response = modern(client, "tools/call", {"name": name, "arguments": arguments or {}}, **kwargs)
     assert response.status_code == 200, response.json()
     return response.json()["result"]
 
@@ -135,9 +133,7 @@ class TestProtocol:
     def test_off_by_default(self, client, override_settings):
         override_settings(MCP_ENABLED=False)
         assert modern(client, "server/discover").status_code == 404
-        assert (
-            legacy(client, "initialize", {"protocolVersion": "2025-11-25"}).status_code == 404
-        )
+        assert legacy(client, "initialize", {"protocolVersion": "2025-11-25"}).status_code == 404
 
     def test_discover(self, client):
         response = modern(client, "server/discover")
@@ -235,7 +231,7 @@ class TestProtocol:
         notified = client.post(
             "/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}
         )
-        assert notified.status_code == 202 and notified.data == b""
+        assert notified.status_code == 202 and notified.content == b""
         assert "Mcp-Session-Id" not in notified.headers
         tools = legacy(client, "tools/list").json()["result"]
         assert "resultType" not in tools and "ttlMs" not in tools and len(tools["tools"]) == 7
@@ -256,7 +252,9 @@ class TestProtocol:
 
     def test_malformed_requests(self, client):
         assert (
-            client.post("/mcp", data="not json", content_type="application/json").status_code
+            client.post(
+                "/mcp", content="not json", headers={"Content-Type": "application/json"}
+            ).status_code
             == 400
         )
         batch = client.post("/mcp", json=[{"jsonrpc": "2.0", "id": 1, "method": "ping"}])
@@ -265,7 +263,9 @@ class TestProtocol:
         assert bad_id.status_code == 400
         assert (
             client.post(
-                "/mcp", data="x" * (mcp.MAX_REQUEST_BYTES + 1), content_type="application/json"
+                "/mcp",
+                content="x" * (mcp.MAX_REQUEST_BYTES + 1),
+                headers={"Content-Type": "application/json"},
             ).status_code
             == 413
         )
@@ -279,8 +279,7 @@ class TestProtocol:
         # Matching the Host header is no defence against DNS rebinding:
         # after rebinding, Origin and Host both name the attacker's domain.
         assert (
-            modern(client, "tools/list", headers={"Origin": "http://localhost"}).status_code
-            == 403
+            modern(client, "tools/list", headers={"Origin": "http://localhost"}).status_code == 403
         )
         assert modern(client, "tools/list", headers={"Origin": "null"}).status_code == 403
         override_settings(MCP_ALLOWED_ORIGINS=["https://Assistant.example.com"])
@@ -300,34 +299,22 @@ class TestProtocol:
         assert modern(client, "tools/list").status_code == 200
 
     def test_size_limit_also_without_content_length(self, client):
-        import io
-
         big = json.dumps(
             {"jsonrpc": "2.0", "id": 1, "method": "ping", "pad": "x" * mcp.MAX_REQUEST_BYTES}
         ).encode()
         chunked = client.post(
             "/mcp",
-            input_stream=io.BytesIO(big),
-            content_type="application/json",
-            # A chunked upload: no Content-Length, the server reads to the end.
-            environ_overrides={
-                "wsgi.input_terminated": True,
-                "CONTENT_LENGTH": "",
-                "HTTP_TRANSFER_ENCODING": "chunked",
-            },
+            # A chunked upload (a generator body): no Content-Length, the server reads to the end.
+            content=iter([big]),
+            headers={"Content-Type": "application/json"},
         )
         assert chunked.status_code == 413
         small = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode()
         ok = client.post(
             "/mcp",
-            input_stream=io.BytesIO(small),
-            content_type="application/json",
-            # A chunked upload: no Content-Length, the server reads to the end.
-            environ_overrides={
-                "wsgi.input_terminated": True,
-                "CONTENT_LENGTH": "",
-                "HTTP_TRANSFER_ENCODING": "chunked",
-            },
+            # A chunked upload (a generator body): no Content-Length, the server reads to the end.
+            content=iter([small]),
+            headers={"Content-Type": "application/json"},
         )
         assert ok.status_code == 200 and ok.json()["result"] == {}
 
@@ -364,8 +351,7 @@ class TestTools:
 
     def test_board_filters(self, client):
         names = lambda args: [
-            s["name"]
-            for s in call(client, "get_alert_board", args)["structuredContent"]["sites"]
+            s["name"] for s in call(client, "get_alert_board", args)["structuredContent"]["sites"]
         ]  # noqa: E731
         assert names({"filter": "all"}) == ["Aarhus HQ", "Oslo", "Aarhus Lab"]
         assert names({"filter": "ok"}) == ["Oslo"]
@@ -383,22 +369,15 @@ class TestTools:
         assert bad["isError"] and "filter must be one of" in bad["content"][0]["text"]
 
     def test_get_site_by_id_name_or_part(self, client):
-        assert (
-            call(client, "get_site", {"site": "loc-2"})["structuredContent"]["name"] == "Oslo"
-        )
-        assert (
-            call(client, "get_site", {"site": "aarhus hq"})["structuredContent"]["id"]
-            == "loc-1"
-        )
+        assert call(client, "get_site", {"site": "loc-2"})["structuredContent"]["name"] == "Oslo"
+        assert call(client, "get_site", {"site": "aarhus hq"})["structuredContent"]["id"] == "loc-1"
         assert call(client, "get_site", {"site": "lab"})["structuredContent"]["id"] == "loc-3"
         ambiguous = call(client, "get_site", {"site": "Aarhus"})
         assert ambiguous["isError"] and "2 sites match" in ambiguous["content"][0]["text"]
         missing = call(client, "get_site", {"site": "Bergen"})
         assert missing["isError"] and "No site matches" in missing["content"][0]["text"]
 
-    def test_add_case_rejects_malformed_device_ids_before_anything_else(
-        self, client, monkeypatch
-    ):
+    def test_add_case_rejects_malformed_device_ids_before_anything_else(self, client, monkeypatch):
         calls = []
         monkeypatch.setattr(
             mcp, "call_api", lambda *args, **kwargs: calls.append(args) or (200, {})
@@ -479,10 +458,7 @@ class TestTools:
             ]
             == 1
         )
-        assert (
-            "note"
-            in call(client, "get_alert_feed", {"search": "bergen"})["structuredContent"]
-        )
+        assert "note" in call(client, "get_alert_feed", {"search": "bergen"})["structuredContent"]
         assert "matching_sites" not in call(client, "get_alert_feed")["structuredContent"]
         assert seen == [["loc-1"], [], None]
 
@@ -584,9 +560,9 @@ class TestAddCase:
             assert result["isError"] is False, result
             linked = {item["device_id"] for item in result["structuredContent"]["linked"]}
             assert linked == {"d1", "d2"}
-            history = call(
-                client, "get_alert_history", {"site_id": "loc-1"}, headers=operator
-            )["structuredContent"]
+            history = call(client, "get_alert_history", {"site_id": "loc-1"}, headers=operator)[
+                "structuredContent"
+            ]
             cases = {
                 case["case_number"]
                 for instance in history["instances"]

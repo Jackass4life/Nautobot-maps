@@ -166,12 +166,12 @@ class TestTheLines:
         )
 
     def test_the_access_log_goes_to_stdout_even_at_warning(
-        self, capsys, configure_logs, asgi_client, override_settings
+        self, capsys, configure_logs, client, override_settings
     ):
         override_settings(LOG_LEVEL="WARNING")
         configure_logs()
-        asgi_client.get("/alerts")
-        asgi_client.get("/api/v1/app-status")
+        client.get("/alerts")
+        client.get("/api/v1/app-status")
         logger.bind(logger="app.services.scheduler").info("not at WARNING")
         captured = capsys.readouterr()
         lines = captured.out.splitlines()
@@ -179,7 +179,7 @@ class TestTheLines:
         assert any("[api] app.access: " in line and "/api/v1/app-status" in line for line in lines)
         assert "app.access" not in captured.err and "not at WARNING" not in captured.err
 
-    def test_successful_health_checks_stay_out(self, capsys, configure_logs, asgi_client):
+    def test_successful_health_checks_stay_out(self, capsys, configure_logs, client):
         configure_logs()
-        asgi_client.get("/healthz")
+        client.get("/healthz")
         assert "/healthz" not in capsys.readouterr().out

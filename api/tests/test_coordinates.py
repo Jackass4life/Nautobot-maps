@@ -231,22 +231,20 @@ class TestApi:
         monkeypatch.setattr(
             alerts, "board", adb.async_of(lambda trigger="request", **kwargs: {"alerts": rows})
         )
-        with http_client.FlaskStyleClient() as test_client:
+        with http_client.make() as test_client:
             yield test_client
 
     def test_json(self, client):
         data = client.get("/api/v1/locations/coordinate-check").json()
         assert data["counts"] == {"invalid": 0, "zero": 0, "swapped": 1, "far": 0, "missing": 1}
         assert [item["site_id"] for item in data["sites"]] == ["swapped", "nowhere"]
-        scoped = client.get(
-            "/api/v1/locations/coordinate-check?tenant=acme%20corp"
-        ).json()
+        scoped = client.get("/api/v1/locations/coordinate-check?tenant=acme%20corp").json()
         assert [item["site_id"] for item in scoped["sites"]] == ["nowhere"]
 
     def test_csv(self, client):
         resp = client.get("/api/v1/locations/coordinate-check.csv")
         assert (
-            resp.mimetype == "text/csv"
+            resp.headers["content-type"].split(";")[0] == "text/csv"
             and "coordinate-check.csv" in resp.headers["Content-Disposition"]
         )
         rows = list(csv.DictReader(io.StringIO(resp.text.lstrip("﻿"))))
@@ -262,14 +260,10 @@ class TestApi:
             and rows[0]["compared_with"] == "all sites"
         )
         assert rows[1]["km_from_centre"] == "" and rows[1]["compared_with"] == ""
-        scoped = client.get(
-            "/api/v1/locations/coordinate-check.csv?tenant=Acme%20Corp"
-        ).text
+        scoped = client.get("/api/v1/locations/coordinate-check.csv?tenant=Acme%20Corp").text
         assert "nowhere" in scoped and "swapped" not in scoped
 
-    def test_metrics_read_the_stored_board_only(
-        self, client, monkeypatch, rows, override_settings
-    ):
+    def test_metrics_read_the_stored_board_only(self, client, monkeypatch, rows, override_settings):
         """A scrape never builds the board (#368 review): no stored board, no gauge."""
         override_settings(METRICS_ENABLED=True)
         monkeypatch.setattr(

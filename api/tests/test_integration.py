@@ -64,7 +64,7 @@ def integration_client(mock_nautobot_server):
     caching.cache.clear()
     with (
         overridden(NAUTOBOT_URL=mock_nautobot_server, NAUTOBOT_TOKEN="demo-token"),
-        http_client.FlaskStyleClient() as client,
+        http_client.make() as client,
     ):
         yield client
 

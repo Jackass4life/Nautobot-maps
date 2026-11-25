@@ -12,7 +12,6 @@ from app.frontend import compression
 from app.services import token_service as tokens
 from app.v1 import deps
 from tests import db as adb
-from tests import http_client
 
 GZIP = {"Accept-Encoding": "gzip, deflate, br"}
 BIG = {
@@ -106,12 +105,6 @@ class TestRules:
 
 
 class TestRealRequests:
-    @pytest.fixture
-    def client(self):
-        """The whole app, as production serves it (#436)."""
-        with http_client.FlaskStyleClient() as test_client:
-            yield test_client
-
     def test_a_new_token_is_never_compressed(self, client, monkeypatch, pg_database):
         # The secret is shown once beside the name the client gave it (BREACH): no-transform.
         monkeypatch.setattr(compression, "MIN_BYTES", 10)
@@ -122,9 +115,7 @@ class TestRealRequests:
             headers={**GZIP, "Authorization": f"Bearer {admin}"},
         )
         assert resp.status_code == 201 and "Content-Encoding" not in resp.headers
-        assert "no-transform" in resp.headers["Cache-Control"] and "nmt_" in resp.get_data(
-            as_text=True
-        )
+        assert "no-transform" in resp.headers["Cache-Control"] and "nmt_" in resp.text
 
     def test_a_page(self, client, frontend_build):
         # A page is the Nuxt build's shell (#463), about 1.5 KB like the real one.
@@ -132,7 +123,8 @@ class TestRealRequests:
         shell.write_text(shell.read_text().replace("</head>", "<!--" + "x" * 1500 + "--></head>"))
         resp = client.get("/api/docs", headers=GZIP)
         assert resp.headers["Content-Encoding"] == "gzip"
-        assert b"<!DOCTYPE html>" in gzip.decompress(resp.get_data())
+        # httpx unzips it: a body that wasn't gzip fails here.
+        assert "<!DOCTYPE html>" in resp.text
 
 
 # Left out: the current app's server details (Flask's bind address, its access-log

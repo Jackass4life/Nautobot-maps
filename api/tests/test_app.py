@@ -68,14 +68,6 @@ def auth_config(
 
 
 @pytest.fixture
-def client():
-    # Clear cache before each test
-    caching.cache.clear()
-    with http_client.FlaskStyleClient() as c:
-        yield c
-
-
-@pytest.fixture
 def allow_unauthenticated_writes(override_settings):
     """The endpoint tests below run with AUTH_MODE=disabled, where the
     administrative writes are refused unless explicitly allowed (#188)."""
@@ -547,7 +539,7 @@ class TestAlertBoard:
         test the pages themselves)."""
         for path in ("/alerts?tenant=Acme%20Corp", "/alerts?view=wall&q=DNK"):
             resp = client.get(path)
-            assert resp.status_code == 200 and b'id="__nuxt"' in resp.data, path
+            assert resp.status_code == 200 and b'id="__nuxt"' in resp.content, path
             assert resp.headers["Cache-Control"] == "no-cache"
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
@@ -1464,11 +1456,11 @@ class TestIndex:
 
     def test_index_is_the_nuxt_page(self, client, frontend_build):
         resp = client.get("/?tenant=Acme%20Corp&location_id=loc-1")
-        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.content
         # Asked again each time: a new build shows at once.
         assert resp.headers["Cache-Control"] == "no-cache"
         # No inline script: the CSP needs no 'unsafe-inline' (#197, #198).
-        assert not re.search(rb"<script>(?!\s*</script>)", resp.data)
+        assert not re.search(rb"<script>(?!\s*</script>)", resp.content)
 
     def test_what_the_map_reads(self, client, override_settings):
         """Nautobot's address, the tile server and the first view (#197, #362), from /api/page-config."""
@@ -1596,7 +1588,7 @@ class TestErrorHandlers:
         app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
         deps.install_error_handlers(app)
         app.include_router(router)
-        resp = http_client.FlaskStyleClient(app).get("/api/v1/slow")
+        resp = http_client.make(app).get("/api/v1/slow")
         assert resp.status_code == 504
         assert resp.json()["error"] == "The connection to an upstream server timed out."
 
@@ -1774,7 +1766,6 @@ class TestCriticalityOverrideEndpoints:
                 "reason": "Local firewall",
                 "updated_by": "admin",
             },
-            content_type="application/json",
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -1790,7 +1781,6 @@ class TestCriticalityOverrideEndpoints:
                 "reason": "Core router",
                 "updated_by": "admin",
             },
-            content_type="application/json",
         )
         resp = client.get("/api/v1/criticality-overrides")
         overrides = resp.json()["overrides"]
@@ -1802,12 +1792,10 @@ class TestCriticalityOverrideEndpoints:
         client.post(
             "/api/v1/criticality-overrides",
             json={"nautobot_device_id": "dev-x", "is_critical": True},
-            content_type="application/json",
         )
         client.post(
             "/api/v1/criticality-overrides",
             json={"nautobot_device_id": "dev-x", "is_critical": False, "reason": "Changed"},
-            content_type="application/json",
         )
         resp = client.get("/api/v1/criticality-overrides")
         overrides = resp.json()["overrides"]
@@ -1818,7 +1806,6 @@ class TestCriticalityOverrideEndpoints:
         client.post(
             "/api/v1/criticality-overrides",
             json={"nautobot_device_id": "dev-del", "is_critical": True},
-            content_type="application/json",
         )
         resp = client.delete("/api/v1/criticality-overrides/dev-del")
         assert resp.status_code == 200
@@ -1835,7 +1822,6 @@ class TestCriticalityOverrideEndpoints:
         resp = client.post(
             "/api/v1/criticality-overrides",
             json={"is_critical": True},
-            content_type="application/json",
         )
         assert resp.status_code == 400
 
@@ -1865,7 +1851,6 @@ class TestCriticalityOverrideEndpoints:
             resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
-                content_type="application/json",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-viewers"},
             )
         assert resp.status_code == 403
@@ -1876,7 +1861,6 @@ class TestCriticalityOverrideEndpoints:
             resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
-                content_type="application/json",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
         assert resp.status_code == 200
@@ -1886,7 +1870,6 @@ class TestCriticalityOverrideEndpoints:
             resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
-                content_type="application/json",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
             assert resp.status_code == 200
@@ -2067,7 +2050,6 @@ class TestAlertLifecycleTracking:
         created = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
-            content_type="application/json",
         )
         assert created.status_code == 200
         history = client.get("/api/v1/alert-history?site_id=loc-1&device_id=dev-1")
@@ -2090,7 +2072,6 @@ class TestAlertLifecycleTracking:
         created = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
-            content_type="application/json",
         )
         assert created.status_code == 200
         conn = adb.connect()
@@ -2193,7 +2174,6 @@ class TestAlertLifecycleTracking:
                     "case_number": "INC-1002",
                     "created_by": "mallory",
                 },
-                content_type="application/json",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
             assert created.status_code == 200
@@ -3668,19 +3648,13 @@ class TestAuthConfiguration:
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 401
             assert client.get("/api/v1/alerts").status_code == 401
-            assert (
-                client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
-            )
-            ok = client.get(
-                "/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
-            )
+            assert client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
+            ok = client.get("/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
             assert ok.status_code == 200
             assert client.get("/healthz").status_code in (200, 503)
             assert client.get("/metrics").status_code == 200
 
-    def test_require_viewer_is_off_by_default(
-        self, client, frontend_build, override_settings
-    ):
+    def test_require_viewer_is_off_by_default(self, client, frontend_build, override_settings):
         override_settings(AUTH_REQUIRE_VIEWER=False)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 200
@@ -3690,7 +3664,6 @@ class TestAuthConfiguration:
             resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
-                content_type="application/json",
             )
         assert resp.status_code == 401
 
@@ -3699,7 +3672,6 @@ class TestAuthConfiguration:
             resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
-                content_type="application/json",
                 headers={"X-Forwarded-User": "alice"},
             )
         assert resp.status_code == 403
@@ -3887,9 +3859,7 @@ class TestAlertBoardSyncProgress:
         assert data["sync_pending"] is True
         assert data["next_update_in_seconds"] == 0
 
-    def test_next_update_counts_down_from_last_completed_sync(
-        self, client, override_settings
-    ):
+    def test_next_update_counts_down_from_last_completed_sync(self, client, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -3996,9 +3966,7 @@ class TestMultiDeviceCases:
         caching.cache.clear()
 
     def _cases_for(self, client, device_id):
-        history = client.get(
-            f"/api/v1/alert-history?site_id=loc-1&device_id={device_id}"
-        ).json()
+        history = client.get(f"/api/v1/alert-history?site_id=loc-1&device_id={device_id}").json()
         return [case["case_number"] for case in history["instances"][0]["cases"]]
 
     def test_links_one_case_to_every_selected_device(self, client):
@@ -5052,9 +5020,7 @@ class TestAlertFeed:
         assert {e["site_name"] for e in every} == {"Site One", "Site Two"}
         acme = self._feed(client, "?tenant=acme%20corp")["events"]
         assert acme and {e["site_name"] for e in acme} == {"Site One"}
-        assert {e["site_name"] for e in self._feed(client, "?q=two")["events"]} == {
-            "Site Two"
-        }
+        assert {e["site_name"] for e in self._feed(client, "?q=two")["events"]} == {"Site Two"}
         # The limit counts the matching entries, not the whole feed's newest.
         one = self._feed(client, "?tenant=Acme%20Corp&limit=1")["events"]
         assert len(one) == 1 and one[0]["site_name"] == "Site One"
@@ -5063,10 +5029,7 @@ class TestAlertFeed:
         assert later and {(e["site_name"], e["at"]) for e in later} == {
             ("Site Two", "2026-09-28T12:10:00Z")
         }
-        assert (
-            self._feed(client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"]
-            == []
-        )
+        assert self._feed(client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"] == []
         assert self._feed(client, "?tenant=nobody") == {
             "events": [],
             "persistence_configured": True,
@@ -5360,9 +5323,7 @@ class TestMetrics:
         assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
 
     def test_healthz_reports_sync_age_without_failing(self, pg_database, client):
-        assert (
-            client.get("/healthz").json()["inventory_sync_age_seconds"] is None
-        )  # never synced
+        assert client.get("/healthz").json()["inventory_sync_age_seconds"] is None  # never synced
         self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
         resp = client.get("/healthz")
         assert resp.status_code == 200  # an old sync is not a liveness failure
@@ -5518,7 +5479,7 @@ class TestApiExplorer:
         """#436, #463: Swagger UI from npm, bundled into the Nuxt build (no CDN, no inline
         script); web/ and e2e/ test the page itself."""
         resp = client.get("/api/docs")
-        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.content
         package = json.loads(
             (pathlib.Path(__file__).resolve().parents[2] / "web" / "package.json").read_text()
         )
@@ -5552,17 +5513,11 @@ class TestApiExplorer:
             resp = client.get(old)
             assert resp.status_code == 301 and resp.headers["Location"] == new
             # With its query: a 301 is remembered.
-            assert (
-                client.get(f"{old}?v=2&x=a%20b").headers["Location"] == f"{new}?v=2&x=a%20b"
-            )
-        listed = {
-            item["path"] for item in client.get("/api/v1/endpoints").json()["endpoints"]
-        }
+            assert client.get(f"{old}?v=2&x=a%20b").headers["Location"] == f"{new}?v=2&x=a%20b"
+        listed = {item["path"] for item in client.get("/api/v1/endpoints").json()["endpoints"]}
         assert "/docs" not in listed and "/openapi.json" not in listed
 
-    def test_needs_the_viewer_role_like_every_page(
-        self, client, frontend_build, override_settings
-    ):
+    def test_needs_the_viewer_role_like_every_page(self, client, frontend_build, override_settings):
         override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/api/docs").status_code == 401
@@ -5738,15 +5693,11 @@ class TestLocationAlertLevels:
         finally:
             conn.close()
         assert (
-            client.get("/api/v1/location-alerts").json()["levels"]["loc-few"]["level"]
-            == "critical"
+            client.get("/api/v1/location-alerts").json()["levels"]["loc-few"]["level"] == "critical"
         )
 
     def test_cached_until_a_sync_invalidates_it(self, client):
-        assert (
-            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"]
-            == "ok"
-        )
+        assert client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"] == "ok"
         conn = adb.connect()
         try:
             with conn:
@@ -5755,14 +5706,12 @@ class TestLocationAlertLevels:
                 )
         finally:
             conn.close()
-        assert (
-            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"]
-            == "ok"
-        ), "cached"
+        assert client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"] == "ok", (
+            "cached"
+        )
         caching.invalidate_alert_board()
         assert (
-            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"]
-            == "critical"
+            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"] == "critical"
         )
 
 
@@ -6374,7 +6323,7 @@ class TestAlertHistoryCsv:
 
     def test_incidents_in_the_last_30_days(self, client):
         resp = client.get("/api/v1/alert-history.csv?site_id=loc-lon")
-        assert resp.status_code == 200 and resp.mimetype == "text/csv"
+        assert resp.status_code == 200 and resp.headers["content-type"].split(";")[0] == "text/csv"
         assert (
             resp.headers["Content-Disposition"]
             == 'attachment; filename="london-hq-incidents-30d-2026-10-07.csv"'
@@ -6423,13 +6372,11 @@ class TestAlertHistoryCsv:
 
         monkeypatch.setattr(export, "STREAM_BATCH", 2)
         resp = client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
-        assert resp.is_streamed
+        assert "content-length" not in resp.headers
         assert len(self._rows(resp)) == 5
 
     def test_all_and_seven_days(self, client):
-        everything = self._rows(
-            client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
-        )
+        everything = self._rows(client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all"))
         assert len(everything) == 5
         week = self._rows(client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=7"))
         assert [row["down_at_utc"] for row in week] == [
@@ -6460,21 +6407,14 @@ class TestAlertHistoryCsv:
 
     def test_history_panel_is_newest_down_first(self, client):
         """By when the device went down, not by internal id (#279); like the CSV."""
-        instances = client.get("/api/v1/alert-history?site_id=loc-lon").json()[
-            "instances"
-        ]
+        instances = client.get("/api/v1/alert-history?site_id=loc-lon").json()["instances"]
         # Inserted as ids 1-5 in a different order than their start times.
         assert [row["id"] for row in instances] == [2, 5, 1, 3, 4]
 
     def test_bad_requests(self, client):
         assert client.get("/api/v1/alert-history.csv").status_code == 400
-        assert (
-            client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
-        )
-        assert (
-            client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=json").status_code
-            == 400
-        )
+        assert client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
+        assert client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=json").status_code == 400
         empty = self._rows(client.get("/api/v1/alert-history.csv?site_id=nowhere"))
         assert empty == []
 
@@ -6482,9 +6422,7 @@ class TestAlertHistoryCsv:
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
             assert (
-                client.get(
-                    "/api/v1/alert-history.csv?site_id=loc-lon", headers=viewer
-                ).status_code
+                client.get("/api/v1/alert-history.csv?site_id=loc-lon", headers=viewer).status_code
                 == 403
             )
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}

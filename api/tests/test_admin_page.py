@@ -24,18 +24,15 @@ class TestWhoSeesIt:
         with auth_config(
             mode="header", viewer_groups={"noc"}, operator_groups={"ops"}, admin_groups={"admins"}
         ):
-            environ = {"REMOTE_ADDR": "127.0.0.1"}
             for groups in ("noc", "ops"):
                 answer = client.get(
                     "/api/v1/page-config",
                     headers={**HEADERS, "X-Forwarded-Groups": groups},
-                    environ_base=environ,
                 ).json()
                 assert answer["admin"] is None, groups
             admin = client.get(
                 "/api/v1/page-config",
                 headers={**HEADERS, "X-Forwarded-Groups": "admins"},
-                environ_base=environ,
             ).json()["admin"]
             assert admin == {"notification_channels": ["webhook"], "wireless_controllers": 2}
             # A token counts as its role.

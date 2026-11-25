@@ -561,7 +561,7 @@ class TestPages:
         }
         monkeypatch.setattr(availability, "board_sites", adb.async_of(lambda: [site]))
         caching.cache.clear()
-        with http_client.FlaskStyleClient() as test_client:
+        with http_client.make() as test_client:
             yield test_client
 
     @pytest.mark.parametrize("role", ["admin", "operator", "viewer", "noc", "customer"])
@@ -597,14 +597,12 @@ class TestPages:
     def test_every_incident_streams_whole(self, client):
         """#436: FastAPI streams the incidents CSV as it is read (no Content-Length),
         and every row arrives."""
-        response = client.get(
-            "/api/v1/availability.csv?month=2026-10&view=incidents&header=1"
-        )
+        response = client.get("/api/v1/availability.csv?month=2026-10&view=incidents&header=1")
         assert (
             response.status_code == 200
             and response.headers["content-type"] == "text/csv; charset=utf-8"
         )
-        assert response.is_streamed
+        assert "content-length" not in response.headers
         lines = response.text.lstrip("\ufeff").splitlines()
         assert len(lines) > 3 and lines[-1].count(",") == lines[lines.index("") + 1].count(",")
 
@@ -638,9 +636,7 @@ class TestPages:
             "2026-10,any_down,'=Oslo,Acme,90.0,2880,1,2026-10-01,2026-10-31,"
             ",,,,8,1,2880,2880,2026-10-02 00:00,2026-10-02 00:00,0,s1,4,6"
         ), "formula-safe"
-        tenants = client.get("/api/v1/availability.csv?view=tenants&month=2026-10").get_data(
-            as_text=True
-        )
+        tenants = client.get("/api/v1/availability.csv?view=tenants&month=2026-10").text
         assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
 
     def test_the_target_follows_the_setting(self, client, override_settings):
@@ -649,11 +645,7 @@ class TestPages:
         summary = client.get("/api/v1/availability?month=2026-10").json()["summary"]
         assert summary["target"] == 85.0 and summary["below_target"] == 0
         assert client.get("/api/v1/page-config").json()["availability"]["target"] == 85.0
-        lines = (
-            client.get("/api/v1/availability.csv?month=2026-10&header=1")
-            .text
-            .splitlines()
-        )
+        lines = client.get("/api/v1/availability.csv?month=2026-10&header=1").text.splitlines()
         header = dict(line.split(",", 1) for line in lines[: lines.index("")])
         assert header["target_pct"] == "85.0" and header["sites_below_target"] == "0"
 
@@ -664,10 +656,7 @@ class TestPages:
         assert data["period"]["label"] == "2026-10-03 to 2026-10-04" and data["month"] is None
         assert data["sites"][0]["availability"] == 50.0 and data["period"]["complete"]
         # The page's calendar ends today, in UTC (#463: /api/page-config).
-        assert (
-            client.get("/api/v1/page-config").json()["availability"]["today"]
-            == "2026-10-21"
-        )
+        assert client.get("/api/v1/page-config").json()["availability"]["today"] == "2026-10-21"
         resp = client.get(f"/api/v1/availability.csv?{query}")
         assert (
             'filename="availability-sites-2026-10-03_2026-10-04.csv"'
@@ -678,7 +667,7 @@ class TestPages:
             == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04,,,,,8,1,1440,1440,2026-10-03 00:00,2026-10-03 00:00,0,s1,4,6"
         )
         one_day = client.get("/api/v1/availability.csv?from=2026-10-03&to=2026-10-03")
-        one_day.get_data()  # streamed (#354): read it, as a browser does
+        assert one_day.content  # streamed (#354): read it, as a browser does
         assert (
             'filename="availability-sites-2026-10-03.csv"' in one_day.headers["Content-Disposition"]
         )
@@ -687,18 +676,11 @@ class TestPages:
         assert (month["from"], month["to"]) == ("2026-10-01", "2026-10-31")
         resp = client.get("/api/v1/availability.csv?from=2026-10-01&to=2026-10-31")
         assert 'filename="availability-sites-2026-10.csv"' in resp.headers["Content-Disposition"]
-        assert (
-            resp.text
-            .lstrip("\ufeff")
-            .splitlines()[1]
-            .startswith("2026-10,any_down,")
-        )
+        assert resp.text.lstrip("\ufeff").splitlines()[1].startswith("2026-10,any_down,")
 
     def test_the_header_and_every_incident(self, client):
         # #354: a header above the table on request, and every outage on its own.
-        sites = client.get("/api/v1/availability.csv?month=2026-10&header=1").get_data(
-            as_text=True
-        )
+        sites = client.get("/api/v1/availability.csv?month=2026-10&header=1").text
         lines = sites.lstrip("\ufeff").splitlines()
         blank = lines.index("")
         header = dict(line.split(",", 1) for line in lines[:blank])
@@ -737,9 +719,7 @@ class TestPages:
         )
         assert client.get("/api/v1/availability").status_code == 503
         monkeypatch.setattr(inventory, "snapshot_initialized", adb.async_of(lambda conn=None: True))
-        assert client.get("/api/v1/availability").status_code == 200, (
-            "synced, and really no sites"
-        )
+        assert client.get("/api/v1/availability").status_code == 200, "synced, and really no sites"
 
     def test_the_period_query_can_use_the_index(self, pg_database):
         conn = adb.connect()

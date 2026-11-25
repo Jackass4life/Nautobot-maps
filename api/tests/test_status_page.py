@@ -14,7 +14,7 @@ from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import status_service as status
 from tests import db as adb
-from tests import test_tokens
+from tests import http_client, test_tokens
 from tests.test_app import auth_config
 from tests.test_tokens import bearer, make, verify
 
@@ -857,9 +857,7 @@ class TestAccess:
         assert client.get(f"/api/v1/status/{acme}", headers=bearer(token)).status_code == 200
         assert client.get(f"/api/v1/status/{other}", headers=bearer(token)).status_code == 403
         # A link that opens nothing looks the same as another tenant's (#500).
-        assert (
-            client.get(f"/api/v1/status/{'x' * 24}", headers=bearer(token)).status_code == 403
-        )
+        assert client.get(f"/api/v1/status/{'x' * 24}", headers=bearer(token)).status_code == 403
         for path in (
             "/api/v1/alerts",
             "/alerts",
@@ -889,36 +887,21 @@ class TestAccess:
         override_settings(AUTH_REQUIRE_VIEWER=True)
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         viewer = make("staff", "viewer")["token"]
-        anonymous = {"REMOTE_ADDR": "203.0.113.9"}
+        anonymous = http_client.make(address=("203.0.113.9", 50000))
         acme = link("Acme Corp")
         with auth_config(mode="header"):
-            page = client.get(f"/status/{acme}", environ_base=anonymous)
-            assert page.status_code == 200 and b'id="__nuxt"' in page.data
+            page = anonymous.get(f"/status/{acme}")
+            assert page.status_code == 200 and b'id="__nuxt"' in page.content
             assert page.headers["Referrer-Policy"] == "no-referrer"
             # The Nuxt build's files (#463): code only, no data.
-            assert (
-                client.get("/_nuxt/entry.abc123.js", environ_base=anonymous).status_code
-                == 200
-            )
-            assert (
-                client.get("/static/css/other.css", environ_base=anonymous).status_code == 401
-            )
-            assert (
-                client.get(f"/api/v1/status/{acme}", environ_base=anonymous).status_code
-                == 401
-            )
+            assert anonymous.get("/_nuxt/entry.abc123.js").status_code == 200
+            assert anonymous.get("/static/css/other.css").status_code == 401
+            assert anonymous.get(f"/api/v1/status/{acme}").status_code == 401
             # No sign-in, no clue whether a link exists (#500).
+            assert anonymous.get(f"/api/v1/status/{'x' * 24}").status_code == 401
+            assert client.get(f"/api/v1/status/{acme}", headers=bearer(token)).status_code == 200
             assert (
-                client.get(f"/api/v1/status/{'x' * 24}", environ_base=anonymous).status_code
-                == 401
-            )
-            assert (
-                client.get(f"/api/v1/status/{acme}", headers=bearer(token)).status_code == 200
-            )
-            assert (
-                client.get(
-                    f"/api/v1/status/{link('Other Co')}", headers=bearer(viewer)
-                ).status_code
+                client.get(f"/api/v1/status/{link('Other Co')}", headers=bearer(viewer)).status_code
                 == 200
             )
 
@@ -943,8 +926,8 @@ class TestAccess:
         page = client.get("/status/%3Cscript%3Ex")
         assert (
             page.status_code == 200
-            and b"script%3Ex" not in page.data
-            and b"<script>x" not in page.data
+            and b"script%3Ex" not in page.content
+            and b"<script>x" not in page.content
         )
 
     def test_board_errors_are_a_503(self, client, monkeypatch):
@@ -953,7 +936,7 @@ class TestAccess:
 
         monkeypatch.setattr(alerts, "get_alert_board_data", adb.async_of(broken))
         response = client.get(f"/api/v1/status/{link('Acme Corp')}")
-        assert response.status_code == 503 and b"secret" not in response.data
+        assert response.status_code == 503 and b"secret" not in response.content
 
 
 class TestLinks:
@@ -1012,9 +995,9 @@ class TestLinks:
         with auth_config(mode="header"):
             # Database trouble is no clue to one who may not look (#500).
             assert (
-                client.get(
-                    f"/api/v1/status/{acme}", environ_base={"REMOTE_ADDR": "203.0.113.9"}
-                ).status_code
+                http_client.make(address=("203.0.113.9", 50000))
+                .get(f"/api/v1/status/{acme}")
+                .status_code
                 == 401
             )
 
@@ -1074,9 +1057,7 @@ class TestLinks:
         assert f"Share: /status/{link('Acme Corp')}#key={out.strip()}" in err
         admin = make("admin", "admin")["token"]
         body = {"name": "acme-api", "role": "status", "tenant": "Acme Corp"}
-        created = client.post("/api/v1/tokens", json=body, headers=bearer(admin)).json()[
-            "token"
-        ]
+        created = client.post("/api/v1/tokens", json=body, headers=bearer(admin)).json()["token"]
         assert created["status_link"] == f"/status/{link('Acme Corp')}"
         viewer = client.post(
             "/api/v1/tokens", json={"name": "v", "role": "viewer"}, headers=bearer(admin)
@@ -1128,9 +1109,7 @@ class TestStatusTokens:
         assert cli.main(["token", "list", "--tenant", "acme corp"]) == 0
         out = capsys.readouterr().out
         assert "(tenant Acme Corp)" in out and "admin" not in out
-        listed = client.get(
-            "/api/v1/tokens?tenant=Other%20Co", headers=bearer(admin)
-        ).json()
+        listed = client.get("/api/v1/tokens?tenant=Other%20Co", headers=bearer(admin)).json()
         assert listed == {"tokens": [], "inactive": 0}
 
     def test_verify_and_cli(self, known_tenants, pg_database, clock, capsys):
@@ -1180,14 +1159,10 @@ class TestTenantStatusByName:
         assert by_name.headers["Cache-Control"] == "no-store"
         assert "nolink" not in json.dumps(by_name.json())
         # Capitals don't matter.
-        assert (
-            client.get("/api/v1/tenants/acme%20corp/status").json() == by_link.json()
-        )
+        assert client.get("/api/v1/tenants/acme%20corp/status").json() == by_link.json()
 
     @pytest.mark.parametrize("role", ["customer", "viewer", "operator", "admin"])
-    def test_the_roles_with_tenant_status_view(
-        self, role, as_role, known_tenants, client, board
-    ):
+    def test_the_roles_with_tenant_status_view(self, role, as_role, known_tenants, client, board):
         as_role(role)
         assert client.get("/api/v1/tenants/Acme%20Corp/status").status_code == 200
 

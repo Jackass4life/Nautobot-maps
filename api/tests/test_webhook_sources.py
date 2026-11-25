@@ -63,7 +63,7 @@ def site(pg_database, monkeypatch, clock, override_settings):
 @pytest.fixture
 def client(site):
     caching.cache.clear()
-    with http_client.FlaskStyleClient() as test_client:
+    with http_client.make() as test_client:
         yield test_client
 
 
@@ -191,9 +191,9 @@ class TestTheBoard:
         assert core["down_reason"] == "alertmanager: Target down"
         resolved = {"alerts": [am_alert("core.example.com:9100", status="resolved")]}
         assert (
-            client.post(
-                "/api/v1/alertmanager", json=resolved, headers=bearer(token)
-            ).json()["resolved"]
+            client.post("/api/v1/alertmanager", json=resolved, headers=bearer(token)).json()[
+                "resolved"
+            ]
             == 1
         )
         assert board_row()["alert_level"] == "medium"
@@ -205,9 +205,7 @@ class TestTheBoard:
             {"device": "nobody", "status": "down"},
         ]
         assert (
-            client.post("/api/v1/device-status", json=body, headers=bearer(token)).json()[
-                "matched"
-            ]
+            client.post("/api/v1/device-status", json=body, headers=bearer(token)).json()["matched"]
             == 1
         )
         row = board_row()
@@ -276,14 +274,13 @@ class TestAccess:
             == 403
         )
         assert (
-            client.post("/api/v1/device-status", json={}, headers=bearer(viewer)).status_code
-            == 403
+            client.post("/api/v1/device-status", json={}, headers=bearer(viewer)).status_code == 403
         )
 
     def test_bad_bodies(self, client):
         token = make("am", "operator")["token"]
         assert (
-            client.post("/api/v1/alertmanager", data="x", headers=bearer(token)).status_code
+            client.post("/api/v1/alertmanager", content="x", headers=bearer(token)).status_code
             == 400
         )
         response = client.post(

@@ -118,9 +118,7 @@ class TestPageConfig:
             ).json()
         assert config["user"] == {"name": "olga", "role": "operator", "sign_out_url": ""}
 
-    def test_sign_out_for_someone_signed_in_through_the_proxy(
-        self, client, override_settings
-    ):
+    def test_sign_out_for_someone_signed_in_through_the_proxy(self, client, override_settings):
         """#546: AUTH_SIGN_OUT_URL is where the top bar's Sign out goes."""
         override_settings(AUTH_SIGN_OUT_URL="/oauth2/sign_out")
         with auth_config(mode="header", viewer_groups={"noc"}):
