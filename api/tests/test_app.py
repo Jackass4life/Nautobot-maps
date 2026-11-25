@@ -68,7 +68,7 @@ def auth_config(
 
 
 @pytest.fixture
-def flask_client():
+def client():
     # Clear cache before each test
     caching.cache.clear()
     with http_client.FlaskStyleClient() as c:
@@ -262,19 +262,19 @@ class TestPrimaryIpExtraction:
 # Tests: /api/locations
 # ---------------------------------------------------------------------------
 class TestApiLocations:
-    def test_returns_locations_with_coordinates(self, flask_client):
+    def test_returns_locations_with_coordinates(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
+            resp = client.get("/api/v1/locations")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert "locations" in data
         # loc-3 (no GPS) must be excluded
         assert len(data["locations"]) == 2
 
-    def test_location_fields(self, flask_client):
+    def test_location_fields(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["name"] == "Copenhagen DC"
         assert loc["latitude"] == 55.6761
         assert loc["longitude"] == 12.5683
@@ -282,19 +282,19 @@ class TestApiLocations:
         assert loc["asn"] == 65001
         assert loc["status"] == "Active"
 
-    def test_location_type_field_populated(self, flask_client):
+    def test_location_type_field_populated(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["location_type"] == "Data Center"
 
-    def test_country_field_populated(self, flask_client):
+    def test_country_field_populated(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["country"] == "Denmark"
 
-    def test_country_field_falls_back_to_physical_address(self, flask_client):
+    def test_country_field_falls_back_to_physical_address(self, client):
         fallback_locations = {
             "count": 1,
             "next": None,
@@ -326,54 +326,54 @@ class TestApiLocations:
             return {"count": 0, "next": None, "results": []}
 
         with patch.object(nautobot, "get", side_effect=mock_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["country"] == "Denmark"
 
-    def test_parent_field_populated(self, flask_client):
+    def test_parent_field_populated(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["parent"] == "Denmark"
 
-    def test_tenant_group_field_populated(self, flask_client):
+    def test_tenant_group_field_populated(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["tenant_group"] == "Corporate"
 
-    def test_tenant_group_empty_when_no_tenant(self, flask_client):
+    def test_tenant_group_empty_when_no_tenant(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
+            resp = client.get("/api/v1/locations")
         # loc-2 (Aarhus PoP) has no tenant
-        loc = resp.get_json()["locations"][1]
+        loc = resp.json()["locations"][1]
         assert loc["tenant_group"] == ""
 
-    def test_facility_field_populated(self, flask_client):
+    def test_facility_field_populated(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["facility"] == "CPH-1"
 
-    def test_facility_empty_when_not_set(self, flask_client):
+    def test_facility_empty_when_not_set(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][1]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][1]
         assert loc["facility"] == ""
 
-    def test_tags_field_populated(self, flask_client):
+    def test_tags_field_populated(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["tags"] == ["critical", "production"]
 
-    def test_tags_empty_when_none(self, flask_client):
+    def test_tags_empty_when_none(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][1]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][1]
         assert loc["tags"] == []
 
-    def test_tags_fallback_with_brief_nested_object(self, flask_client):
+    def test_tags_fallback_with_brief_nested_object(self, client):
         """When tags are brief (id+url only), the fallback map resolves names."""
         brief_locations = {
             "count": 1,
@@ -419,11 +419,11 @@ class TestApiLocations:
             return {"count": 0, "next": None, "results": []}
 
         with patch.object(nautobot, "get", side_effect=mock_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["tags"] == ["critical", "production"]
 
-    def test_location_type_fallback_with_brief_nested_object(self, flask_client):
+    def test_location_type_fallback_with_brief_nested_object(self, client):
         """When location_type is brief (id+url only), the fallback map resolves the name."""
         brief_locations = {
             "count": 1,
@@ -464,11 +464,11 @@ class TestApiLocations:
             return {"count": 0, "next": None, "results": []}
 
         with patch.object(nautobot, "get", side_effect=mock_get):
-            resp = flask_client.get("/api/v1/locations")
-        loc = resp.get_json()["locations"][0]
+            resp = client.get("/api/v1/locations")
+        loc = resp.json()["locations"][0]
         assert loc["location_type"] == "Data Center"
 
-    def test_parent_fallback_with_brief_nested_object(self, flask_client):
+    def test_parent_fallback_with_brief_nested_object(self, client):
         """When parent is brief (id+url only), the fallback map resolves the name."""
         brief_locations = {
             "count": 2,
@@ -518,23 +518,23 @@ class TestApiLocations:
             return {"count": 0, "next": None, "results": []}
 
         with patch.object(nautobot, "get", side_effect=mock_get):
-            resp = flask_client.get("/api/v1/locations")
+            resp = client.get("/api/v1/locations")
         # loc-parent has no GPS (lat/lon=None) so only loc-child is returned
-        locs = resp.get_json()["locations"]
+        locs = resp.json()["locations"]
         assert len(locs) == 1
         assert locs[0]["parent"] == "Denmark"
 
-    def test_missing_env_vars_returns_503(self, flask_client, override_settings):
+    def test_missing_env_vars_returns_503(self, client, override_settings):
         override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="")
-        resp = flask_client.get("/api/v1/locations")
+        resp = client.get("/api/v1/locations")
         assert resp.status_code == 503
-        assert resp.get_json()["error"] == "Nautobot service unavailable"
+        assert resp.json()["error"] == "Nautobot service unavailable"
 
-    def test_nautobot_http_error_returns_502(self, flask_client):
+    def test_nautobot_http_error_returns_502(self, client):
 
         http_err = upstream.status_error(500)
         with patch.object(nautobot, "get", side_effect=http_err):
-            resp = flask_client.get("/api/v1/locations")
+            resp = client.get("/api/v1/locations")
         assert resp.status_code == 502
 
 
@@ -542,11 +542,11 @@ class TestApiLocations:
 # Tests: alert board
 # ---------------------------------------------------------------------------
 class TestAlertBoard:
-    def test_alert_board_page_renders(self, flask_client, frontend_build):
+    def test_alert_board_page_renders(self, client, frontend_build):
         """The board and the wall are built with Nuxt (#463; web/tests/ and e2e/
         test the pages themselves)."""
         for path in ("/alerts?tenant=Acme%20Corp", "/alerts?view=wall&q=DNK"):
-            resp = flask_client.get(path)
+            resp = client.get(path)
             assert resp.status_code == 200 and b'id="__nuxt"' in resp.data, path
             assert resp.headers["Cache-Control"] == "no-cache"
 
@@ -657,7 +657,7 @@ class TestAlertBoard:
         assert data["alerts"][1]["alert_level"] == "medium"
         assert data["stale"] is False
 
-    def test_api_alerts_returns_board_data(self, flask_client):
+    def test_api_alerts_returns_board_data(self, client):
         caching.cache.clear()
         with (
             patch.object(
@@ -706,10 +706,10 @@ class TestAlertBoard:
                 ),
             ),
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
 
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["summary"]["critical"] == 1
         assert data["alerts"][0]["name"] == "Copenhagen DC"
         assert data["alerts"][0]["alert_level"] == "critical"
@@ -727,7 +727,7 @@ class TestAlertBoard:
             }
         ]
 
-    def test_api_alerts_hides_non_operational_locations_unless_requested(self, flask_client):
+    def test_api_alerts_hides_non_operational_locations_unless_requested(self, client):
         caching.cache.clear()
         sample_locations = [
             {
@@ -791,19 +791,19 @@ class TestAlertBoard:
                 ),
             ) as get_alert,
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
             assert resp.status_code == 200
-            assert resp.get_json()["summary"]["total"] == 1
-            assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1"]
+            assert resp.json()["summary"]["total"] == 1
+            assert [item["id"] for item in resp.json()["alerts"]] == ["loc-1"]
             assert get_alert.call_count == 1
 
             caching.cache.clear()
             get_alert.reset_mock()
-            resp = flask_client.get("/api/v1/alerts?include_non_operational=1")
+            resp = client.get("/api/v1/alerts?include_non_operational=1")
 
         assert resp.status_code == 200
-        assert resp.get_json()["summary"]["total"] == 2
-        assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1", "loc-2"]
+        assert resp.json()["summary"]["total"] == 2
+        assert [item["id"] for item in resp.json()["alerts"]] == ["loc-1", "loc-2"]
         assert get_alert.call_count == 2
 
     def test_location_exclusion_supports_object_tags(self):
@@ -1217,20 +1217,20 @@ class TestAlertBoard:
 # Tests: /api/locations/<id>/detail
 # ---------------------------------------------------------------------------
 class TestApiLocationDetail:
-    def test_returns_devices_and_asns(self, flask_client):
+    def test_returns_devices_and_asns(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+            resp = client.get("/api/v1/locations/loc-1/detail")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert len(data["devices"]) == 1
         assert data["devices"][0]["name"] == "router01"
         assert len(data["asns"]) == 1
         assert data["asns"][0]["asn"] == 65001
 
-    def test_device_fields(self, flask_client):
+    def test_device_fields(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
-        dev = resp.get_json()["devices"][0]
+            resp = client.get("/api/v1/locations/loc-1/detail")
+        dev = resp.json()["devices"][0]
         assert dev["manufacturer"] == "Cisco"
         assert dev["device_type"] == "ASR1001-X"
         assert dev["role"] == "Core Router"
@@ -1239,7 +1239,7 @@ class TestApiLocationDetail:
         assert dev["serial"] == "SN123"
         assert dev["status"] == "Active"
 
-    def test_device_with_null_fields(self, flask_client):
+    def test_device_with_null_fields(self, client):
         """Devices with null nested fields must return strings, never None."""
         sparse_devices = {
             "count": 1,
@@ -1276,9 +1276,9 @@ class TestApiLocationDetail:
             return {"count": 0, "next": None, "results": []}
 
         with patch.object(nautobot, "get", side_effect=mock_get):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+            resp = client.get("/api/v1/locations/loc-1/detail")
         assert resp.status_code == 200
-        dev = resp.get_json()["devices"][0]
+        dev = resp.json()["devices"][0]
         # Every field must be a string (not None/null) so the JS escHtml()
         # function never receives null.
         for field in (
@@ -1295,16 +1295,16 @@ class TestApiLocationDetail:
             assert dev[field] is not None, f"device field '{field}' is None"
             assert isinstance(dev[field], str), f"device field '{field}' is not a string"
 
-    def test_device_lookup_failure_returns_503(self, flask_client):
+    def test_device_lookup_failure_returns_503(self, client):
         with patch.object(
             alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")
         ):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+            resp = client.get("/api/v1/locations/loc-1/detail")
 
         assert resp.status_code == 503
-        assert resp.get_json()["error"] == "Nautobot service unavailable"
+        assert resp.json()["error"] == "Nautobot service unavailable"
 
-    def test_asn_lookup_http_error_returns_502(self, flask_client):
+    def test_asn_lookup_http_error_returns_502(self, client):
         http_err = upstream.status_error(502)
         with (
             patch.object(
@@ -1314,12 +1314,12 @@ class TestApiLocationDetail:
             ),
             patch.object(nautobot, "fetch_all_pages", side_effect=http_err),
         ):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+            resp = client.get("/api/v1/locations/loc-1/detail")
 
         assert resp.status_code == 502
-        assert resp.get_json()["error"] == "Failed to communicate with Nautobot API"
+        assert resp.json()["error"] == "Failed to communicate with Nautobot API"
 
-    def _get_detail_with_asn_endpoint_missing(self, flask_client, cached_locations, location_get):
+    def _get_detail_with_asn_endpoint_missing(self, client, cached_locations, location_get):
         """Request a detail while ``ipam/asns/`` returns 404 (Nautobot 3.x core)."""
         not_found = upstream.status_error(404)
         with (
@@ -1332,39 +1332,39 @@ class TestApiLocationDetail:
             patch.object(inventory, "read_locations", return_value=cached_locations),
             patch.object(nautobot, "get", side_effect=location_get) as mock_get,
         ):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+            resp = client.get("/api/v1/locations/loc-1/detail")
         return resp, mock_get
 
-    def test_missing_asn_endpoint_falls_back_to_location_asn(self, flask_client):
+    def test_missing_asn_endpoint_falls_back_to_location_asn(self, client):
         resp, mock_get = self._get_detail_with_asn_endpoint_missing(
-            flask_client, [], lambda endpoint, params=None: {"id": "loc-1", "asn": 65001}
+            client, [], lambda endpoint, params=None: {"id": "loc-1", "asn": 65001}
         )
         assert resp.status_code == 200
-        assert resp.get_json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
+        assert resp.json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
         mock_get.assert_called_once_with("dcim/locations/loc-1/")
 
-    def test_missing_asn_endpoint_prefers_cached_location_asn(self, flask_client):
+    def test_missing_asn_endpoint_prefers_cached_location_asn(self, client):
         resp, mock_get = self._get_detail_with_asn_endpoint_missing(
-            flask_client,
+            client,
             [{"id": "loc-2", "asn": 65002}, {"id": "loc-1", "asn": 65001}],
             AssertionError("should use the cached inventory"),
         )
         assert resp.status_code == 200
-        assert resp.get_json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
+        assert resp.json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
         mock_get.assert_not_called()
 
-    def test_missing_asn_endpoint_and_no_location_asn_returns_empty(self, flask_client):
+    def test_missing_asn_endpoint_and_no_location_asn_returns_empty(self, client):
         resp, _ = self._get_detail_with_asn_endpoint_missing(
-            flask_client,
+            client,
             [{"id": "loc-1", "asn": None}],
             AssertionError("should use the cached inventory"),
         )
         assert resp.status_code == 200
-        assert resp.get_json()["asns"] == []
+        assert resp.json()["asns"] == []
 
-    def test_missing_asn_endpoint_still_fails_when_location_lookup_fails(self, flask_client):
+    def test_missing_asn_endpoint_still_fails_when_location_lookup_fails(self, client):
         upstream_err = upstream.status_error(500)
-        resp, _ = self._get_detail_with_asn_endpoint_missing(flask_client, [], upstream_err)
+        resp, _ = self._get_detail_with_asn_endpoint_missing(client, [], upstream_err)
         assert resp.status_code == 502
 
 
@@ -1372,17 +1372,17 @@ class TestApiLocationDetail:
 # Tests: /api/search
 # ---------------------------------------------------------------------------
 class TestApiSearch:
-    def test_missing_query_returns_400(self, flask_client):
-        resp = flask_client.get("/api/v1/search")
+    def test_missing_query_returns_400(self, client):
+        resp = client.get("/api/v1/search")
         assert resp.status_code == 400
-        assert "error" in resp.get_json()
+        assert "error" in resp.json()
 
-    def test_gps_coordinates_search(self, flask_client):
+    def test_gps_coordinates_search(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             # Copenhagen coordinates – loc-1 is exactly at 55.6761,12.5683 (distance 0)
-            resp = flask_client.get("/api/v1/search?q=55.6761,12.5683")
+            resp = client.get("/api/v1/search?q=55.6761,12.5683")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["search_lat"] == pytest.approx(55.6761)
         assert data["search_lon"] == pytest.approx(12.5683)
         assert data["radius_km"] == 5
@@ -1390,24 +1390,24 @@ class TestApiSearch:
         names = [loc["name"] for loc in data["locations"]]
         assert "Copenhagen DC" in names
 
-    def test_gps_no_results_far_away(self, flask_client):
+    def test_gps_no_results_far_away(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             # Tokyo – far from all test locations
-            resp = flask_client.get("/api/v1/search?q=35.6895,139.6917")
+            resp = client.get("/api/v1/search?q=35.6895,139.6917")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["count"] == 0
         assert data["locations"] == []
 
-    def test_search_results_sorted_by_distance(self, flask_client):
+    def test_search_results_sorted_by_distance(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             # Point very close to loc-1 (within 5 km)
-            resp = flask_client.get("/api/v1/search?q=55.678,12.571")
-        data = resp.get_json()
+            resp = client.get("/api/v1/search?q=55.678,12.571")
+        data = resp.json()
         distances = [loc["distance_km"] for loc in data["locations"]]
         assert distances == sorted(distances)
 
-    def test_address_geocoding(self, flask_client):
+    def test_address_geocoding(self, client):
         mock_geo_result = MagicMock()
         mock_geo_result.latitude = 55.6761
         mock_geo_result.longitude = 12.5683
@@ -1416,30 +1416,30 @@ class TestApiSearch:
 
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             with patch("app.v1.map.controller.Nominatim", return_value=mock_geolocator):
-                resp = flask_client.get("/api/v1/search?q=Copenhagen")
+                resp = client.get("/api/v1/search?q=Copenhagen")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["search_lat"] == pytest.approx(55.6761)
 
-    def test_address_not_found_returns_404(self, flask_client):
+    def test_address_not_found_returns_404(self, client):
         mock_geolocator = MagicMock()
         mock_geolocator.geocode.return_value = None
 
         with patch("app.v1.map.controller.Nominatim", return_value=mock_geolocator):
-            resp = flask_client.get("/api/v1/search?q=ThisPlaceDoesNotExist12345")
+            resp = client.get("/api/v1/search?q=ThisPlaceDoesNotExist12345")
         assert resp.status_code == 404
-        assert "error" in resp.get_json()
+        assert "error" in resp.json()
 
-    def test_distance_km_field_present(self, flask_client):
+    def test_distance_km_field_present(self, client):
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/search?q=55.6761,12.5683")
-        data = resp.get_json()
+            resp = client.get("/api/v1/search?q=55.6761,12.5683")
+        data = resp.json()
         for loc in data["locations"]:
             assert "distance_km" in loc
 
 
 class TestNautobotRuntimeErrors:
-    def test_runtime_errors_do_not_leak_internal_messages(self, flask_client):
+    def test_runtime_errors_do_not_leak_internal_messages(self, client):
         secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
         cases = [
             ("get", "/api/v1/locations", (inventory, "get_locations"), {}),
@@ -1449,11 +1449,11 @@ class TestNautobotRuntimeErrors:
 
         for method, url, (module, name), kwargs in cases:
             with patch.object(module, name, side_effect=RuntimeError(secret)):
-                resp = getattr(flask_client, method)(url, **kwargs)
+                resp = getattr(client, method)(url, **kwargs)
 
             assert resp.status_code == 503
-            assert resp.get_json()["error"] == "Nautobot service unavailable"
-            assert secret not in resp.get_data(as_text=True)
+            assert resp.json()["error"] == "Nautobot service unavailable"
+            assert secret not in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1462,15 +1462,15 @@ class TestNautobotRuntimeErrors:
 class TestIndex:
     """The map: built with Nuxt (#463); web/tests/ and e2e/ test the page itself."""
 
-    def test_index_is_the_nuxt_page(self, flask_client, frontend_build):
-        resp = flask_client.get("/?tenant=Acme%20Corp&location_id=loc-1")
+    def test_index_is_the_nuxt_page(self, client, frontend_build):
+        resp = client.get("/?tenant=Acme%20Corp&location_id=loc-1")
         assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
         # Asked again each time: a new build shows at once.
         assert resp.headers["Cache-Control"] == "no-cache"
         # No inline script: the CSP needs no 'unsafe-inline' (#197, #198).
         assert not re.search(rb"<script>(?!\s*</script>)", resp.data)
 
-    def test_what_the_map_reads(self, flask_client, override_settings):
+    def test_what_the_map_reads(self, client, override_settings):
         """Nautobot's address, the tile server and the first view (#197, #362), from /api/page-config."""
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
@@ -1478,7 +1478,7 @@ class TestIndex:
             MAP_TILE_ATTRIBUTION='<a href="https://x">"Ours" & co</a>',
             MAP_DEFAULT_VIEW=None,
         )
-        config = flask_client.get("/api/v1/page-config").get_json()
+        config = client.get("/api/v1/page-config").json()
         assert config["nautobot_url"] == "https://nautobot.example.com"
         assert config["map"] == {
             "tile_url": "https://tiles.internal/{z}/{x}/{y}.png",
@@ -1486,7 +1486,7 @@ class TestIndex:
             "view": None,
         }
         override_settings(NAUTOBOT_URL="", MAP_DEFAULT_VIEW=(55.7, 12.6, 6))
-        config = flask_client.get("/api/v1/page-config").get_json()
+        config = client.get("/api/v1/page-config").json()
         assert config["nautobot_url"] == ""
         assert config["map"]["view"] == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
@@ -1562,22 +1562,22 @@ class TestIndex:
 # Tests: Custom error handlers
 # ---------------------------------------------------------------------------
 class TestErrorHandlers:
-    def test_404_json_for_api_path(self, flask_client):
-        resp = flask_client.get("/api/v1/nonexistent")
+    def test_404_json_for_api_path(self, client):
+        resp = client.get("/api/v1/nonexistent")
         assert resp.status_code == 404
-        data = resp.get_json()
+        data = resp.json()
         assert data["error"] == "Not found"
 
-    def test_404_json_when_accept_json(self, flask_client):
-        resp = flask_client.get("/nonexistent-page", headers={"Accept": "application/json"})
+    def test_404_json_when_accept_json(self, client):
+        resp = client.get("/nonexistent-page", headers={"Accept": "application/json"})
         assert resp.status_code == 404
-        data = resp.get_json()
+        data = resp.json()
         assert data["error"] == "Not found"
 
-    def test_405_json_for_api_path(self, flask_client):
-        resp = flask_client.post("/api/v1/locations")
+    def test_405_json_for_api_path(self, client):
+        resp = client.post("/api/v1/locations")
         assert resp.status_code == 405
-        data = resp.get_json()
+        data = resp.json()
         assert data["error"] == "Method not allowed"
 
     def test_http_exception_returns_json_for_api_path(self):
@@ -1598,7 +1598,7 @@ class TestErrorHandlers:
         app.include_router(router)
         resp = http_client.FlaskStyleClient(app).get("/api/v1/slow")
         assert resp.status_code == 504
-        assert resp.get_json()["error"] == "The connection to an upstream server timed out."
+        assert resp.json()["error"] == "The connection to an upstream server timed out."
 
 
 # ---------------------------------------------------------------------------
@@ -1706,16 +1706,16 @@ class TestConfigurableCriticalKeywords:
 # Tests: location_type passed through detail endpoint
 # ---------------------------------------------------------------------------
 class TestLocationDetailWithLocationType:
-    def test_location_type_param_accepted(self, flask_client):
+    def test_location_type_param_accepted(self, client):
         """The ?location_type query param is accepted without error."""
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail?location_type=Data+Center")
+            resp = client.get("/api/v1/locations/loc-1/detail?location_type=Data+Center")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert "devices" in data
         assert "alert" in data
 
-    def test_location_type_influences_alert(self, flask_client, override_settings):
+    def test_location_type_influences_alert(self, client, override_settings):
         """When location_type maps to rules, compute_alert_level uses correct keywords."""
         override_settings(CRITICALITY_RULES={"datacenter": ["firewall"]})
 
@@ -1744,8 +1744,8 @@ class TestLocationDetailWithLocationType:
             return {"count": 0, "next": None, "results": []}
 
         with patch.object(nautobot, "get", side_effect=mock_get):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail?location_type=datacenter")
-        data = resp.get_json()
+            resp = client.get("/api/v1/locations/loc-1/detail?location_type=datacenter")
+        data = resp.json()
         assert data["alert"]["level"] == "critical"
 
 
@@ -1760,13 +1760,13 @@ class TestCriticalityOverrideEndpoints:
     def _database(self, pg_database):
         self.db = pg_database
 
-    def test_list_empty(self, flask_client):
-        resp = flask_client.get("/api/v1/criticality-overrides")
+    def test_list_empty(self, client):
+        resp = client.get("/api/v1/criticality-overrides")
         assert resp.status_code == 200
-        assert resp.get_json()["overrides"] == []
+        assert resp.json()["overrides"] == []
 
-    def test_create_override(self, flask_client):
-        resp = flask_client.post(
+    def test_create_override(self, client):
+        resp = client.post(
             "/api/v1/criticality-overrides",
             json={
                 "nautobot_device_id": "dev-abc",
@@ -1777,12 +1777,12 @@ class TestCriticalityOverrideEndpoints:
             content_type="application/json",
         )
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["nautobot_device_id"] == "dev-abc"
         assert data["is_critical"] is False
 
-    def test_list_after_create(self, flask_client):
-        flask_client.post(
+    def test_list_after_create(self, client):
+        client.post(
             "/api/v1/criticality-overrides",
             json={
                 "nautobot_device_id": "dev-abc",
@@ -1792,47 +1792,47 @@ class TestCriticalityOverrideEndpoints:
             },
             content_type="application/json",
         )
-        resp = flask_client.get("/api/v1/criticality-overrides")
-        overrides = resp.get_json()["overrides"]
+        resp = client.get("/api/v1/criticality-overrides")
+        overrides = resp.json()["overrides"]
         assert len(overrides) == 1
         assert overrides[0]["nautobot_device_id"] == "dev-abc"
 
-    def test_update_override(self, flask_client):
+    def test_update_override(self, client):
         """Posting the same device_id a second time updates in-place."""
-        flask_client.post(
+        client.post(
             "/api/v1/criticality-overrides",
             json={"nautobot_device_id": "dev-x", "is_critical": True},
             content_type="application/json",
         )
-        flask_client.post(
+        client.post(
             "/api/v1/criticality-overrides",
             json={"nautobot_device_id": "dev-x", "is_critical": False, "reason": "Changed"},
             content_type="application/json",
         )
-        resp = flask_client.get("/api/v1/criticality-overrides")
-        overrides = resp.get_json()["overrides"]
+        resp = client.get("/api/v1/criticality-overrides")
+        overrides = resp.json()["overrides"]
         assert len(overrides) == 1
         assert overrides[0]["is_critical"] == 0  # stored as int
 
-    def test_delete_override(self, flask_client):
-        flask_client.post(
+    def test_delete_override(self, client):
+        client.post(
             "/api/v1/criticality-overrides",
             json={"nautobot_device_id": "dev-del", "is_critical": True},
             content_type="application/json",
         )
-        resp = flask_client.delete("/api/v1/criticality-overrides/dev-del")
+        resp = client.delete("/api/v1/criticality-overrides/dev-del")
         assert resp.status_code == 200
-        assert resp.get_json()["status"] == "deleted"
+        assert resp.json()["status"] == "deleted"
         # Should be gone now
-        resp2 = flask_client.get("/api/v1/criticality-overrides")
-        assert resp2.get_json()["overrides"] == []
+        resp2 = client.get("/api/v1/criticality-overrides")
+        assert resp2.json()["overrides"] == []
 
-    def test_delete_nonexistent_returns_404(self, flask_client):
-        resp = flask_client.delete("/api/v1/criticality-overrides/does-not-exist")
+    def test_delete_nonexistent_returns_404(self, client):
+        resp = client.delete("/api/v1/criticality-overrides/does-not-exist")
         assert resp.status_code == 404
 
-    def test_create_missing_device_id_returns_400(self, flask_client):
-        resp = flask_client.post(
+    def test_create_missing_device_id_returns_400(self, client):
+        resp = client.post(
             "/api/v1/criticality-overrides",
             json={"is_critical": True},
             content_type="application/json",
@@ -1860,20 +1860,20 @@ class TestCriticalityOverrideEndpoints:
         )
         assert result["level"] != "critical"
 
-    def test_requires_operator_role_when_auth_enabled(self, flask_client):
+    def test_requires_operator_role_when_auth_enabled(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
-            resp = flask_client.post(
+            resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-viewers"},
             )
         assert resp.status_code == 403
-        assert resp.get_json()["required_role"] == "operator"
+        assert resp.json()["required_role"] == "operator"
 
-    def test_accepts_operator_group_when_auth_enabled(self, flask_client):
+    def test_accepts_operator_group_when_auth_enabled(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
-            resp = flask_client.post(
+            resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
@@ -1881,21 +1881,21 @@ class TestCriticalityOverrideEndpoints:
             )
         assert resp.status_code == 200
 
-    def test_uses_authenticated_username_as_updated_by(self, flask_client):
+    def test_uses_authenticated_username_as_updated_by(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
-            resp = flask_client.post(
+            resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
             assert resp.status_code == 200
-            listed = flask_client.get(
+            listed = client.get(
                 "/api/v1/criticality-overrides",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
         assert listed.status_code == 200
-        assert listed.get_json()["overrides"][0]["updated_by"] == "alice"
+        assert listed.json()["overrides"][0]["updated_by"] == "alice"
 
 
 # ---------------------------------------------------------------------------
@@ -1906,7 +1906,7 @@ class TestAlertLifecycleTracking:
     def _database(self, pg_database):
         self.db = pg_database
 
-    def test_api_alerts_contains_lifecycle_fields(self, flask_client):
+    def test_api_alerts_contains_lifecycle_fields(self, client):
         with (
             patch.object(
                 inventory,
@@ -1952,9 +1952,9 @@ class TestAlertLifecycleTracking:
                 ),
             ),
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
         assert resp.status_code == 200
-        entry = resp.get_json()["alerts"][0]
+        entry = resp.json()["alerts"][0]
         assert "current_downtime_seconds" in entry
         assert "historical_downtime_seconds" in entry
         assert "active_cases" in entry
@@ -1971,7 +1971,7 @@ class TestAlertLifecycleTracking:
             }
         ]
 
-    def test_alert_history_tracks_open_and_resolve(self, flask_client):
+    def test_alert_history_tracks_open_and_resolve(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
@@ -1992,9 +1992,9 @@ class TestAlertLifecycleTracking:
                 t1,
             )
         )
-        resp = flask_client.get("/api/v1/alert-history?site_id=loc-1")
+        resp = client.get("/api/v1/alert-history?site_id=loc-1")
         assert resp.status_code == 200
-        instances = resp.get_json()["instances"]
+        instances = resp.json()["instances"]
         assert len(instances) == 1
         assert instances[0]["status"] == "resolved"
         assert instances[0]["total_downtime_seconds"] == 300
@@ -2052,7 +2052,7 @@ class TestAlertLifecycleTracking:
         context = asyncio.run(alerts.get_alert_context_for_site("loc-1", t1))
         assert context["current_downtime_seconds"] == 3600
 
-    def test_add_case_number_to_active_alert(self, flask_client):
+    def test_add_case_number_to_active_alert(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
@@ -2064,18 +2064,18 @@ class TestAlertLifecycleTracking:
                 t0,
             )
         )
-        created = flask_client.post(
+        created = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
             content_type="application/json",
         )
         assert created.status_code == 200
-        history = flask_client.get("/api/v1/alert-history?site_id=loc-1&device_id=dev-1")
+        history = client.get("/api/v1/alert-history?site_id=loc-1&device_id=dev-1")
         assert history.status_code == 200
-        instances = history.get_json()["instances"]
+        instances = history.json()["instances"]
         assert instances[0]["cases"][0]["case_number"] == "INC-1001"
 
-    def test_api_alerts_preserves_case_numbers_on_current_down_devices(self, flask_client):
+    def test_api_alerts_preserves_case_numbers_on_current_down_devices(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
@@ -2087,7 +2087,7 @@ class TestAlertLifecycleTracking:
                 t0,
             )
         )
-        created = flask_client.post(
+        created = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
             content_type="application/json",
@@ -2154,10 +2154,10 @@ class TestAlertLifecycleTracking:
                 ),
             ),
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
 
         assert resp.status_code == 200
-        entry = resp.get_json()["alerts"][0]
+        entry = resp.json()["alerts"][0]
         assert entry["active_cases"] == ["INC-1001"]
         assert entry["down_devices"] == [
             {
@@ -2172,7 +2172,7 @@ class TestAlertLifecycleTracking:
             }
         ]
 
-    def test_add_case_uses_authenticated_user_for_created_by(self, flask_client):
+    def test_add_case_uses_authenticated_user_for_created_by(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
@@ -2185,7 +2185,7 @@ class TestAlertLifecycleTracking:
             )
         )
         with auth_config(mode="header", operator_groups={"noc-operators"}):
-            created = flask_client.post(
+            created = client.post(
                 "/api/v1/alert-cases",
                 json={
                     "site_id": "loc-1",
@@ -2197,21 +2197,21 @@ class TestAlertLifecycleTracking:
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
             assert created.status_code == 200
-            history = flask_client.get(
+            history = client.get(
                 "/api/v1/alert-history?site_id=loc-1&device_id=dev-1",
                 headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
             )
         assert history.status_code == 200
-        instances = history.get_json()["instances"]
+        instances = history.json()["instances"]
         assert instances[0]["cases"][0]["created_by"] == "alice"
 
-    def test_alert_history_rejects_invalid_timestamp_filters(self, flask_client):
-        resp = flask_client.get("/api/v1/alert-history?start_at=not-a-timestamp")
+    def test_alert_history_rejects_invalid_timestamp_filters(self, client):
+        resp = client.get("/api/v1/alert-history?start_at=not-a-timestamp")
         assert resp.status_code == 400
-        assert "start_at" in resp.get_json()["error"]
-        resp = flask_client.get("/api/v1/alert-history?end_at=still-not-a-timestamp")
+        assert "start_at" in resp.json()["error"]
+        resp = client.get("/api/v1/alert-history?end_at=still-not-a-timestamp")
         assert resp.status_code == 400
-        assert "end_at" in resp.get_json()["error"]
+        assert "end_at" in resp.json()["error"]
 
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}
@@ -3251,7 +3251,7 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["device_count"] == 0
         assert data["alerts"][0]["down_device_count"] == 0
 
-    def test_api_alerts_filters_cached_devices_without_primary_ip(self, flask_client):
+    def test_api_alerts_filters_cached_devices_without_primary_ip(self, client):
         conn = adb.connect()
         try:
             with conn:
@@ -3333,10 +3333,10 @@ class TestInventoryCacheSync:
             "fetch_all_pages",
             side_effect=AssertionError("should not fetch live inventory"),
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
 
         assert resp.status_code == 200
-        entry = resp.get_json()["alerts"][0]
+        entry = resp.json()["alerts"][0]
         assert entry["device_count"] == 1
         assert entry["down_device_count"] == 1
         assert entry["down_devices"] == [
@@ -3615,7 +3615,7 @@ class TestAuthConfiguration:
         with pytest.raises(RuntimeError, match="AUTH_TRUSTED_PROXIES"):
             config._networks("AUTH_TRUSTED_PROXIES", "10.0.0.0/33")
 
-    def test_auth_disabled_refuses_admin_writes_by_default(self, flask_client, override_settings):
+    def test_auth_disabled_refuses_admin_writes_by_default(self, client, override_settings):
         """Anyone who can reach the app must not change Nautobot with its token (#188)."""
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=False)
         writes = [
@@ -3629,20 +3629,20 @@ class TestAuthConfiguration:
         with auth_config(mode="disabled"):
             for method, url, body in writes:
                 resp = (
-                    getattr(flask_client, method)(url, json=body)
+                    getattr(client, method)(url, json=body)
                     if body
-                    else getattr(flask_client, method)(url)
+                    else getattr(client, method)(url)
                 )
                 assert resp.status_code == 403, (method, url)
-                assert "ALLOW_UNAUTHENTICATED_WRITES" in resp.get_json()["detail"]
+                assert "ALLOW_UNAUTHENTICATED_WRITES" in resp.json()["detail"]
 
-    def test_auth_disabled_keeps_reads_and_cases_open(self, flask_client, override_settings):
+    def test_auth_disabled_keeps_reads_and_cases_open(self, client, override_settings):
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=False)
         with auth_config(mode="disabled"):
-            assert flask_client.get("/api/v1/criticality-overrides").status_code != 403
+            assert client.get("/api/v1/criticality-overrides").status_code != 403
             # Adding a case is what the board does; it reaches the handler
             # (400: nothing to add), not the auth check.
-            assert flask_client.post("/api/v1/alert-cases", json={}).status_code != 403
+            assert client.post("/api/v1/alert-cases", json={}).status_code != 403
 
     @pytest.mark.parametrize(
         "method, url",
@@ -3653,67 +3653,67 @@ class TestAuthConfiguration:
             ("delete", "/api/v1/location-types/lt-1"),
         ],
     )
-    def test_nautobot_proxy_endpoints_are_gone(self, flask_client, method, url, override_settings):
+    def test_nautobot_proxy_endpoints_are_gone(self, client, method, url, override_settings):
         """Changes to Nautobot data are made in Nautobot, not through this app (#188)."""
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-        assert getattr(flask_client, method)(url).status_code in (404, 405)
+        assert getattr(client, method)(url).status_code in (404, 405)
 
     def test_the_nautobot_client_cannot_write(self):
         assert not hasattr(nautobot, "post") and not hasattr(nautobot, "delete")
 
     def test_require_viewer_protects_every_page_but_probes(
-        self, flask_client, frontend_build, override_settings
+        self, client, frontend_build, override_settings
     ):
         override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
-            assert flask_client.get("/").status_code == 401
-            assert flask_client.get("/api/v1/alerts").status_code == 401
+            assert client.get("/").status_code == 401
+            assert client.get("/api/v1/alerts").status_code == 401
             assert (
-                flask_client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
+                client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
             )
-            ok = flask_client.get(
+            ok = client.get(
                 "/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
             )
             assert ok.status_code == 200
-            assert flask_client.get("/healthz").status_code in (200, 503)
-            assert flask_client.get("/metrics").status_code == 200
+            assert client.get("/healthz").status_code in (200, 503)
+            assert client.get("/metrics").status_code == 200
 
     def test_require_viewer_is_off_by_default(
-        self, flask_client, frontend_build, override_settings
+        self, client, frontend_build, override_settings
     ):
         override_settings(AUTH_REQUIRE_VIEWER=False)
         with auth_config(mode="header", viewer_groups={"noc"}):
-            assert flask_client.get("/").status_code == 200
+            assert client.get("/").status_code == 200
 
-    def test_missing_identity_header_returns_401(self, flask_client):
+    def test_missing_identity_header_returns_401(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
-            resp = flask_client.post(
+            resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
             )
         assert resp.status_code == 401
 
-    def test_default_role_allows_authenticated_viewer_only_access(self, flask_client):
+    def test_default_role_allows_authenticated_viewer_only_access(self, client):
         with auth_config(mode="header", default_role="viewer"):
-            resp = flask_client.post(
+            resp = client.post(
                 "/api/v1/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
                 headers={"X-Forwarded-User": "alice"},
             )
         assert resp.status_code == 403
-        assert resp.get_json()["current_role"] == "viewer"
+        assert resp.json()["current_role"] == "viewer"
 
 
 # ---------------------------------------------------------------------------
 # Tests: alert-board tier definitions and per-device IP (#117)
 # ---------------------------------------------------------------------------
 class TestAlertBoardTierDefinitions:
-    def test_the_board_explains_the_levels_and_chips(self, flask_client):
+    def test_the_board_explains_the_levels_and_chips(self, client):
         """The (i) by the summary line explains the levels, and each chip what it shows (#311),
         from the configured thresholds (#293): the board reads them from /api/page-config (#463)."""
-        levels = flask_client.get("/api/v1/page-config").get_json()["board"]["levels"]
+        levels = client.get("/api/v1/page-config").json()["board"]["levels"]
         assert levels == alerts.alert_level_definitions()
         assert set(levels) >= {
             "critical",
@@ -3805,7 +3805,7 @@ class TestAlertBoardSyncProgress:
         # A real board's other fields, empty (#449: the answer is checked against /api/docs).
         return answers.complete(board_answers.Board, board)
 
-    def test_refresh_1_enqueues_forced_background_sync(self, flask_client):
+    def test_refresh_1_enqueues_forced_background_sync(self, client):
         now = timeutil.iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
         with (
@@ -3814,7 +3814,7 @@ class TestAlertBoardSyncProgress:
                 alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
             ),
         ):
-            resp = flask_client.get("/api/v1/alerts?refresh=1")
+            resp = client.get("/api/v1/alerts?refresh=1")
         assert resp.status_code == 200
         ensure.assert_called_once_with(
             force=True,
@@ -3822,9 +3822,9 @@ class TestAlertBoardSyncProgress:
             wait=False,
             cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS,
         )
-        assert resp.get_json()["sync_pending"] is True
+        assert resp.json()["sync_pending"] is True
 
-    def test_timestamp_refresh_value_does_not_trigger_sync(self, flask_client):
+    def test_timestamp_refresh_value_does_not_trigger_sync(self, client):
         """The old UI sent refresh=<Date.now()>; the server contract is 1/true/yes/refresh."""
         now = timeutil.iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
@@ -3834,27 +3834,27 @@ class TestAlertBoardSyncProgress:
                 alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
             ),
         ):
-            resp = flask_client.get("/api/v1/alerts?refresh=1727000000000")
+            resp = client.get("/api/v1/alerts?refresh=1727000000000")
         ensure.assert_not_called()
-        assert resp.get_json()["sync_pending"] is False
+        assert resp.json()["sync_pending"] is False
 
-    def test_cold_start_enqueues_first_sync_without_waiting(self, flask_client, override_settings):
+    def test_cold_start_enqueues_first_sync_without_waiting(self, client, override_settings):
         override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
         with (
             patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
             patch.object(alerts, "build_alert_board_payload", return_value=self._board()),
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
         assert resp.status_code == 200
         ensure.assert_called_once_with(wait=False)
-        data = resp.get_json()
+        data = resp.json()
         assert data["alerts"] == []
         assert data["sync_pending"] is True
         # The empty cold-start board must not be cached, or the synced data
         # would stay hidden until the cache expires.
         assert caching.cache.get("alert-board-data:v3") is None
 
-    def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, flask_client):
+    def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, client):
         now = timeutil.iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
         with (
@@ -3863,11 +3863,11 @@ class TestAlertBoardSyncProgress:
                 alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
             ),
         ):
-            resp = flask_client.get("/api/v1/alerts")
+            resp = client.get("/api/v1/alerts")
         ensure.assert_not_called()
-        assert resp.get_json()["sync_pending"] is False
+        assert resp.json()["sync_pending"] is False
 
-    def test_due_sync_is_started_by_a_normal_board_load(self, flask_client, override_settings):
+    def test_due_sync_is_started_by_a_normal_board_load(self, client, override_settings):
         """An open board keeps itself up to date: a normal load starts a sync once one is due (#152)."""
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
@@ -3882,13 +3882,13 @@ class TestAlertBoardSyncProgress:
                 alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
             ),
         ):
-            data = flask_client.get("/api/v1/alerts").get_json()
+            data = client.get("/api/v1/alerts").json()
         ensure.assert_called_once_with(wait=False)
         assert data["sync_pending"] is True
         assert data["next_update_in_seconds"] == 0
 
     def test_next_update_counts_down_from_last_completed_sync(
-        self, flask_client, override_settings
+        self, client, override_settings
     ):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
@@ -3903,7 +3903,7 @@ class TestAlertBoardSyncProgress:
                 alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
             ),
         ):
-            data = flask_client.get("/api/v1/alerts").get_json()
+            data = client.get("/api/v1/alerts").json()
         ensure.assert_not_called()
         assert 195 <= data["next_update_in_seconds"] <= 200
 
@@ -3941,7 +3941,7 @@ class TestAlertBoardSyncProgress:
         override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         assert asyncio.run(alerts.inventory_update_schedule()) == (False, None)
 
-    def test_running_sync_is_reported_as_pending(self, flask_client):
+    def test_running_sync_is_reported_as_pending(self, client):
         self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
         assert asyncio.run(alerts.nautobot_sync_in_progress()) is True
 
@@ -3954,7 +3954,7 @@ class TestAlertBoardSyncProgress:
         override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         assert asyncio.run(alerts.nautobot_sync_in_progress()) is False
 
-    def test_adding_case_invalidates_cached_board(self, flask_client):
+    def test_adding_case_invalidates_cached_board(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         asyncio.run(
@@ -3966,7 +3966,7 @@ class TestAlertBoardSyncProgress:
             )
         )
         caching.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
-        resp = flask_client.post(
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-2001"},
         )
@@ -3995,83 +3995,83 @@ class TestMultiDeviceCases:
         yield
         caching.cache.clear()
 
-    def _cases_for(self, flask_client, device_id):
-        history = flask_client.get(
+    def _cases_for(self, client, device_id):
+        history = client.get(
             f"/api/v1/alert-history?site_id=loc-1&device_id={device_id}"
-        ).get_json()
+        ).json()
         return [case["case_number"] for case in history["instances"][0]["cases"]]
 
-    def test_links_one_case_to_every_selected_device(self, flask_client):
-        resp = flask_client.post(
+    def test_links_one_case_to_every_selected_device(self, client):
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_ids": ["dev-1", "dev-2"], "case_number": "INC-42"},
         )
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert [item["device_id"] for item in data["linked"]] == ["dev-1", "dev-2"]
         assert "device_id" not in data  # single-device fields only for one device
-        assert self._cases_for(flask_client, "dev-1") == ["INC-42"]
-        assert self._cases_for(flask_client, "dev-2") == ["INC-42"]
-        assert self._cases_for(flask_client, "dev-3") == []
+        assert self._cases_for(client, "dev-1") == ["INC-42"]
+        assert self._cases_for(client, "dev-2") == ["INC-42"]
+        assert self._cases_for(client, "dev-3") == []
 
-    def test_is_all_or_nothing_when_a_device_has_no_open_alert(self, flask_client):
-        resp = flask_client.post(
+    def test_is_all_or_nothing_when_a_device_has_no_open_alert(self, client):
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_ids": ["dev-1", "dev-9"], "case_number": "INC-43"},
         )
         assert resp.status_code == 404
-        assert resp.get_json()["missing_device_ids"] == ["dev-9"]
-        assert self._cases_for(flask_client, "dev-1") == []
+        assert resp.json()["missing_device_ids"] == ["dev-9"]
+        assert self._cases_for(client, "dev-1") == []
 
-    def test_duplicate_ids_are_linked_once(self, flask_client):
-        resp = flask_client.post(
+    def test_duplicate_ids_are_linked_once(self, client):
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_ids": ["dev-1", " dev-1 "], "case_number": "INC-44"},
         )
         assert resp.status_code == 200
-        assert len(resp.get_json()["linked"]) == 1
-        assert self._cases_for(flask_client, "dev-1") == ["INC-44"]
+        assert len(resp.json()["linked"]) == 1
+        assert self._cases_for(client, "dev-1") == ["INC-44"]
 
-    def test_single_device_id_keeps_original_response_fields(self, flask_client):
-        resp = flask_client.post(
+    def test_single_device_id_keeps_original_response_fields(self, client):
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-3", "case_number": "INC-45"},
         )
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["device_id"] == "dev-3"
         assert isinstance(data["alert_instance_id"], int)
-        assert self._cases_for(flask_client, "dev-3") == ["INC-45"]
+        assert self._cases_for(client, "dev-3") == ["INC-45"]
 
     @pytest.mark.parametrize(
         "device_ids",
         ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(api_board.MAX_CASE_DEVICES + 1)]],
         ids=["string-not-list", "empty", "non-string-id", "too-many"],
     )
-    def test_rejects_invalid_device_ids(self, flask_client, device_ids):
-        resp = flask_client.post(
+    def test_rejects_invalid_device_ids(self, client, device_ids):
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-1", "device_ids": device_ids, "case_number": "INC-46"},
         )
         assert resp.status_code == 400
-        assert self._cases_for(flask_client, "dev-1") == []
+        assert self._cases_for(client, "dev-1") == []
 
 
 # Tests: /healthz (#131)
 # ---------------------------------------------------------------------------
 class TestHealthz:
-    def test_ok_with_reachable_database(self, flask_client, monkeypatch, pg_database):
-        resp = flask_client.get("/healthz")
+    def test_ok_with_reachable_database(self, client, monkeypatch, pg_database):
+        resp = client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.get_json()["checks"] == {"app": "ok", "database": "ok"}
+        assert resp.json()["checks"] == {"app": "ok", "database": "ok"}
 
-    def test_makes_no_upstream_calls(self, flask_client, override_settings):
+    def test_makes_no_upstream_calls(self, client, override_settings):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
         override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
         with patch.object(
             upstream_http, "request", side_effect=AssertionError("no upstream calls")
         ):
-            resp = flask_client.get("/healthz")
+            resp = client.get("/healthz")
         assert resp.status_code == 200
 
 
@@ -4151,7 +4151,7 @@ class TestLibreNMSPolledIp:
 # Tests: alert board explains a missing persistence database (#136)
 # ---------------------------------------------------------------------------
 class TestAlertBoardWithoutPersistence:
-    def test_payload_reports_configured_database(self, flask_client, monkeypatch, pg_database):
+    def test_payload_reports_configured_database(self, client, monkeypatch, pg_database):
         pass  # the schema: Alembic's (tests/test_schema.py)
         caching.cache.clear()
         with (
@@ -4165,7 +4165,7 @@ class TestAlertBoardWithoutPersistence:
                 ),
             ),
         ):
-            data = flask_client.get("/api/v1/alerts").get_json()
+            data = client.get("/api/v1/alerts").json()
         assert data["persistence_configured"] is True
 
 
@@ -4947,10 +4947,10 @@ class TestAlertFeed:
 
         return build, set_status
 
-    def _feed(self, flask_client, query=""):
-        resp = flask_client.get(f"/api/v1/alert-feed{query}")
-        assert resp.status_code == 200, resp.get_json()
-        return resp.get_json()
+    def _feed(self, client, query=""):
+        resp = client.get(f"/api/v1/alert-feed{query}")
+        assert resp.status_code == 200, resp.json()
+        return resp.json()
 
     def test_level_changes_are_logged_but_not_first_sightings(self, pg_database):
         at = "2026-09-28T12:00:00+00:00"
@@ -4988,10 +4988,10 @@ class TestAlertFeed:
             {"site_id": "s2", "alert_level": "critical"},
         ]
 
-    def test_board_builds_fill_the_feed(self, board, flask_client):
+    def test_board_builds_fill_the_feed(self, board, client):
         build, set_status = board
         assert build("2026-09-28T12:00:00+00:00")["loc-1"]["alert_level"] == "ok"
-        assert self._feed(flask_client)["events"] == []  # first sighting: nothing changed
+        assert self._feed(client)["events"] == []  # first sighting: nothing changed
 
         set_status("d-1", "Offline")
         down_level = build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"]
@@ -4999,7 +4999,7 @@ class TestAlertFeed:
         set_status("d-1", "Active")
         build("2026-09-28T12:10:00+00:00")
 
-        feed = self._feed(flask_client)
+        feed = self._feed(client)
         assert feed["persistence_configured"] is True
         assert [(e["kind"], e["at"]) for e in feed["events"]] == [
             ("severity", "2026-09-28T12:10:00Z"),
@@ -5016,19 +5016,19 @@ class TestAlertFeed:
         assert back_to_ok["device_id"] == ""
 
         # Filters.
-        assert [e["kind"] for e in self._feed(flask_client, "?kinds=severity")["events"]] == [
+        assert [e["kind"] for e in self._feed(client, "?kinds=severity")["events"]] == [
             "severity",
             "severity",
         ]
-        assert [e["kind"] for e in self._feed(flask_client, "?kinds=down,up")["events"]] == [
+        assert [e["kind"] for e in self._feed(client, "?kinds=down,up")["events"]] == [
             "up",
             "down",
         ]
-        assert [e["kind"] for e in self._feed(flask_client, "?limit=1")["events"]] == ["severity"]
-        since = self._feed(flask_client, "?since=2026-09-28T12:05:00Z")["events"]
+        assert [e["kind"] for e in self._feed(client, "?limit=1")["events"]] == ["severity"]
+        since = self._feed(client, "?since=2026-09-28T12:05:00Z")["events"]
         assert [e["kind"] for e in since] == ["severity", "up"]
 
-    def test_a_board_for_some_sites_reads_their_feed(self, board, flask_client, pg_database):
+    def test_a_board_for_some_sites_reads_their_feed(self, board, client, pg_database):
         """?tenant= / ?q= (#369): only those sites' entries, and the limit counts them."""
         build, set_status = board
         pg_database.execute(
@@ -5048,49 +5048,49 @@ class TestAlertFeed:
         set_status("d-3", "Offline")  # newer: Site Two's events come first in the whole feed
         build("2026-09-28T12:10:00+00:00")
 
-        every = self._feed(flask_client)["events"]
+        every = self._feed(client)["events"]
         assert {e["site_name"] for e in every} == {"Site One", "Site Two"}
-        acme = self._feed(flask_client, "?tenant=acme%20corp")["events"]
+        acme = self._feed(client, "?tenant=acme%20corp")["events"]
         assert acme and {e["site_name"] for e in acme} == {"Site One"}
-        assert {e["site_name"] for e in self._feed(flask_client, "?q=two")["events"]} == {
+        assert {e["site_name"] for e in self._feed(client, "?q=two")["events"]} == {
             "Site Two"
         }
         # The limit counts the matching entries, not the whole feed's newest.
-        one = self._feed(flask_client, "?tenant=Acme%20Corp&limit=1")["events"]
+        one = self._feed(client, "?tenant=Acme%20Corp&limit=1")["events"]
         assert len(one) == 1 and one[0]["site_name"] == "Site One"
         # since and the scope together.
-        later = self._feed(flask_client, "?q=two&since=2026-09-28T12:05:00Z")["events"]
+        later = self._feed(client, "?q=two&since=2026-09-28T12:05:00Z")["events"]
         assert later and {(e["site_name"], e["at"]) for e in later} == {
             ("Site Two", "2026-09-28T12:10:00Z")
         }
         assert (
-            self._feed(flask_client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"]
+            self._feed(client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"]
             == []
         )
-        assert self._feed(flask_client, "?tenant=nobody") == {
+        assert self._feed(client, "?tenant=nobody") == {
             "events": [],
             "persistence_configured": True,
             "matching_sites": 0,
         }
-        assert self._feed(flask_client, "?q=site")["matching_sites"] == 2
-        assert "matching_sites" not in self._feed(flask_client)
+        assert self._feed(client, "?q=site")["matching_sites"] == 2
+        assert "matching_sites" not in self._feed(client)
 
-    def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, flask_client):
+    def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, client):
         """No stored locations (not synced yet, or the read failed): an error,
         not an empty feed that looks like an all-clear (#369)."""
-        resp = flask_client.get("/api/v1/alert-feed?tenant=Acme")
+        resp = client.get("/api/v1/alert-feed?tenant=Acme")
         assert resp.status_code == 503
-        assert "not stored yet" in resp.get_json()["error"]
-        assert self._feed(flask_client)["events"] == []  # the whole network's feed still answers
+        assert "not stored yet" in resp.json()["error"]
+        assert self._feed(client)["events"] == []  # the whole network's feed still answers
 
-    def test_bad_parameters_are_rejected(self, pg_database, flask_client):
-        assert flask_client.get("/api/v1/alert-feed?limit=many").status_code == 400
-        assert flask_client.get("/api/v1/alert-feed?since=yesterday").status_code == 400
-        resp = flask_client.get("/api/v1/alert-feed?kinds=down,cases")
-        assert resp.status_code == 400 and "cases" in resp.get_json()["error"]
+    def test_bad_parameters_are_rejected(self, pg_database, client):
+        assert client.get("/api/v1/alert-feed?limit=many").status_code == 400
+        assert client.get("/api/v1/alert-feed?since=yesterday").status_code == 400
+        resp = client.get("/api/v1/alert-feed?kinds=down,cases")
+        assert resp.status_code == 400 and "cases" in resp.json()["error"]
         # Out-of-range limits are clamped, not rejected.
-        assert flask_client.get("/api/v1/alert-feed?limit=0").status_code == 200
-        assert flask_client.get("/api/v1/alert-feed?limit=100000").status_code == 200
+        assert client.get("/api/v1/alert-feed?limit=0").status_code == 200
+        assert client.get("/api/v1/alert-feed?limit=100000").status_code == 200
 
     def test_failed_observation_is_not_a_level_change(self, board, monkeypatch, pg_database):
         build, _ = board
@@ -5120,65 +5120,65 @@ class TestGeocoder:
         geolocator.geocode.return_value = MagicMock(latitude=lat, longitude=lon)
         return geolocator
 
-    def test_disabled_geocoder_only_accepts_coordinates(self, flask_client, override_settings):
+    def test_disabled_geocoder_only_accepts_coordinates(self, client, override_settings):
         override_settings(GEOCODER_ENABLED=False)
         with patch(
             "app.v1.map.controller.Nominatim", side_effect=AssertionError("must not geocode")
         ):
-            resp = flask_client.get("/api/v1/search?q=Copenhagen")
-            assert resp.status_code == 400 and "coordinates" in resp.get_json()["error"]
-            assert flask_client.get("/api/v1/search?q=55.68,12.57").status_code == 200
+            resp = client.get("/api/v1/search?q=Copenhagen")
+            assert resp.status_code == 400 and "coordinates" in resp.json()["error"]
+            assert client.get("/api/v1/search?q=55.68,12.57").status_code == 200
 
-    def test_uses_the_configured_service(self, flask_client, override_settings):
+    def test_uses_the_configured_service(self, client, override_settings):
         override_settings(
             GEOCODER_URL="http://nominatim.internal:8080/nominatim",
             GEOCODER_USER_AGENT="noc-maps/2",
         )
         with patch("app.v1.map.controller.Nominatim", return_value=self._geolocator()) as nominatim:
-            assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
+            assert client.get("/api/v1/search?q=Copenhagen").status_code == 200
         nominatim.assert_called_once_with(
             user_agent="noc-maps/2", domain="nominatim.internal:8080/nominatim", scheme="http"
         )
 
-    def test_results_are_cached(self, flask_client):
+    def test_results_are_cached(self, client):
         geolocator = self._geolocator()
         with patch("app.v1.map.controller.Nominatim", return_value=geolocator):
-            first = flask_client.get("/api/v1/search?q=Copenhagen").get_json()
+            first = client.get("/api/v1/search?q=Copenhagen").json()
             caching.cache.delete("geocode-rate-limit")
-            second = flask_client.get("/api/v1/search?q=copenhagen ").get_json()
+            second = client.get("/api/v1/search?q=copenhagen ").json()
         assert geolocator.geocode.call_count == 1
         assert first["search_lat"] == second["search_lat"] == pytest.approx(55.68)
 
-    def test_at_most_one_request_per_second(self, flask_client, monkeypatch):
+    def test_at_most_one_request_per_second(self, client, monkeypatch):
         # A minute, not a second: a slow CI runner took over a second between
         # the two requests, and the second one was let through (#332).
         monkeypatch.setattr(api_locations, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
         with patch("app.v1.map.controller.Nominatim", return_value=self._geolocator()):
-            assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
-            busy = flask_client.get("/api/v1/search?q=Aarhus")
-            assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
+            assert client.get("/api/v1/search?q=Copenhagen").status_code == 200
+            busy = client.get("/api/v1/search?q=Aarhus")
+            assert busy.status_code == 429 and "try again" in busy.json()["error"]
             # Once the interval is over (its key expired), the next search is asked.
             caching.cache.delete("geocode-rate-limit")
-            assert flask_client.get("/api/v1/search?q=Aarhus").status_code == 200
+            assert client.get("/api/v1/search?q=Aarhus").status_code == 200
 
     def test_the_interval_is_one_second(self):
         assert api_locations.GEOCODE_MIN_INTERVAL_SECONDS == 1
 
-    def test_geocoder_error_is_not_passed_to_the_client(self, flask_client):
+    def test_geocoder_error_is_not_passed_to_the_client(self, client):
         geolocator = MagicMock()
         geolocator.geocode.side_effect = OSError("connect to 10.0.0.5 refused")
         with patch("app.v1.map.controller.Nominatim", return_value=geolocator):
-            resp = flask_client.get("/api/v1/search?q=Copenhagen")
+            resp = client.get("/api/v1/search?q=Copenhagen")
         assert resp.status_code == 503
-        assert resp.get_json() == {"error": "Geocoding service unavailable"}
+        assert resp.json() == {"error": "Geocoding service unavailable"}
 
-    def test_not_found_is_cached_too(self, flask_client):
+    def test_not_found_is_cached_too(self, client):
         geolocator = MagicMock()
         geolocator.geocode.return_value = None
         with patch("app.v1.map.controller.Nominatim", return_value=geolocator):
-            assert flask_client.get("/api/v1/search?q=Nowhere").status_code == 404
+            assert client.get("/api/v1/search?q=Nowhere").status_code == 404
             caching.cache.delete("geocode-rate-limit")
-            assert flask_client.get("/api/v1/search?q=Nowhere").status_code == 404
+            assert client.get("/api/v1/search?q=Nowhere").status_code == 404
         assert geolocator.geocode.call_count == 1
 
 
@@ -5187,9 +5187,9 @@ class TestGeocoder:
 # ---------------------------------------------------------------------------
 class TestSecurityHeaders:
     @pytest.mark.parametrize("path", ["/", "/alerts", "/healthz", "/api/v1/does-not-exist"])
-    def test_headers_on_every_response(self, flask_client, path, override_settings):
+    def test_headers_on_every_response(self, client, path, override_settings):
         override_settings(NAUTOBOT_MAPS_DATABASE_URL="")
-        resp = flask_client.get(path)
+        resp = client.get(path)
         assert resp.headers["X-Content-Type-Options"] == "nosniff"
         assert resp.headers["X-Frame-Options"] == "DENY"
         assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
@@ -5198,19 +5198,19 @@ class TestSecurityHeaders:
         # No inline script or style anywhere (#370): an injection can't restyle the page.
         assert "style-src 'self';" in csp and "unsafe-inline" not in csp
 
-    def test_images_allowed_from_the_tile_server(self, flask_client, override_settings):
+    def test_images_allowed_from_the_tile_server(self, client, override_settings):
         override_settings(MAP_TILE_URL="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
         assert (
             "img-src 'self' data: https://*.tile.openstreetmap.org;"
-            in flask_client.get("/").headers["Content-Security-Policy"]
+            in client.get("/").headers["Content-Security-Policy"]
         )
         override_settings(MAP_TILE_URL="http://tiles.internal:8080/{z}/{x}/{y}.png")
         assert (
             "img-src 'self' data: http://tiles.internal:8080;"
-            in flask_client.get("/").headers["Content-Security-Policy"]
+            in client.get("/").headers["Content-Security-Policy"]
         )
         override_settings(MAP_TILE_URL="/tiles/{z}/{x}/{y}.png")
-        assert "img-src 'self' data:;" in flask_client.get("/").headers["Content-Security-Policy"]
+        assert "img-src 'self' data:;" in client.get("/").headers["Content-Security-Policy"]
 
 
 # ---------------------------------------------------------------------------
@@ -5310,11 +5310,11 @@ class TestMetrics:
         line = next(line for line in body.splitlines() if line.startswith(sample + " "))
         return float(line.rsplit(" ", 1)[1])
 
-    def test_last_success_survives_a_failure(self, pg_database, flask_client):
+    def test_last_success_survives_a_failure(self, pg_database, client):
         self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
         self._record("running", "2026-09-29T10:05:00+00:00", None)
         self._record("error", "2026-09-29T10:05:00+00:00", "2026-09-29T10:05:10+00:00")
-        body = flask_client.get("/metrics").get_data(as_text=True)
+        body = client.get("/metrics").text
         src = '{source="nautobot_inventory"}'
         success = datetime(2026, 9, 29, 10, 0, 30, tzinfo=UTC).timestamp()
         assert (
@@ -5323,7 +5323,7 @@ class TestMetrics:
         assert self._value(body, "nautobot_maps_sync_failing" + src) == 1
         assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
 
-    def test_alert_and_site_counts(self, pg_database, flask_client):
+    def test_alert_and_site_counts(self, pg_database, client):
         asyncio.run(
             alerts.upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
@@ -5340,17 +5340,17 @@ class TestMetrics:
                 {"s1": ("One", "ok"), "s2": ("Two", "ok"), "s3": ("Three", "low")}, "now"
             )
         )
-        resp = flask_client.get("/metrics")
+        resp = client.get("/metrics")
         assert resp.headers["Content-Type"].startswith("text/plain; version=0.0.4")
-        body = resp.get_data(as_text=True)
+        body = resp.text
         assert self._value(body, 'nautobot_maps_open_alerts{level="critical"}') == 2
         assert self._value(body, 'nautobot_maps_sites{level="ok"}') == 2
         assert self._value(body, "nautobot_maps_database_up") == 1
         assert "# TYPE nautobot_maps_sites gauge" in body
 
-    def test_can_be_turned_off(self, flask_client, override_settings):
+    def test_can_be_turned_off(self, client, override_settings):
         override_settings(METRICS_ENABLED=False)
-        assert flask_client.get("/metrics").status_code == 404
+        assert client.get("/metrics").status_code == 404
 
     def test_label_values_are_escaped(self):
         from app.services import metrics_service as metrics
@@ -5359,14 +5359,14 @@ class TestMetrics:
         out.gauge("m", "h", [({"level": 'a"b\\c\nd'}, 1)])
         assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
 
-    def test_healthz_reports_sync_age_without_failing(self, pg_database, flask_client):
+    def test_healthz_reports_sync_age_without_failing(self, pg_database, client):
         assert (
-            flask_client.get("/healthz").get_json()["inventory_sync_age_seconds"] is None
+            client.get("/healthz").json()["inventory_sync_age_seconds"] is None
         )  # never synced
         self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
-        resp = flask_client.get("/healthz")
+        resp = client.get("/healthz")
         assert resp.status_code == 200  # an old sync is not a liveness failure
-        assert resp.get_json()["inventory_sync_age_seconds"] > 365 * 24 * 3600
+        assert resp.json()["inventory_sync_age_seconds"] > 365 * 24 * 3600
 
     def test_timestamps_keep_full_precision(self):
         from app.services import metrics_service as metrics
@@ -5445,8 +5445,8 @@ class TestApiExplorer:
             for method in route.methods - {"HEAD", "OPTIONS"}
         }
 
-    def test_every_route_is_listed(self, flask_client):
-        listed = flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+    def test_every_route_is_listed(self, client):
+        listed = client.get("/api/v1/endpoints").json()["endpoints"]
         assert {
             (item["path"], method) for item in listed for method in item["methods"]
         } == self._routes()
@@ -5454,7 +5454,7 @@ class TestApiExplorer:
         # route in it, with its method. Pages and files aren't API, nor are the
         # two routes under /api that describe it: the reference and the spec.
         # Listed by hand, so an API route left out of the spec by mistake fails.
-        spec = flask_client.get("/api/openapi.json").get_json()
+        spec = client.get("/api/openapi.json").json()
         documented = {
             (re.sub(r"\{(\w+)(?::\w+)?\}", r"<\1>", path), method.upper())
             for path, operations in spec["paths"].items()
@@ -5480,8 +5480,8 @@ class TestApiExplorer:
                     f"add an example body for {endpoint} to apidocs"
                 )
 
-    def test_what_each_endpoint_takes(self, flask_client):
-        listed = flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+    def test_what_each_endpoint_takes(self, client):
+        listed = client.get("/api/v1/endpoints").json()["endpoints"]
         by_key = {(item["path"], item["methods"][0]): item for item in listed}
         detail = by_key[("/api/v1/locations/<location_id>/detail", "GET")]
         assert detail["path_params"] == ["location_id"] and detail["query_params"] == [
@@ -5514,10 +5514,10 @@ class TestApiExplorer:
             "case_number",
         ]
 
-    def test_the_page_is_the_nuxt_page(self, flask_client, frontend_build):
+    def test_the_page_is_the_nuxt_page(self, client, frontend_build):
         """#436, #463: Swagger UI from npm, bundled into the Nuxt build (no CDN, no inline
         script); web/ and e2e/ test the page itself."""
-        resp = flask_client.get("/api/docs")
+        resp = client.get("/api/docs")
         assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
         package = json.loads(
             (pathlib.Path(__file__).resolve().parents[2] / "web" / "package.json").read_text()
@@ -5526,9 +5526,9 @@ class TestApiExplorer:
         # Its install-time analytics (Scarf) stay off: the app works offline.
         assert package["scarfSettings"] == {"enabled": False}
 
-    def test_write_bodies_are_in_the_spec(self, flask_client):
+    def test_write_bodies_are_in_the_spec(self, client):
         """Each write's JSON body is described (deps.body_schema), e.g. a case."""
-        spec = flask_client.get("/api/openapi.json").get_json()
+        spec = client.get("/api/openapi.json").json()
         case = spec["paths"]["/api/v1/alert-cases"]["post"]["requestBody"]["content"][
             "application/json"
         ]["schema"]
@@ -5545,29 +5545,29 @@ class TestApiExplorer:
         }
         assert {"month", "from", "to", "basis"} <= names
 
-    def test_the_old_paths_move_for_good(self, flask_client):
+    def test_the_old_paths_move_for_good(self, client):
         """#483: the reference and the spec live under /api; bookmarks and
         tools reading the old paths are sent on (301, which they remember)."""
         for old, new in (("/docs", "/api/docs"), ("/openapi.json", "/api/openapi.json")):
-            resp = flask_client.get(old)
+            resp = client.get(old)
             assert resp.status_code == 301 and resp.headers["Location"] == new
             # With its query: a 301 is remembered.
             assert (
-                flask_client.get(f"{old}?v=2&x=a%20b").headers["Location"] == f"{new}?v=2&x=a%20b"
+                client.get(f"{old}?v=2&x=a%20b").headers["Location"] == f"{new}?v=2&x=a%20b"
             )
         listed = {
-            item["path"] for item in flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+            item["path"] for item in client.get("/api/v1/endpoints").json()["endpoints"]
         }
         assert "/docs" not in listed and "/openapi.json" not in listed
 
     def test_needs_the_viewer_role_like_every_page(
-        self, flask_client, frontend_build, override_settings
+        self, client, frontend_build, override_settings
     ):
         override_settings(AUTH_REQUIRE_VIEWER=True)
         with auth_config(mode="header", viewer_groups={"noc"}):
-            assert flask_client.get("/api/docs").status_code == 401
-            assert flask_client.get("/api/v1/endpoints").status_code == 401
-            ok = flask_client.get(
+            assert client.get("/api/docs").status_code == 401
+            assert client.get("/api/v1/endpoints").status_code == 401
+            ok = client.get(
                 "/api/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
             )
             assert ok.status_code == 200
@@ -5660,14 +5660,14 @@ class TestLocationAlertLevels:
             conn.close()
         caching.cache.clear()
 
-    def test_returns_every_location_with_monitored_devices(self, flask_client):
+    def test_returns_every_location_with_monitored_devices(self, client):
         """OK too, so the map tells OK (green) from no data (grey) (#311)."""
         with patch.object(
             nautobot, "fetch_all_pages", side_effect=AssertionError("no upstream calls")
         ):
-            resp = flask_client.get("/api/v1/location-alerts")
+            resp = client.get("/api/v1/location-alerts")
         assert resp.status_code == 200
-        levels = resp.get_json()["levels"]
+        levels = resp.json()["levels"]
         # With the counts the board shows, "N down · M monitored" (#316).
         assert levels == {
             "loc-core": {
@@ -5692,8 +5692,8 @@ class TestLocationAlertLevels:
             },
         }
 
-    def test_matches_the_site_panel(self, flask_client):
-        levels = flask_client.get("/api/v1/location-alerts").get_json()["levels"]
+    def test_matches_the_site_panel(self, client):
+        levels = client.get("/api/v1/location-alerts").json()["levels"]
         with patch.object(nautobot, "fetch_all_pages", return_value=[]):
             for location_id in ("loc-core", "loc-few", "loc-ok"):
                 detail = asyncio.run(
@@ -5702,7 +5702,7 @@ class TestLocationAlertLevels:
                 expected = levels.get(location_id, {}).get("level", "ok")
                 assert detail["alert"]["level"] == expected
 
-    def test_the_site_panel_marks_core_devices(self, flask_client):
+    def test_the_site_panel_marks_core_devices(self, client):
         """Core devices first in the panel's down list (#394): by role, or an override."""
         with patch.object(nautobot, "fetch_all_pages", return_value=[]):
             detail = asyncio.run(
@@ -5727,7 +5727,7 @@ class TestLocationAlertLevels:
             detail = asyncio.run(alerts.get_location_detail("loc-few", location_type="Data Center"))
         assert [d["id"] for d in detail["devices"] if d["core"]] == ["few-1"]
 
-    def test_criticality_override_is_applied(self, flask_client):
+    def test_criticality_override_is_applied(self, client):
         conn = adb.connect()
         try:
             with conn:
@@ -5738,13 +5738,13 @@ class TestLocationAlertLevels:
         finally:
             conn.close()
         assert (
-            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-few"]["level"]
+            client.get("/api/v1/location-alerts").json()["levels"]["loc-few"]["level"]
             == "critical"
         )
 
-    def test_cached_until_a_sync_invalidates_it(self, flask_client):
+    def test_cached_until_a_sync_invalidates_it(self, client):
         assert (
-            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
+            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"]
             == "ok"
         )
         conn = adb.connect()
@@ -5756,12 +5756,12 @@ class TestLocationAlertLevels:
         finally:
             conn.close()
         assert (
-            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
+            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"]
             == "ok"
         ), "cached"
         caching.invalidate_alert_board()
         assert (
-            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
+            client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"]
             == "critical"
         )
 
@@ -5821,9 +5821,9 @@ class TestLocationCircuits:
 
         return patch.object(nautobot, "fetch_all_pages", side_effect=fetch)
 
-    def test_every_circuit_is_listed(self, flask_client):
+    def test_every_circuit_is_listed(self, client):
         with self._mock(SAMPLE_CIRCUIT_TERMINATIONS):
-            data = flask_client.get("/api/v1/locations/loc-1/detail").get_json()
+            data = client.get("/api/v1/locations/loc-1/detail").json()
         assert data["circuits_error"] == ""
         assert [c["cid"] for c in data["circuits"]] == ["GTT-7781", "TEL-0001"]
         assert data["circuits"][1] == {
@@ -5845,20 +5845,20 @@ class TestLocationCircuits:
         assert data["circuits"][0]["upstream_speed"] == "500 Mbps"
         assert data["devices"] and data["asns"]
 
-    def test_no_circuits_app_is_not_an_error(self, flask_client):
+    def test_no_circuits_app_is_not_an_error(self, client):
         with self._mock(error=upstream.status_error(404)):
-            data = flask_client.get("/api/v1/locations/loc-1/detail").get_json()
+            data = client.get("/api/v1/locations/loc-1/detail").json()
         assert data["circuits"] == []
         assert data["circuits_error"] == ""
 
-    def test_a_failed_call_keeps_the_rest_of_the_panel(self, flask_client):
+    def test_a_failed_call_keeps_the_rest_of_the_panel(self, client):
         with self._mock(error=httpx.ConnectError("boom")):
-            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+            resp = client.get("/api/v1/locations/loc-1/detail")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["circuits"] == []
         assert data["circuits_error"] == "Circuit information unavailable"
-        assert "boom" not in resp.get_data(as_text=True)
+        assert "boom" not in resp.text
         assert data["devices"]
 
     @pytest.mark.parametrize(
@@ -6034,24 +6034,24 @@ class TestLocationTenantSync:
         asyncio.run(inventory.sync_nautobot(force=True))
         caching.cache.clear()
 
-    def test_sync_fills_the_board_and_the_map(self, flask_client, monkeypatch):
+    def test_sync_fills_the_board_and_the_map(self, client, monkeypatch):
         self._sync(monkeypatch)
-        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        (site,) = client.get("/api/v1/alerts").json()["alerts"]
         assert site["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
-        (location,) = flask_client.get("/api/v1/locations").get_json()["locations"]
+        (location,) = client.get("/api/v1/locations").json()["locations"]
         assert location["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
 
-    def test_a_failed_read_keeps_the_links_a_removed_one_goes(self, flask_client, monkeypatch):
+    def test_a_failed_read_keeps_the_links_a_removed_one_goes(self, client, monkeypatch):
         self._sync(monkeypatch)
         self._sync(monkeypatch, error_on="extras/relationships/")
-        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        (site,) = client.get("/api/v1/alerts").json()["alerts"]
         assert site["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
 
         monkeypatch.setitem(
             RELATIONSHIP_ASSOCIATIONS, "rel-1", [{"source_id": "loc-1", "destination_id": "ten-2"}]
         )
         self._sync(monkeypatch)
-        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        (site,) = client.get("/api/v1/alerts").json()["alerts"]
         assert site["tenants"] == ["Acme Corp", "Nordic Net"]
 
 
@@ -6081,23 +6081,23 @@ class TestTenantDescriptions:
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
         assert inventory.fetch_tenants() is None
 
-    def test_board_and_map_get_the_descriptions_of_their_tenants(self, flask_client, monkeypatch):
+    def test_board_and_map_get_the_descriptions_of_their_tenants(self, client, monkeypatch):
         self._sync(monkeypatch)
-        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        (site,) = client.get("/api/v1/alerts").json()["alerts"]
         # Its own tenant and a related one; EuroIX has no description, so no entry.
         assert site["tenant_descriptions"] == {
             "Acme Corp": "Bank, 24/7 SLA",
             "Nordic Net": "Shared rack",
         }
-        (location,) = flask_client.get("/api/v1/locations").get_json()["locations"]
+        (location,) = client.get("/api/v1/locations").json()["locations"]
         assert location["tenant_descriptions"] == site["tenant_descriptions"]
 
-    def test_an_edited_description_replaces_the_old_one(self, flask_client, monkeypatch):
+    def test_an_edited_description_replaces_the_old_one(self, client, monkeypatch):
         self._sync(monkeypatch)
         monkeypatch.setitem(TENANT_DESCRIPTIONS, "ten-1", "Bank, business hours")
         monkeypatch.delitem(TENANT_DESCRIPTIONS, "ten-2")
         self._sync(monkeypatch)
-        (location,) = flask_client.get("/api/v1/locations").get_json()["locations"]
+        (location,) = client.get("/api/v1/locations").json()["locations"]
         assert location["tenant_descriptions"] == {"Acme Corp": "Bank, business hours"}
 
     def test_map_without_a_database_reads_them_from_nautobot(self, monkeypatch):
@@ -6368,12 +6368,12 @@ class TestAlertHistoryCsv:
     def _rows(resp):
         import csv as csv_module
 
-        text = resp.get_data(as_text=True)
+        text = resp.text
         assert text.startswith("﻿"), "BOM for Excel"
         return list(csv_module.DictReader(text[1:].splitlines()))
 
-    def test_incidents_in_the_last_30_days(self, flask_client):
-        resp = flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon")
+    def test_incidents_in_the_last_30_days(self, client):
+        resp = client.get("/api/v1/alert-history.csv?site_id=loc-lon")
         assert resp.status_code == 200 and resp.mimetype == "text/csv"
         assert (
             resp.headers["Content-Disposition"]
@@ -6417,29 +6417,29 @@ class TestAlertHistoryCsv:
         # A deleted device exports no role and no IP, even with a lingering LibreNMS mapping.
         assert gone["role"] == "" and gone["ip"] == ""
 
-    def test_incidents_are_streamed_in_batches(self, flask_client, monkeypatch):
+    def test_incidents_are_streamed_in_batches(self, client, monkeypatch):
         """A site's whole history is never held in memory (Copilot on #278)."""
         from app.services import export_service as export
 
         monkeypatch.setattr(export, "STREAM_BATCH", 2)
-        resp = flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
+        resp = client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
         assert resp.is_streamed
         assert len(self._rows(resp)) == 5
 
-    def test_all_and_seven_days(self, flask_client):
+    def test_all_and_seven_days(self, client):
         everything = self._rows(
-            flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
+            client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
         )
         assert len(everything) == 5
-        week = self._rows(flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=7"))
+        week = self._rows(client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=7"))
         assert [row["down_at_utc"] for row in week] == [
             "2026-10-07 11:30",
             "2026-10-05 09:00",
             "2026-10-01 08:12",
         ]
 
-    def test_per_device(self, flask_client):
-        resp = flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=devices&days=all")
+    def test_per_device(self, client):
+        resp = client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=devices&days=all")
         assert (
             'filename="london-hq-devices-all-2026-10-07.csv"' in resp.headers["Content-Disposition"]
         )
@@ -6458,38 +6458,38 @@ class TestAlertHistoryCsv:
         assert rows["lon-core"]["times_down"] == "2" and rows["lon-core"]["down_now"] == "no"
         assert rows["lon-core"]["longest_min"] == "54720"
 
-    def test_history_panel_is_newest_down_first(self, flask_client):
+    def test_history_panel_is_newest_down_first(self, client):
         """By when the device went down, not by internal id (#279); like the CSV."""
-        instances = flask_client.get("/api/v1/alert-history?site_id=loc-lon").get_json()[
+        instances = client.get("/api/v1/alert-history?site_id=loc-lon").json()[
             "instances"
         ]
         # Inserted as ids 1-5 in a different order than their start times.
         assert [row["id"] for row in instances] == [2, 5, 1, 3, 4]
 
-    def test_bad_requests(self, flask_client):
-        assert flask_client.get("/api/v1/alert-history.csv").status_code == 400
+    def test_bad_requests(self, client):
+        assert client.get("/api/v1/alert-history.csv").status_code == 400
         assert (
-            flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
+            client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
         )
         assert (
-            flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=json").status_code
+            client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=json").status_code
             == 400
         )
-        empty = self._rows(flask_client.get("/api/v1/alert-history.csv?site_id=nowhere"))
+        empty = self._rows(client.get("/api/v1/alert-history.csv?site_id=nowhere"))
         assert empty == []
 
-    def test_needs_the_operator_role(self, flask_client):
+    def test_needs_the_operator_role(self, client):
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
             assert (
-                flask_client.get(
+                client.get(
                     "/api/v1/alert-history.csv?site_id=loc-lon", headers=viewer
                 ).status_code
                 == 403
             )
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
             assert (
-                flask_client.get(
+                client.get(
                     "/api/v1/alert-history.csv?site_id=loc-lon", headers=operator
                 ).status_code
                 == 200

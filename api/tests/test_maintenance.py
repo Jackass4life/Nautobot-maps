@@ -556,16 +556,16 @@ class TestSiteDevices:
         assert "old-sw" not in {
             d["id"] for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))
         }
-        with http_client.FlaskStyleClient() as flask_client:
-            body = flask_client.get(
+        with http_client.FlaskStyleClient() as client:
+            body = client.get(
                 "/api/v1/maintenance/devices?site_id=loc-lon&include_non_operational=1"
-            ).get_json()
+            ).json()
         assert "old-sw" in {d["id"] for d in body["devices"]}
 
     def test_endpoint(self, site):
-        with http_client.FlaskStyleClient() as flask_client:
-            assert flask_client.get("/api/v1/maintenance/devices").status_code == 400
-            body = flask_client.get("/api/v1/maintenance/devices?site_id=loc-lon").get_json()
+        with http_client.FlaskStyleClient() as client:
+            assert client.get("/api/v1/maintenance/devices").status_code == 400
+            body = client.get("/api/v1/maintenance/devices?site_id=loc-lon").json()
         assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
 
 
@@ -810,65 +810,65 @@ class TestHistory:
 
 class TestApi:
     @pytest.fixture
-    def flask_client(self, site):
+    def client(self, site):
         caching.cache.clear()
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
-    def test_operator_creates_lists_and_ends(self, flask_client):
+    def test_operator_creates_lists_and_ends(self, client):
         body = {"site_id": "loc-lon", "reason": "Core upgrade", "duration_minutes": 90}
         assert (
-            flask_client.post("/api/v1/maintenance", json=body).status_code == 403
+            client.post("/api/v1/maintenance", json=body).status_code == 403
         )  # AUTH_MODE=disabled
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
             assert (
-                flask_client.post("/api/v1/maintenance", json=body, headers=viewer).status_code
+                client.post("/api/v1/maintenance", json=body, headers=viewer).status_code
                 == 403
             )
             assert (
-                flask_client.get("/api/v1/alerts", headers=viewer).get_json()["alerts"][0][
+                client.get("/api/v1/alerts", headers=viewer).json()["alerts"][0][
                     "alert_level"
                 ]
                 == "critical"
             )
-            created = flask_client.post("/api/v1/maintenance", json=body, headers=operator)
+            created = client.post("/api/v1/maintenance", json=body, headers=operator)
             assert created.status_code == 201
-            (window_row,) = created.get_json()["windows"]
+            (window_row,) = created.json()["windows"]
             assert window_row["created_by"] == "olga" and window_row["state"] == "active"
             # The cached board was dropped: maintenance shows at once.
             assert (
-                flask_client.get("/api/v1/alerts", headers=viewer).get_json()["alerts"][0][
+                client.get("/api/v1/alerts", headers=viewer).json()["alerts"][0][
                     "alert_level"
                 ]
                 == "maintenance"
             )
-            listed = flask_client.get(
+            listed = client.get(
                 "/api/v1/maintenance?site_id=loc-lon", headers=viewer
-            ).get_json()["windows"]
+            ).json()["windows"]
             assert [w["id"] for w in listed] == [window_row["id"]]
-            ended = flask_client.post(
+            ended = client.post(
                 f"/api/v1/maintenance/{window_row['id']}/end", headers=operator
             )
-            assert ended.status_code == 200 and ended.get_json()["window"]["state"] == "ended"
+            assert ended.status_code == 200 and ended.json()["window"]["state"] == "ended"
             assert (
-                flask_client.get("/api/v1/maintenance", headers=viewer).get_json()["windows"] == []
+                client.get("/api/v1/maintenance", headers=viewer).json()["windows"] == []
             )
             assert (
                 len(
-                    flask_client.get("/api/v1/maintenance?all=1", headers=viewer).get_json()[
+                    client.get("/api/v1/maintenance?all=1", headers=viewer).json()[
                         "windows"
                     ]
                 )
                 == 1
             )
             assert (
-                flask_client.post("/api/v1/maintenance/999/end", headers=operator).status_code
+                client.post("/api/v1/maintenance/999/end", headers=operator).status_code
                 == 404
             )
 
-    def test_sites_carry_the_tenants_descriptions(self, flask_client, monkeypatch):
+    def test_sites_carry_the_tenants_descriptions(self, client, monkeypatch):
         # The picker finds a tenant by its description too (#497): one map
         # for every site, only for sites listed and tenants with one.
         from app.v1.maintenance import controller as api_maintenance
@@ -897,12 +897,12 @@ class TestApi:
             },
         ]
         monkeypatch.setattr(api_maintenance, "_board_sites", adb.async_of(lambda: rows))
-        answer = flask_client.get("/api/v1/maintenance/sites").get_json()
+        answer = client.get("/api/v1/maintenance/sites").json()
         assert [site["id"] for site in answer["sites"]] == ["a", "b"]
         assert answer["tenant_descriptions"] == {"NNIT": "Novo Nordisk IT"}
 
-    def test_sites_batches_and_ending_many(self, flask_client):
-        sites = flask_client.get("/api/v1/maintenance/sites").get_json()["sites"]
+    def test_sites_batches_and_ending_many(self, client):
+        sites = client.get("/api/v1/maintenance/sites").json()["sites"]
         assert [(s["id"], s["name"], s["devices"], s["maintenance"]) for s in sites] == [
             ("loc-lon", "London HQ", 3, False)
         ]
@@ -914,21 +914,21 @@ class TestApi:
                 "reason": "Core upgrade",
                 "duration_minutes": 60,
             }
-            windows = flask_client.post(
+            windows = client.post(
                 "/api/v1/maintenance", json=body, headers=operator
-            ).get_json()["windows"]
-            listed = flask_client.get("/api/v1/maintenance", headers=viewer).get_json()
+            ).json()["windows"]
+            listed = client.get("/api/v1/maintenance", headers=viewer).json()
             assert {w["site_id"]: w["site_name"] for w in listed["windows"]} == {
                 "loc-lon": "London HQ",
                 "loc-x": "",
             }
             assert listed["truncated"] is False
             # One site (the board's panel): no names, so no board read.
-            one = flask_client.get("/api/v1/maintenance?site_id=loc-lon", headers=viewer).get_json()
+            one = client.get("/api/v1/maintenance?site_id=loc-lon", headers=viewer).json()
             assert "site_name" not in one["windows"][0]
             ids = [w["id"] for w in windows]
             assert (
-                flask_client.post(
+                client.post(
                     "/api/v1/maintenance/end", json={"ids": ids}, headers=viewer
                 ).status_code
                 == 403
@@ -944,51 +944,51 @@ class TestApi:
             )
             for bad in bad_bodies:
                 assert (
-                    flask_client.post(
+                    client.post(
                         "/api/v1/maintenance/end", json=bad, headers=operator
                     ).status_code
                     == 400
                 ), bad
-            resp = flask_client.post(
+            resp = client.post(
                 "/api/v1/maintenance/end", json={"ids": [*ids, 999]}, headers=operator
-            ).get_json()
+            ).json()
             assert {w["state"] for w in resp["windows"]} == {"ended"} and resp["not_found"] == [999]
             # Already over: nothing changes, so the cached board is kept.
             built = []
             original = alerts.build_alert_board_payload
             alerts.build_alert_board_payload = lambda *a, **k: built.append(1) or original(*a, **k)
             try:
-                flask_client.get("/api/v1/alerts", headers=viewer)
+                client.get("/api/v1/alerts", headers=viewer)
                 built.clear()
-                flask_client.post("/api/v1/maintenance/end", json={"ids": ids}, headers=operator)
-                flask_client.get("/api/v1/alerts", headers=viewer)
+                client.post("/api/v1/maintenance/end", json={"ids": ids}, headers=operator)
+                client.get("/api/v1/alerts", headers=viewer)
             finally:
                 alerts.build_alert_board_payload = original
             assert built == [], "a no-op end must not drop the board"
             assert (
-                flask_client.get("/api/v1/maintenance", headers=viewer).get_json()["windows"] == []
+                client.get("/api/v1/maintenance", headers=viewer).json()["windows"] == []
             )
             assert (
                 len(
-                    flask_client.get(
+                    client.get(
                         "/api/v1/maintenance?recent_days=7", headers=viewer
-                    ).get_json()["windows"]
+                    ).json()["windows"]
                 )
                 == 2
             )
             assert (
-                flask_client.get("/api/v1/maintenance?recent_days=x", headers=viewer).status_code
+                client.get("/api/v1/maintenance?recent_days=x", headers=viewer).status_code
                 == 400
             )
 
-    def test_history_and_its_export(self, flask_client, monkeypatch, override_settings):
+    def test_history_and_its_export(self, client, monkeypatch, override_settings):
         body = {"site_ids": ["loc-lon", "loc-x"], "reason": "Core", "duration_minutes": 60}
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
-            flask_client.post("/api/v1/maintenance", json=body, headers=operator)
+            client.post("/api/v1/maintenance", json=body, headers=operator)
             # Default: the last 30 days, today included, in UTC unless the browser says.
-            data = flask_client.get("/api/v1/maintenance/history", headers=viewer).get_json()
+            data = client.get("/api/v1/maintenance/history", headers=viewer).json()
             assert data["period"] == {
                 "from": "2026-09-10",
                 "to": "2026-10-09",
@@ -997,17 +997,17 @@ class TestApi:
             }
             # The browser's days (review on #353): at 12:00 UTC it is already the 10th in Auckland,
             # and the 9th there ends at 11:00 UTC, before the window started.
-            nz = flask_client.get(
+            nz = client.get(
                 "/api/v1/maintenance/history?tz=Pacific/Auckland", headers=viewer
-            ).get_json()
+            ).json()
             assert nz["period"]["to"] == "2026-10-10" and len(nz["windows"]) == 2
-            nz9 = flask_client.get(
+            nz9 = client.get(
                 "/api/v1/maintenance/history?tz=Pacific/Auckland&from=2026-10-09&to=2026-10-09",
                 headers=viewer,
             )
-            assert nz9.get_json()["windows"] == []
+            assert nz9.json()["windows"] == []
             assert (
-                flask_client.get(
+                client.get(
                     "/api/v1/maintenance/history?tz=Mars/Base", headers=viewer
                 ).status_code
                 == 400
@@ -1017,12 +1017,12 @@ class TestApi:
                 "loc-x": "",
             }
             assert data["truncated"] is False
-            one = flask_client.get(
+            one = client.get(
                 "/api/v1/maintenance/history?site_id=loc-lon&from=2026-10-09&to=2026-10-09",
                 headers=viewer,
             )
-            assert [w["site_id"] for w in one.get_json()["windows"]] == ["loc-lon"]
-            resp = flask_client.get(
+            assert [w["site_id"] for w in one.json()["windows"]] == ["loc-lon"]
+            resp = client.get(
                 "/api/v1/maintenance/history.csv?site_id=loc-lon&from=2026-10-01&to=2026-10-09",
                 headers=viewer,
             )
@@ -1031,7 +1031,7 @@ class TestApi:
                 'filename="maintenance-2026-10-01_2026-10-09-loc-lon.csv"'
                 in resp.headers["Content-Disposition"]
             )
-            assert "London HQ" in resp.get_data(as_text=True)
+            assert "London HQ" in resp.text
             # A tenant picks its sites before the limit, so its windows are never cut off for others'.
             monkeypatch.setattr(
                 alerts,
@@ -1046,40 +1046,40 @@ class TestApi:
                 ),
             )
             monkeypatch.setattr(maintenance, "HISTORY_LIMIT", 1)
-            only = flask_client.get(
+            only = client.get(
                 "/api/v1/maintenance/history?tenant=Acme", headers=viewer
-            ).get_json()
+            ).json()
             assert [w["site_id"] for w in only["windows"]] == ["loc-lon"] and only[
                 "truncated"
             ] is False
             # An export is complete or refused, never silently short.
             monkeypatch.setattr(maintenance, "HISTORY_EXPORT_LIMIT", 1)
-            refused = flask_client.get("/api/v1/maintenance/history.csv", headers=viewer)
-            assert refused.status_code == 400 and "shorter period" in refused.get_json()["error"]
+            refused = client.get("/api/v1/maintenance/history.csv", headers=viewer)
+            assert refused.status_code == 400 and "shorter period" in refused.json()["error"]
             for bad in (
                 "from=2026-10-09",
                 "from=2026-02-30&to=2026-03-01",
                 "from=2025-01-01&to=2026-10-01",
             ):
                 assert (
-                    flask_client.get(
+                    client.get(
                         f"/api/v1/maintenance/history?{bad}", headers=viewer
                     ).status_code
                     == 400
                 ), bad
             # The viewer role when the board needs it (AUTH_REQUIRE_VIEWER).
             override_settings(AUTH_REQUIRE_VIEWER=True)
-            assert flask_client.get("/api/v1/maintenance/history").status_code == 401
-            assert flask_client.get("/api/v1/maintenance/history.csv").status_code == 401
+            assert client.get("/api/v1/maintenance/history").status_code == 401
+            assert client.get("/api/v1/maintenance/history.csv").status_code == 401
 
-    def test_bad_requests(self, flask_client, override_settings):
+    def test_bad_requests(self, client, override_settings):
         override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)
-        resp = flask_client.post(
+        resp = client.post(
             "/api/v1/maintenance", json={"site_id": "loc-lon", "duration_minutes": 60}
         )
-        assert resp.status_code == 400 and resp.get_json()["error"] == "reason is required"
+        assert resp.status_code == 400 and resp.json()["error"] == "reason is required"
         assert (
-            flask_client.post(
+            client.post(
                 "/api/v1/maintenance", data="[1]", content_type="application/json"
             ).status_code
             == 400

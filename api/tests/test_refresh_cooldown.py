@@ -12,8 +12,8 @@ from tests import db as adb
 
 @pytest.fixture
 def sources(
-    flask_client, pg_database, monkeypatch, override_settings
-):  # flask_client: the app, so the schema's cache can be cleared
+    client, pg_database, monkeypatch, override_settings
+):  # client: the app, so the schema's cache can be cleared
     override_settings(
         NAUTOBOT_URL="https://nautobot.example.com",
         NAUTOBOT_TOKEN="token",

@@ -55,8 +55,8 @@ def test_every_page_section_has_an_endpoint():
     assert {section.name for section in sections.SECTIONS} <= used
 
 
-def test_the_endpoint_list_comes_in_section_order(flask_client):
-    listed = flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+def test_the_endpoint_list_comes_in_section_order(client):
+    listed = client.get("/api/v1/endpoints").json()["endpoints"]
     order = [sections.NAMES.index(item["section"]) for item in listed]
     assert order == sorted(order)
     where = {(item["path"], item["methods"][0]): item["section"] for item in listed}

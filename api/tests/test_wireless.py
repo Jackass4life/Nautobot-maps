@@ -284,7 +284,7 @@ EU = {
     "url": "https://de1.api.central.arubanetworks.com",
     "token_url": "https://sso.common.cloud.hpe.com/as/token.oauth2",
     "client_id": "maps-ro",
-    "client_secret": "s3cret-flask_client",
+    "client_secret": "s3cret-client",
     "verify_ssl": True,
 }
 
@@ -352,12 +352,12 @@ class TestArubaCentral:
         assert sign_in[2]["data"] == {
             "grant_type": "client_credentials",
             "client_id": "maps-ro",
-            "client_secret": "s3cret-flask_client",
+            "client_secret": "s3cret-client",
         }
         get = fake_central.calls[1]
         assert get[1] == "https://de1.api.central.arubanetworks.com/network-monitoring/v1/aps"
         assert get[2]["headers"]["Authorization"] == "Bearer tok-1"
-        # Kept until shortly before it expires; per API flask_client.
+        # Kept until shortly before it expires; per API client.
         arubacentral.fetch_aps(EU)
         assert fake_central.tokens == 1
         arubacentral.fetch_aps({**EU, "name": "us", "client_id": "other"})

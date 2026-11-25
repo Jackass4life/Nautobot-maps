@@ -99,14 +99,14 @@ class TestBoard:
         reasons = {d["name"]: alerts.not_monitored_reason(d) for d in devices}
         assert reasons == {"sw0": "", "sw1": FLAGS["disabled"], "sw2": ""}
 
-    def test_the_site_detail_answer_says_why(self, flask_client, lnms, monkeypatch):
+    def test_the_site_detail_answer_says_why(self, client, lnms, monkeypatch):
         """Through the endpoint, so the answer is checked against its model."""
         monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: [])
         monkeypatch.setattr(nautobot, "get", lambda *args, **kwargs: {})
         store([{**lnms.devices[1001], "status": 0, "disabled": 1}])
-        response = flask_client.get("/api/v1/locations/loc-1/detail")
-        assert response.status_code == 200, response.get_json()
-        devices = {d["name"]: d for d in response.get_json()["devices"]}
+        response = client.get("/api/v1/locations/loc-1/detail")
+        assert response.status_code == 200, response.json()
+        devices = {d["name"]: d for d in response.json()["devices"]}
         assert devices["sw1"]["not_monitored"] == FLAGS["disabled"]
         assert "librenms_muted" not in devices["sw1"]
 
@@ -141,12 +141,12 @@ class TestBoard:
             "dev-1",
         }
 
-    def test_an_alert_push_reads_the_switches(self, flask_client, lnms):
+    def test_an_alert_push_reads_the_switches(self, client, lnms):
         lnms.devices[1001].update(status=0, disable_notify=1)
-        response = flask_client.post(
+        response = client.post(
             "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
         )
-        assert response.get_json()["updated"] is True
+        assert response.json()["updated"] is True
         assert board_row()["down_device_count"] == 0
 
 

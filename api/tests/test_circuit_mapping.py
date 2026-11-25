@@ -11,7 +11,7 @@ from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
 
 @pytest.fixture
-def synced(flask_client, pg_database, monkeypatch, override_settings):
+def synced(client, pg_database, monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL="https://nautobot.example.com",
         NAUTOBOT_TOKEN="token",
@@ -32,8 +32,8 @@ def synced(flask_client, pg_database, monkeypatch, override_settings):
     caching.cache.clear()
 
 
-def test_groups_worst_first_with_their_sites(flask_client, synced):
-    data = flask_client.get("/api/v1/circuit-mapping").get_json()
+def test_groups_worst_first_with_their_sites(client, synced):
+    data = client.get("/api/v1/circuit-mapping").json()
     rows = [(c["group"], c["cid"], [s["name"] for s in c["sites"]]) for c in data["circuits"]]
     assert rows == [
         # Odense and Odense colo; Odense's building B is part of Odense.
@@ -55,12 +55,12 @@ def test_groups_worst_first_with_their_sites(flask_client, synced):
     )
 
 
-def test_csv_one_row_per_circuit_formula_safe(flask_client, synced):
-    resp = flask_client.get("/api/v1/circuit-mapping.csv")
+def test_csv_one_row_per_circuit_formula_safe(client, synced):
+    resp = client.get("/api/v1/circuit-mapping.csv")
     assert resp.status_code == 200
     assert resp.mimetype == "text/csv"
     assert 'filename="circuit-mapping.csv"' in resp.headers["Content-Disposition"]
-    lines = resp.get_data(as_text=True).splitlines()
+    lines = resp.text.splitlines()
     assert lines[0] == "\ufeff" + (
         "group,cid,provider,type,status,tenant,commit_rate,description,suggested_sites,suggested_site_ids,circuit_id"
     )
@@ -73,7 +73,7 @@ def test_csv_one_row_per_circuit_formula_safe(flask_client, synced):
     assert ',"\'@Roersvej 33, 5000 Odense",' in lines[2]
 
 
-def test_left_out_and_sorted(flask_client, monkeypatch, pg_database, override_settings):
+def test_left_out_and_sorted(client, monkeypatch, pg_database, override_settings):
     """Decommissioned circuits aren't work; an unnamed one sorts as "Unnamed circuit"."""
     override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
     circuits = [
@@ -88,13 +88,13 @@ def test_left_out_and_sorted(flask_client, monkeypatch, pg_database, override_se
         lambda endpoint, *a, **k: circuits if endpoint == "circuits/circuits/" else [],
     )
     asyncio.run(inventory.sync_nautobot(force=True))
-    data = flask_client.get("/api/v1/circuit-mapping").get_json()
+    data = client.get("/api/v1/circuit-mapping").json()
     assert [c["cid"] for c in data["circuits"]] == ["AAA-1", "Unnamed circuit", "ZZZ-1"]
     assert data["summary"]["total"] == 3
 
 
 def test_a_site_off_the_map_links_through_its_building(
-    flask_client, monkeypatch, pg_database, override_settings
+    client, monkeypatch, pg_database, override_settings
 ):
     override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
     address = "Roersvej 33, 5000 Odense C"
@@ -124,7 +124,7 @@ def test_a_site_off_the_map_links_through_its_building(
     asyncio.run(inventory.sync_nautobot(force=True))
     by_cid = {
         c["cid"]: c["sites"]
-        for c in flask_client.get("/api/v1/circuit-mapping").get_json()["circuits"]
+        for c in client.get("/api/v1/circuit-mapping").json()["circuits"]
     }
     assert by_cid["C-1"] == [{"id": "loc-ode-b", "name": "Odense", "on_map": True}]
     assert by_cid["C-2"] == [
@@ -133,16 +133,16 @@ def test_a_site_off_the_map_links_through_its_building(
     ]
 
 
-def test_page_and_nav(flask_client, synced, frontend_build):
+def test_page_and_nav(client, synced, frontend_build):
     # The page is built with Nuxt (#463): Nautobot's address comes from /api/page-config.
-    page = flask_client.get("/circuits")
-    assert page.status_code == 200 and 'id="__nuxt"' in page.get_data(as_text=True)
-    config = flask_client.get("/api/v1/page-config").get_json()
+    page = client.get("/circuits")
+    assert page.status_code == 200 and 'id="__nuxt"' in page.text
+    config = client.get("/api/v1/page-config").json()
     assert config["nautobot_url"] == "https://nautobot.example.com"
 
 
-def test_viewers_only_when_required(flask_client, override_settings):
+def test_viewers_only_when_required(client, override_settings):
     override_settings(AUTH_REQUIRE_VIEWER=True)
     with auth_config(mode="header", viewer_groups={"noc"}):
         for path in ("/circuits", "/api/v1/circuit-mapping", "/api/v1/circuit-mapping.csv"):
-            assert flask_client.get(path).status_code == 401, path
+            assert client.get(path).status_code == 401, path

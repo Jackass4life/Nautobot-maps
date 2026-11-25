@@ -58,7 +58,7 @@ def test_members_are_named_and_know_their_stack(no_lookups):
     assert by_id["y"]["vc_master"] is False and by_id["y"]["vc_position"] is None
 
 
-def test_stored_and_read_back(flask_client, pg_database, no_lookups):
+def test_stored_and_read_back(client, pg_database, no_lookups):
     devices = inventory.normalize_devices(
         [
             _device("m1", "sw-stack01", 1, location={"id": "loc-1"}),
@@ -73,7 +73,7 @@ def test_stored_and_read_back(flask_client, pg_database, no_lookups):
 
 
 def test_a_changed_stack_makes_the_next_sync_full(
-    flask_client, pg_database, monkeypatch, override_settings
+    client, pg_database, monkeypatch, override_settings
 ):
     """Renaming a stack or moving its master saves the chassis, not its members (#400)."""
 

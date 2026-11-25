@@ -566,12 +566,12 @@ def test_the_web_knows_every_permission():
     assert set(re.findall(r'"([a-z:]+)"', union)) == {str(p) for p in Permission}
 
 
-def test_the_old_dov_addresses_open_noc(flask_client):
+def test_the_old_dov_addresses_open_noc(client):
     """The NOC role was DOV until 0.5.1 (#703): a bookmark still opens its page."""
     for old, new in (
         ("/dov", "/noc"),
         ("/dov/board?tenant=Acme", "/noc/board?tenant=Acme"),
         ("/dov/maintenance", "/noc/maintenance"),
     ):
-        answer = flask_client.get(old, follow_redirects=False)
+        answer = client.get(old, follow_redirects=False)
         assert answer.status_code == 301 and answer.headers["location"] == new, old

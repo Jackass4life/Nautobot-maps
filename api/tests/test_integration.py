@@ -57,16 +57,16 @@ def mock_nautobot_server():
 @pytest.fixture(scope="module")
 def integration_client(mock_nautobot_server):
     """
-    Return a Flask test flask_client for nautobot-maps, configured to talk to the
+    Return a Flask test client for nautobot-maps, configured to talk to the
     real mock-Nautobot server started in the fixture above.
     """
     # Every call goes to the mock server, until the module's tests are done.
     caching.cache.clear()
     with (
         overridden(NAUTOBOT_URL=mock_nautobot_server, NAUTOBOT_TOKEN="demo-token"),
-        http_client.FlaskStyleClient() as flask_client,
+        http_client.FlaskStyleClient() as client,
     ):
-        yield flask_client
+        yield client
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ class TestMapUI:
     def test_index_page_loads(self, integration_client, frontend_build):
         # Built with Nuxt (#463): the page is the build's; web/ and e2e/ test it.
         resp = integration_client.get("/")
-        assert resp.status_code == 200 and 'id="__nuxt"' in resp.get_data(as_text=True)
+        assert resp.status_code == 200 and 'id="__nuxt"' in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -99,13 +99,13 @@ class TestLocationsEndpoint:
 
     def test_all_seeded_locations_returned(self, integration_client):
         """All 9 mock-Nautobot locations have GPS coords and must be returned."""
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         assert data["locations"]
         # The mock server has 9 locations, all with GPS
         assert len(data["locations"]) == 9
 
     def test_location_has_required_fields(self, integration_client):
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         for loc in data["locations"]:
             assert "id" in loc
             assert "name" in loc
@@ -116,39 +116,39 @@ class TestLocationsEndpoint:
             assert isinstance(loc["longitude"], float)
 
     def test_active_location_present(self, integration_client):
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         names = [loc["name"] for loc in data["locations"]]
         assert "Copenhagen DC" in names
 
     def test_planned_location_present(self, integration_client):
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         statuses = {loc["name"]: loc["status"] for loc in data["locations"]}
         assert statuses.get("Oslo Office") == "Planned"
 
     def test_tenant_field_populated(self, integration_client):
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         cph = next(loc for loc in data["locations"] if loc["name"] == "Copenhagen DC")
         assert cph["tenant"] == "Acme Corp"
 
     def test_tenant_group_field_populated(self, integration_client):
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         cph = next(loc for loc in data["locations"] if loc["name"] == "Copenhagen DC")
         assert cph["tenant_group"] == "Corporate"
 
     def test_tenant_group_empty_when_no_group(self, integration_client):
         """Frankfurt DC has tenant DataCenter GmbH which has no tenant group."""
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         fra = next(loc for loc in data["locations"] if loc["name"] == "Frankfurt DC")
         assert fra["tenant_group"] == ""
 
     def test_asn_field_populated(self, integration_client):
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         cph = next(loc for loc in data["locations"] if loc["name"] == "Copenhagen DC")
         assert cph["asn"] == 65001
 
     def test_coordinates_are_floats(self, integration_client):
         """Nautobot returns lat/lon as strings; the app must coerce them to float."""
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         for loc in data["locations"]:
             assert isinstance(loc["latitude"], float)
             assert isinstance(loc["longitude"], float)
@@ -163,7 +163,7 @@ class TestLocationDetailEndpoint:
         assert resp.status_code == 200
 
     def test_devices_returned_for_copenhagen_dc(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-cph/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-cph/detail").json()
         assert len(data["devices"]) == 3
         device_names = [d["name"] for d in data["devices"]]
         assert "cph-core-rt01" in device_names
@@ -171,7 +171,7 @@ class TestLocationDetailEndpoint:
         assert "cph-fw01" in device_names
 
     def test_device_fields_populated(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-cph/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-cph/detail").json()
         router = next(d for d in data["devices"] if d["name"] == "cph-core-rt01")
         assert router["manufacturer"] == "Cisco"
         assert router["device_type"] == "ASR1001-X"
@@ -181,7 +181,7 @@ class TestLocationDetailEndpoint:
 
     def test_every_circuit_returned_for_copenhagen_dc(self, integration_client):
         """Both circuits at the site, not just one (#235)."""
-        data = integration_client.get("/api/v1/locations/loc-cph/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-cph/detail").json()
         assert [(c["cid"], c["status"], c["port_speed"]) for c in data["circuits"]] == [
             ("GTT-MPLS-7781", "Offline", "1 Gbps"),
             ("TEL-CPH-0001", "Active", "10 Gbps"),
@@ -189,71 +189,71 @@ class TestLocationDetailEndpoint:
         assert data["circuits_error"] == ""
 
     def test_no_circuits_for_stockholm(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-sto/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-sto/detail").json()
         assert data["circuits"] == []
 
     def test_asns_returned_for_copenhagen_dc(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-cph/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-cph/detail").json()
         assert len(data["asns"]) == 1
         assert data["asns"][0]["asn"] == 65001
 
     def test_multiple_asns_returned_for_london(self, integration_client):
         """London HQ has two ASNs."""
-        data = integration_client.get("/api/v1/locations/loc-lon/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-lon/detail").json()
         asn_numbers = [a["asn"] for a in data["asns"]]
         assert 65050 in asn_numbers
         assert 65051 in asn_numbers
 
     def test_location_with_no_devices_returns_empty_list(self, integration_client):
         """Oslo Office has no devices."""
-        data = integration_client.get("/api/v1/locations/loc-osl/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-osl/detail").json()
         assert data["devices"] == []
 
     def test_location_with_no_asns_returns_empty_list(self, integration_client):
         """Oslo Office has no ASNs."""
-        data = integration_client.get("/api/v1/locations/loc-osl/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-osl/detail").json()
         assert data["asns"] == []
 
     def test_amsterdam_has_three_devices(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-ams/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-ams/detail").json()
         assert len(data["devices"]) == 3
 
     def test_london_has_eight_devices(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-lon/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-lon/detail").json()
         assert len(data["devices"]) == 8
 
     def test_london_has_offline_devices(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-lon/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-lon/detail").json()
         statuses = [d["status"] for d in data["devices"]]
         assert "Offline" in statuses
 
     def test_london_has_active_devices(self, integration_client):
-        data = integration_client.get("/api/v1/locations/loc-lon/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-lon/detail").json()
         statuses = [d["status"] for d in data["devices"]]
         assert "Active" in statuses
 
     def test_london_colo_has_devices(self, integration_client):
         """London Colo shares the same coordinates as London HQ and has its own devices."""
-        data = integration_client.get("/api/v1/locations/loc-lon2/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-lon2/detail").json()
         assert len(data["devices"]) == 1
         assert data["devices"][0]["name"] == "lon2-edge-rt01"
 
     def test_london_colo_has_asns(self, integration_client):
         """London Colo has its own ASN."""
-        data = integration_client.get("/api/v1/locations/loc-lon2/detail").get_json()
+        data = integration_client.get("/api/v1/locations/loc-lon2/detail").json()
         assert len(data["asns"]) == 1
         assert data["asns"][0]["asn"] == 65052
 
     def test_colocated_locations_both_in_locations_list(self, integration_client):
         """Both London HQ and London Colo appear in the locations list."""
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         names = [loc["name"] for loc in data["locations"]]
         assert "London HQ" in names
         assert "London Colo" in names
 
     def test_colocated_locations_have_same_coordinates(self, integration_client):
         """London HQ and London Colo share identical lat/lon."""
-        data = integration_client.get("/api/v1/locations").get_json()
+        data = integration_client.get("/api/v1/locations").json()
         london_hq = next(loc for loc in data["locations"] if loc["name"] == "London HQ")
         london_colo = next(loc for loc in data["locations"] if loc["name"] == "London Colo")
         assert london_hq["latitude"] == london_colo["latitude"]
@@ -271,7 +271,7 @@ class TestSearchEndpoint:
         """
         resp = integration_client.get("/api/v1/search?q=55.6761,12.5683")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         names = [loc["name"] for loc in data["locations"]]
         assert "Copenhagen DC" in names
         assert "Copenhagen Colocation" in names
@@ -279,42 +279,42 @@ class TestSearchEndpoint:
 
     def test_results_sorted_by_distance(self, integration_client):
         resp = integration_client.get("/api/v1/search?q=55.6761,12.5683")
-        distances = [loc["distance_km"] for loc in resp.get_json()["locations"]]
+        distances = [loc["distance_km"] for loc in resp.json()["locations"]]
         assert distances == sorted(distances)
 
     def test_distance_km_is_zero_for_exact_match(self, integration_client):
         resp = integration_client.get("/api/v1/search?q=55.6761,12.5683")
-        data = resp.get_json()
+        data = resp.json()
         cph_dc = next(loc for loc in data["locations"] if loc["name"] == "Copenhagen DC")
         assert cph_dc["distance_km"] == pytest.approx(0.0, abs=0.01)
 
     def test_distant_search_returns_no_results(self, integration_client):
         """52.52, 13.40 is Berlin – no Nautobot locations within 5 km."""
         resp = integration_client.get("/api/v1/search?q=52.52,13.40")
-        data = resp.get_json()
+        data = resp.json()
         assert data["count"] == 0
         assert data["locations"] == []
 
     def test_radius_field_is_5(self, integration_client):
         resp = integration_client.get("/api/v1/search?q=55.6761,12.5683")
-        assert resp.get_json()["radius_km"] == 5
+        assert resp.json()["radius_km"] == 5
 
     def test_search_lat_lon_echoed_back(self, integration_client):
         resp = integration_client.get("/api/v1/search?q=51.5074,-0.1278")
-        data = resp.get_json()
+        data = resp.json()
         assert data["search_lat"] == pytest.approx(51.5074)
         assert data["search_lon"] == pytest.approx(-0.1278)
 
     def test_london_search_finds_london_hq(self, integration_client):
         resp = integration_client.get("/api/v1/search?q=51.5074,-0.1278")
-        data = resp.get_json()
+        data = resp.json()
         names = [loc["name"] for loc in data["locations"]]
         assert "London HQ" in names
 
     def test_london_search_finds_colocated_sites(self, integration_client):
         """Both London HQ and London Colo share the same coordinates."""
         resp = integration_client.get("/api/v1/search?q=51.5074,-0.1278")
-        data = resp.get_json()
+        data = resp.json()
         names = [loc["name"] for loc in data["locations"]]
         assert "London HQ" in names
         assert "London Colo" in names
@@ -326,14 +326,14 @@ class TestSearchEndpoint:
 
     def test_distance_km_field_present_in_all_results(self, integration_client):
         resp = integration_client.get("/api/v1/search?q=55.6761,12.5683")
-        for loc in resp.get_json()["locations"]:
+        for loc in resp.json()["locations"]:
             assert "distance_km" in loc
             assert isinstance(loc["distance_km"], float)
 
     def test_stockholm_search_returns_only_stockholm(self, integration_client):
         """Stockholm PoP is the only location near 59.3293, 18.0686."""
         resp = integration_client.get("/api/v1/search?q=59.3293,18.0686")
-        data = resp.get_json()
+        data = resp.json()
         assert data["count"] == 1
         assert data["locations"][0]["name"] == "Stockholm PoP"
 
@@ -357,13 +357,13 @@ class TestEndToEndScenario:
         # Step 2: Load all locations (the JS would do this via fetch)
         locs_resp = integration_client.get("/api/v1/locations")
         assert locs_resp.status_code == 200
-        locations = locs_resp.get_json()["locations"]
+        locations = locs_resp.json()["locations"]
         cph = next(loc for loc in locations if loc["name"] == "Copenhagen DC")
 
         # Step 3: Click the Copenhagen DC marker → fetch details
         detail_resp = integration_client.get(f"/api/v1/locations/{cph['id']}/detail")
         assert detail_resp.status_code == 200
-        detail = detail_resp.get_json()
+        detail = detail_resp.json()
         assert detail["devices"]
         assert detail["asns"]
 
@@ -372,7 +372,7 @@ class TestEndToEndScenario:
             f"/api/v1/search?q={cph['latitude']},{cph['longitude']}"
         )
         assert search_resp.status_code == 200
-        nearby = search_resp.get_json()
+        nearby = search_resp.json()
         assert nearby["count"] >= 1
         assert any(loc["name"] == "Copenhagen DC" for loc in nearby["locations"])
 
@@ -382,17 +382,17 @@ class TestEndToEndScenario:
 # ---------------------------------------------------------------------------
 @pytest.fixture
 def persisted_integration_client(integration_client, pg_database, override_settings):
-    """Integration flask_client with PostgreSQL persistence and a synced inventory snapshot."""
+    """Integration client with PostgreSQL persistence and a synced inventory snapshot."""
     override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
     assert asyncio.run(inventory.ensure_snapshot(force=True, wait=True))
     return integration_client
 
 
 class TestAlertBoardWithPersistence:
-    def _alerts_by_site(self, flask_client):
-        resp = flask_client.get("/api/v1/alerts")
+    def _alerts_by_site(self, client):
+        resp = client.get("/api/v1/alerts")
         assert resp.status_code == 200
-        return {site["id"]: site for site in resp.get_json()["alerts"]}
+        return {site["id"]: site for site in resp.json()["alerts"]}
 
     def test_cached_devices_are_linked_to_their_location(self, persisted_integration_client):
         devices = asyncio.run(inventory.read_devices())
@@ -532,7 +532,7 @@ class TestAlertBoardColdStart:
         override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
 
         # Fresh database, and /alerts is the first page anyone opens.
-        first = integration_client.get("/api/v1/alerts").get_json()
+        first = integration_client.get("/api/v1/alerts").json()
         assert first["alerts"] == []
         assert first["sync_pending"] is True
 
@@ -541,7 +541,7 @@ class TestAlertBoardColdStart:
         data = first
         while data["sync_pending"] and time.monotonic() < deadline:
             time.sleep(0.2)
-            data = integration_client.get("/api/v1/alerts").get_json()
+            data = integration_client.get("/api/v1/alerts").json()
 
         assert data["sync_pending"] is False
         assert len(data["alerts"]) == len(mock_nautobot.LOCATIONS)
@@ -554,19 +554,19 @@ class TestAlertBoardColdStart:
 # ---------------------------------------------------------------------------
 class TestMultiDeviceCaseFlow:
     def test_case_added_to_all_down_devices_at_london_hq(self, persisted_integration_client):
-        flask_client = persisted_integration_client
-        board = flask_client.get("/api/v1/alerts").get_json()
+        client = persisted_integration_client
+        board = client.get("/api/v1/alerts").json()
         london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
         device_ids = [device["device_id"] for device in london["down_devices"]]
         assert len(device_ids) == 2
 
-        resp = flask_client.post(
+        resp = client.post(
             "/api/v1/alert-cases",
             json={"site_id": "loc-lon", "device_ids": device_ids, "case_number": "INC-7001"},
         )
         assert resp.status_code == 200
 
-        board = flask_client.get("/api/v1/alerts").get_json()
+        board = client.get("/api/v1/alerts").json()
         london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
         assert london["active_cases"] == ["INC-7001"]
         assert all(device["case_numbers"] == ["INC-7001"] for device in london["down_devices"])

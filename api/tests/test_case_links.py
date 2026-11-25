@@ -50,13 +50,13 @@ def test_only_http_templates_with_a_placeholder(value, expected):
 
 def test_the_board_page_gets_the_template(override_settings):
     # The board (Nuxt, #463) reads it from /api/page-config; empty when not set.
-    with http_client.FlaskStyleClient() as flask_client:
+    with http_client.FlaskStyleClient() as client:
         assert (
-            flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"] == ""
+            client.get("/api/v1/page-config").json()["board"]["case_url_template"] == ""
         )
         override_settings(CASE_URL_TEMPLATE=TEMPLATE)
         assert (
-            flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"]
+            client.get("/api/v1/page-config").json()["board"]["case_url_template"]
             == TEMPLATE
         )
 
