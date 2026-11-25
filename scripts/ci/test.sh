@@ -7,6 +7,8 @@
 #   scripts/ci/test.sh web     API types, type check, lint, formatting, vitest, build
 #   scripts/ci/test.sh e2e     the app on the mock Nautobot, then Playwright in Chromium
 #   scripts/ci/test.sh all     all of them; fails when any part did
+#   scripts/ci/test.sh pytest [args]   only pytest for api/, e.g. `pytest tests/test_board_once.py
+#                              -k cache`: for while you work (#776)
 #
 # Every check of a part runs even after one fails; the part then fails.  PostgreSQL:
 # TEST_PG_URL (postgresql://user:password@host:port) or a Docker container.  Logs of
@@ -43,6 +45,22 @@ part_api() {
   check "Ruff format" uv run ruff format --check --diff .
   check "Migrations apply" uv run alembic upgrade head
   check "Tests" uv run pytest -v
+  report "$PART"
+}
+
+# Only pytest, with what the api part gives it (a throwaway database, the test settings).
+part_pytest() {
+  PART=Pytest
+  trap cleanup EXIT
+  cd "$API_DIR" || exit 1
+  need "uv $(uv_version)" ensure_uv
+  need "Install" uv sync --locked --quiet
+  need "PostgreSQL" start_postgres
+  need "Test database" pg_database pytest
+  load_local_env
+  use_test_services
+  export DATABASE_URL="$PG_DATABASE_URL" API_TEST_DATABASE_URL="$PG_DATABASE_URL"
+  check "Tests" uv run pytest "$@"
   report "$PART"
 }
 
@@ -155,8 +173,9 @@ case "${1:-}" in
   web) part_web ;;
   e2e) part_e2e ;;
   all) part_all ;;
+  pytest) shift; part_pytest "$@" ;;
   *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
     ;;
 esac
