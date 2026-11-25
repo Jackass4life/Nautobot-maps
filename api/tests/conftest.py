@@ -296,22 +296,6 @@ def override_settings():
         undo()
 
 
-@pytest.fixture
-def configure(monkeypatch):
-    """Set settings through the environment, e.g. configure(AUTH_MODE="header")."""
-
-    def apply(**env: str) -> None:
-        from tests import overrides
-
-        for key, value in env.items():
-            monkeypatch.setenv(key, value)
-            # Set here explicitly: a value a ported test left set in code doesn't win.
-            overrides.ACTIVE.pop(key.lower(), None)
-        overrides.reload()
-
-    return apply
-
-
 class TestDatabase:
     """Direct access to the test database, for seeding and checking rows: the current
     app's tests/conftest.py helper, for the tests ported from it (#600, #602)."""
