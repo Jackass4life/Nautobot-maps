@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""Criticality settings (#786, from test_app.py): critical role keywords, the
+criticality rules and the override endpoints."""
 
 import asyncio
 

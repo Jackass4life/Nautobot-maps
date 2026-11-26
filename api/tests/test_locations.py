@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""Locations (#786, from test_app.py): /api/locations, a location's detail, search,
+alert levels, circuits, tenants and their descriptions, and the geocoder."""
 
 import asyncio
 from unittest.mock import MagicMock, patch

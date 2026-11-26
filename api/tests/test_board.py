@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""The alert board (#786, from test_app.py): its rows and levels, tiers, refresh and
+sync progress, bulk reads, rows per Site and the severity tiers."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta

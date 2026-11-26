@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""The inventory sync from Nautobot and LibreNMS into the database, and the
+background scheduler that runs it (#786, from test_app.py)."""
 
 import asyncio
 import threading

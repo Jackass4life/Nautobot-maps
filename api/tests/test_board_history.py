@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""What the board remembers (#786, from test_app.py): alert lifecycles and cases,
+real start times, the alert feed, history retention and the history CSV."""
 
 import asyncio
 from datetime import UTC, datetime

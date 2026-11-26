@@ -402,7 +402,7 @@ class TestTools:
         )
 
     def test_feed_for_one_tenant_or_search(self, client, monkeypatch):
-        """tenant / search reach the route as ?tenant= / ?q= (#375); the route's filtering is tested in test_app."""
+        """tenant / search reach the route as ?tenant= / ?q= (#375); the route's filtering is tested in test_locations.py."""
         calls, answers = (
             [],
             [

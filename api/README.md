@@ -138,7 +138,7 @@ their behaviour is pinned by many tests, they were ported close to verbatim, on 
 The background work is `app/services/scheduler.py`: one asyncio task per process, the
 `background_scheduler` advisory lock so one process works at a time, the due syncs every
 tick (`BACKGROUND_SYNC_ENABLED=false` turns it off). The ported tests are in `tests/`
-(`test_app.py` and others), and `tests/test_nautobot_live.py` runs the inventory sync against
+(`test_board.py`, `test_locations.py` and others), and `tests/test_nautobot_live.py` runs the inventory sync against
 CI's real Nautobot 3.x.
 
 ## The first app's routes (#604)

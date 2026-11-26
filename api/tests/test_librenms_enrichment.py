@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""LibreNMS on top of Nautobot (#786, from test_app.py): device enrichment, the
+polled IP as a fallback, and mappings read in batches."""
 
 import asyncio
 from unittest.mock import MagicMock, patch

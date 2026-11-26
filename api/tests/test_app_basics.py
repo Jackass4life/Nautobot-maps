@@ -1,4 +1,5 @@
-"""TODO docstring (#786)."""
+"""The app's own pages and plumbing (#786, from test_app.py): the index page, error
+answers, security headers, /healthz, metrics, the API explorer and the auth settings."""
 
 import asyncio
 import importlib
