@@ -11,7 +11,7 @@ from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.utils import timeutil
 from tests import db as adb
-from tests.test_app import _snapshot_device, _snapshot_location
+from tests.fakes import snapshot_device, snapshot_location
 
 NOW = "2026-10-10T12:00:00Z"
 LONG_AGO = "2026-01-01T00:00:00Z"
@@ -36,7 +36,7 @@ def site(monkeypatch, clock, override_settings):
 
 def set_devices(**devices):
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(inventory.write_locations, [snapshot_location("loc-lon", "London HQ")])
     adb.call(
         inventory.record_sync_state,
         "nautobot_inventory",
@@ -48,7 +48,7 @@ def set_devices(**devices):
         inventory.write_devices,
         [
             {
-                **_snapshot_device(name, "loc-lon", roles[name], status),
+                **snapshot_device(name, "loc-lon", roles[name], status),
                 "last_updated": changed,
             }
             for name, (status, changed) in devices.items()
@@ -150,12 +150,12 @@ class TestDelay:
         assert build()["down_device_count"] == 1
 
     def test_a_site_whose_only_device_is_pending_is_ok_on_the_map_not_no_data(self, site, clock):
-        adb.call(inventory.write_locations, [_snapshot_location("loc-one", "One Device")])
+        adb.call(inventory.write_locations, [snapshot_location("loc-one", "One Device")])
         adb.call(
             inventory.write_devices,
             [
                 {
-                    **_snapshot_device("solo", "loc-one", "Access Switch", "Offline"),
+                    **snapshot_device("solo", "loc-one", "Access Switch", "Offline"),
                     "last_updated": NOW,
                 }
             ],

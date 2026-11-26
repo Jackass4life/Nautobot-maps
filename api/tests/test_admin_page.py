@@ -5,7 +5,7 @@ import pytest
 
 from app.services import inventory_service as inventory
 from tests import db as adb
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 from tests.test_tokens import bearer, clock, make  # noqa: F401 (fixtures)
 from tests.test_wireless import DK, SE
 

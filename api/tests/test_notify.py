@@ -19,7 +19,7 @@ from app.services import scheduler
 from app.services import status_service as status
 from app.utils import timeutil
 from tests import db as adb
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 
 NOW = "2026-10-09T12:00:00Z"
 HOOK = "https://hooks.example.com/secret-token-123"

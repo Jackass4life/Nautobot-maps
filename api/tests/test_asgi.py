@@ -96,7 +96,7 @@ def test_moved_routes_keep_headers_gzip_head_and_405(client):
 
 def test_the_sign_in_check_applies_to_moved_routes(client, override_settings):
     """Through the whole stack from 127.0.0.1, as a proxy would send."""
-    from tests.test_app import auth_config
+    from tests.fakes import auth_config
 
     override_settings(AUTH_REQUIRE_VIEWER=True)
     with auth_config(mode="header", viewer_groups={"noc"}):
@@ -148,7 +148,7 @@ def _mini_app():
 
 def test_the_shared_pieces_refuse_like_flask(override_settings):
     from app.v1 import deps
-    from tests.test_app import auth_config
+    from tests.fakes import auth_config
 
     app, router = _mini_app()
     assert deps.required_role(router.routes[0]) == "operator"

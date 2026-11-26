@@ -383,3 +383,10 @@ def frontend_build(tmp_path, override_settings):
     (build / "_nuxt" / "entry.abc123.js").write_text("console.log('nuxt');\n" * 200)
     override_settings(WEB_BUILD_DIR=str(build))
     return build
+
+
+@pytest.fixture
+def allow_unauthenticated_writes(override_settings):
+    """The endpoint tests below run with AUTH_MODE=disabled, where the
+    administrative writes are refused unless explicitly allowed (#188)."""
+    override_settings(ALLOW_UNAUTHENTICATED_WRITES=True)

@@ -103,12 +103,12 @@ def test_a_changed_stack_makes_the_next_sync_full(client, monkeypatch, override_
 
 def test_the_board_says_which_stack_a_down_device_is_in(board, override_settings):
     """The board and its Copy say a down stack is down with all its members (#402, #405)."""
-    from tests.test_app import _snapshot_device
+    from tests.fakes import snapshot_device
     from tests.test_criticality import NOW, build, write
 
     def member(position, status, ip):
         return {
-            **_snapshot_device(f"a-stk{position}", "a", "Access Switch", status),
+            **snapshot_device(f"a-stk{position}", "a", "Access Switch", status),
             "name": "sw-stack01" if position == 1 else f"sw-stack01:{position}",
             "primary_ip": ip,
             "vc_id": "vc-1",
@@ -123,7 +123,7 @@ def test_the_board_says_which_stack_a_down_device_is_in(board, override_settings
         member(2, "Offline", "10.0.0.2/32"),
         member(3, "Offline", ""),  # no IP: its own status means nothing
         member(4, "Active", ""),
-        _snapshot_device("a-rt", "a", "Edge Router", "Offline"),
+        snapshot_device("a-rt", "a", "Edge Router", "Offline"),
         # A fifth member at another location: the stack's size is the whole stack.
         {**member(5, "Active", ""), "location_id": "b"},
         # An excluded status: not one of the members down.

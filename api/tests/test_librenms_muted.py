@@ -12,7 +12,7 @@ from app.clients import caching, nautobot
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from tests import db as adb
-from tests.test_app import _snapshot_device
+from tests.fakes import snapshot_device
 from tests.test_librenms_push import board_row, lnms, operator_token  # noqa: F401
 
 FLAGS = {
@@ -110,7 +110,7 @@ class TestBoard:
             inventory.write_devices,
             [
                 {
-                    **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
+                    **snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
                     "name": f"sw{n}",
                     "vc_id": "vc-1",
                     "vc_name": "sw-stack",

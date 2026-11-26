@@ -32,8 +32,8 @@ uv run pytest -v
 # Integration tests only (requires no external network)
 uv run pytest tests/test_integration.py -v
 
-# Unit tests only
-uv run pytest tests/test_app.py -v
+# One feature's tests, e.g. the alert board
+uv run pytest tests/test_board.py -v
 ```
 
 Expected result: **all tests green, 0 failures**.  

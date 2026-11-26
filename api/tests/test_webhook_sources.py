@@ -12,7 +12,7 @@ from app.services import webhooks_service as webhooks
 from app.utils import timeutil
 from tests import db as adb
 from tests import http_client
-from tests.test_app import _snapshot_device, _snapshot_location
+from tests.fakes import snapshot_device, snapshot_location
 from tests.test_tokens import bearer, make
 
 NOW = "2026-10-09T12:00:00Z"
@@ -32,19 +32,19 @@ def site(monkeypatch, clock, override_settings):
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     devices = [
         {
-            **_snapshot_device("core", "loc-lon", "Core Router", "Active"),
+            **snapshot_device("core", "loc-lon", "Core Router", "Active"),
             "primary_ip": "10.0.0.1/24",
         },
         {
-            **_snapshot_device("acc1", "loc-lon", "Access Switch", "Active"),
+            **snapshot_device("acc1", "loc-lon", "Access Switch", "Active"),
             "primary_ip": "10.0.0.2/24",
         },
         {
-            **_snapshot_device("acc2", "loc-lon", "Access Switch", "Offline"),
+            **snapshot_device("acc2", "loc-lon", "Access Switch", "Offline"),
             "primary_ip": "2001:db8::3/64",
         },
     ]
-    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(inventory.write_locations, [snapshot_location("loc-lon", "London HQ")])
     adb.call(
         inventory.record_sync_state,
         "nautobot_inventory",

@@ -6,7 +6,7 @@ import pytest
 
 from app.clients import caching, nautobot
 from app.services import inventory_service as inventory
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
 

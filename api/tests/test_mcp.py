@@ -15,7 +15,7 @@ from app.services import mcp_service as mcp
 from app.v1.alert_board import dtos as board_answers
 from tests import answers, http_client
 from tests import db as adb
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 
 MODERN = "2026-07-28"
 
@@ -402,7 +402,7 @@ class TestTools:
         )
 
     def test_feed_for_one_tenant_or_search(self, client, monkeypatch):
-        """tenant / search reach the route as ?tenant= / ?q= (#375); the route's filtering is tested in test_app."""
+        """tenant / search reach the route as ?tenant= / ?q= (#375); the route's filtering is tested in test_locations.py."""
         calls, answers = (
             [],
             [

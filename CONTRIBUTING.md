@@ -242,8 +242,8 @@ The end-to-end tests against an app you started yourself (e.g. to watch it in a 
 
 The suite:
 
-- `api/tests/test_app.py`: the first app's unit tests, mock-based, with the database.
-- One file per feature for the rest (`test_wireless.py`, `test_tokens.py`, `test_status_page.py`, `test_cli.py`, `test_server.py`, …).
+- One file per feature (`test_board.py`, `test_locations.py`, `test_wireless.py`, `test_tokens.py`, `test_status_page.py`, `test_cli.py`, `test_server.py`, …).
+- `api/tests/fakes.py`: Nautobot stand-ins and helpers several files share (`snapshot_device`, `snapshot_location`, `auth_config`).
 - `api/tests/answers.py`: every JSON answer a test gets is checked against its route's
   `response_model`; `test_openapi.py`: every route's `response_model` and `operation_id`, the spec up to date.
 - `api/tests/test_schema.py`: Alembic's schema is the first app's version 33, column by column.
