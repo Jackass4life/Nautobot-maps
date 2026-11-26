@@ -56,8 +56,8 @@ def test_read_as_env_is_and_refused_like_a_bad_env(override_settings):
     override_settings(AUTH_REQUIRE_VIEWER="true", NAUTOBOT_MAPS_DATABASE_URL="postgresql://h/x")
     assert settings.AUTH_REQUIRE_VIEWER is True
     assert settings.DATABASE_URL == "postgresql+asyncpg://h/x"
-    with pytest.raises(RuntimeError, match="must be ldaps://"):
-        override_settings(LDAP_URL="ldap://dc1", LDAP_BASE_DN="DC=x", JWT_SIGNING_SECRET="s" * 40)
-    assert settings.LDAP_URL == "" and settings.DATABASE_URL == "postgresql+asyncpg://h/x"
+    with pytest.raises(RuntimeError, match="at least 32"):
+        override_settings(AD_HOST="dc1", JWT_SIGNING_SECRET="short")
+    assert settings.AD_HOST == "" and settings.DATABASE_URL == "postgresql+asyncpg://h/x"
     override_settings(CACHE_TTL="7")  # the next override isn't refused for it
     assert settings.CACHE_TTL == 7

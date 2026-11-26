@@ -212,107 +212,6 @@ jobs:
         run: docker compose logs nautobot --tail=200
 
   # -----------------------------------------------------------------------
-  # AD sign-in (#717) against a real Active Directory: a Samba AD domain
-  # controller on the runner, LDAPS with its own CA (development/samba_ad.sh)
-  # -----------------------------------------------------------------------
-  ad-live:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: api_test
-          POSTGRES_USER: api
-          POSTGRES_PASSWORD: api
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U api -d api_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Samba AD
-        run: |
-          sudo apt-get update -q
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q samba samba-ad-dc
-          # The packaged file-server daemons would hold the ports the DC needs.
-          sudo systemctl stop smbd nmbd winbind samba-ad-dc 2>/dev/null || true
-
-      - name: Start the domain controller
-        run: development/samba_ad.sh start
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          working-directory: api
-          enable-cache: true
-
-      - name: Sign in against it (#717)
-        working-directory: api
-        run: |
-          uv sync --locked
-          uv run pytest tests/test_ad_live.py -v
-        env:
-          API_TEST_DATABASE_URL: "postgresql://api:api@127.0.0.1:5433/api_test"
-          AD_LIVE_URL: "ldaps://dc1.nmaps.test"
-          AD_LIVE_CA_FILE: "/tmp/nms-dc/ca.pem"
-
-      - name: Set up bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: web/package.json
-
-      - name: Build the pages and install Chromium
-        run: |
-          (cd web && bun install --frozen-lockfile --ignore-scripts && bun --bun run generate)
-          (cd api && uv sync --locked --group e2e && uv run python -m playwright install --with-deps chromium)
-
-      - name: Sign in on the page, in Chromium (#723)
-        env:
-          NAUTOBOT_URL: "http://127.0.0.1:8080"
-          NAUTOBOT_TOKEN: "demo-token"
-          NAUTOBOT_MAPS_DATABASE_URL: "postgresql://api:api@127.0.0.1:5433/ad_e2e"
-          FLASK_RUN_PORT: "5057"
-          AUTH_MODE: header
-          AUTH_REQUIRE_VIEWER: "true"
-          LDAP_URL: "ldaps://dc1.nmaps.test"
-          LDAP_BASE_DN: "DC=nmaps,DC=test"
-          LDAP_BIND_DN: "svc-maps@nmaps.test"
-          # development/samba_ad.sh's test-only service account.
-          LDAP_BIND_PASSWORD: "Svc-Pass-2026!x"
-          JWT_SIGNING_SECRET: "ci-jwt-secret-not-for-production-0123456789"
-          E2E_AD_BASE_URL: "http://127.0.0.1:5057"
-        run: |
-          # A database of its own: the tests above leave theirs as they end.
-          (cd api && uv run python - <<'EOF'
-          import asyncio, asyncpg
-          async def main():
-              conn = await asyncpg.connect("postgresql://api:api@127.0.0.1:5433/api_test")
-              await conn.execute("CREATE DATABASE ad_e2e")
-              await conn.close()
-          asyncio.run(main())
-          EOF
-          )
-          # Every setting (#760: no defaults); the step's env wins over the file.
-          cp api/local.env api/.env
-          (cd api && uv run python -m app migrate && uv run python -m app identity create jdoe --role noc)
-          uv run --project api python demo/mock_nautobot.py > mock.log 2>&1 &
-          # The test domain's CA, as text (#739: no CA files).
-          export EXTRA_CA_PEM="$(cat /tmp/nms-dc/ca.pem)"
-          (cd api && uv run python run.py) > app.log 2>&1 &
-          for attempt in $(seq 1 60); do curl -fsS -o /dev/null "$E2E_AD_BASE_URL/healthz" && break; sleep 1; done
-          uv run --project api python -m pytest e2e/test_ad_sign_in.py -v
-
-      - name: The app's log on failure
-        if: failure()
-        run: tail -n 100 app.log || true
-
-  # -----------------------------------------------------------------------
   # Docker smoke test: build the image and run the demo stack for real
   # -----------------------------------------------------------------------
   docker-smoke:
@@ -487,8 +386,8 @@ jobs:
 
   proxy-smoke-app:
     # The bundled proxy with the app's own sign-in (#723): nginx built with SIGN_IN=app,
-    # no oauth2-proxy.  No domain controller here (a sign-in answers 503); the AD
-    # sign-in itself is the ad-live job's.  A signed-in session: the app's token for an
+    # no oauth2-proxy.  No domain controller nor sit_core here (a sign-in answers 503,
+    # #782); the AD sign-in itself: api/tests/test_ad_live.py.  A signed-in session: the app's token for an
     # identity made here.
     runs-on: ubuntu-latest
     env:
@@ -516,10 +415,7 @@ jobs:
           AUTH_REQUIRE_VIEWER=true
           AUTH_TRUSTED_PROXIES=172.30.0.10/32
           AUTH_PROXY_SECRET=ci-proxy-secret-not-for-production
-          LDAP_URL=ldap://192.0.2.1
-          LDAP_ALLOW_PLAINTEXT=true
-          LDAP_BASE_DN=DC=example,DC=local
-          LDAP_TIMEOUT_SECONDS=2
+          AD_HOST=192.0.2.1
           JWT_SIGNING_SECRET=ci-jwt-secret-not-for-production-0123456789
           EOF
 

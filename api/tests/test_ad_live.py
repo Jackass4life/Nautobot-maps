@@ -1,7 +1,10 @@
-"""Sign-in against a real Active Directory (#717): development/samba_ad.sh starts one
-(Samba AD, LDAPS with its own CA); CI's ad-live job does. Without AD_LIVE_URL these
-are skipped; tests/test_ad_login.py covers the rest with a fake directory."""
+"""Sign-in against a real Active Directory (#717, #782), through the company's sit_core:
+skipped without AD_LIVE_HOST (the domain controller's host name) or without sit_core
+installed. The accounts are development/samba_ad.sh's (jdoe, bob); another AD: set
+AD_LIVE_USER/AD_LIVE_PASSWORD to an account of its own. tests/test_ad_login.py
+covers the rest with a pretend AD."""
 
+import importlib.util
 import os
 
 import pytest
@@ -12,15 +15,13 @@ from app.core.settings import settings
 from app.services import ad_service, identity_service, login_service, role_service
 from tests import db as adb
 
-LIVE_URL = os.environ.get("AD_LIVE_URL", "")
-LIVE_CA = os.environ.get("AD_LIVE_CA_FILE", "")
-pytestmark = pytest.mark.skipif(not LIVE_URL, reason="AD_LIVE_URL not set")
-
-ACCOUNTS = {
-    "LDAP_BASE_DN": "DC=nmaps,DC=test",
-    "LDAP_BIND_DN": "svc-maps@nmaps.test",
-    "LDAP_BIND_PASSWORD": "Svc-Pass-2026!x",
-}
+LIVE_HOST = os.environ.get("AD_LIVE_HOST", "")
+USER = os.environ.get("AD_LIVE_USER", "jdoe")
+PASSWORD = os.environ.get("AD_LIVE_PASSWORD", "Jane-Pass-2026!x")
+pytestmark = [
+    pytest.mark.skipif(not LIVE_HOST, reason="AD_LIVE_HOST not set"),
+    pytest.mark.skipif(importlib.util.find_spec("sit_core") is None, reason="no sit_core"),
+]
 
 
 @pytest.fixture
@@ -30,48 +31,27 @@ def live(override_settings, pg_database):
     override_settings(
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
-        LDAP_URL=LIVE_URL,
-        EXTRA_CA_PEM=open(LIVE_CA, encoding="ascii").read(),
+        AD_HOST=LIVE_HOST,
         JWT_SIGNING_SECRET="live-test-secret-" + "x" * 32,
-        **ACCOUNTS,
     )
     login_service.forget_failures()
     return settings
 
 
 def test_the_password_decides(live):
-    found = ad_service.authenticate("jdoe", "Jane-Pass-2026!x", live)
-    assert found is not None and found.unique_name == "jdoe" and found.common_name == "Jane Doe"
-    assert found.dn.startswith("CN=Jane Doe,CN=Users,")
-    assert ad_service.authenticate("NMAPS\\jdoe", "Jane-Pass-2026!x", live) is not None
-    assert ad_service.authenticate("jdoe", "wrong", live) is None
-    assert ad_service.authenticate("jdoe", "", live) is None
-    assert ad_service.authenticate("nobody", "Jane-Pass-2026!x", live) is None
-    assert ad_service.authenticate("*", "Jane-Pass-2026!x", live) is None
-
-
-def test_the_certificate_is_checked(live, override_settings, tmp_path):
-    """Another CA's certificate (here: the system's CAs only) is refused."""
-    override_settings(
-        EXTRA_CA_PEM=open("/etc/ssl/certs/ca-certificates.crt", encoding="ascii").read()
-    )
-    with pytest.raises(ad_service.DirectoryUnavailable):
-        ad_service.authenticate("jdoe", "Jane-Pass-2026!x", settings)
-
-
-def test_a_wrong_service_account_is_the_setups_fault(live, override_settings):
-    override_settings(LDAP_BIND_PASSWORD="not-it")
-    with pytest.raises(ad_service.DirectoryUnavailable):
-        ad_service.authenticate("jdoe", "Jane-Pass-2026!x", settings)
+    found = ad_service.authenticate(USER, PASSWORD, live)
+    assert found is not None and found.unique_name == USER.lower()
+    assert ad_service.authenticate(USER, PASSWORD + "-wrong", live) is None
+    assert ad_service.authenticate(USER, "", live) is None
+    assert ad_service.authenticate("nobody-at-all", PASSWORD, live) is None
+    assert ad_service.authenticate("*", PASSWORD, live) is None
 
 
 def test_sign_in_through_the_api(live):
-    adb.call(identity_service.create, "jdoe", ["noc"])
     with TestClient(app, base_url="https://maps.test") as client:
-        sent = {"username": "jdoe", "password": "Jane-Pass-2026!x"}
+        sent = {"username": USER, "password": PASSWORD}
         assert client.post("/api/v1/auth/login", json=sent).status_code == 200
-        assert client.get("/api/v1/me").json()["role"] == "noc"
-        bob = {"username": "bob", "password": "Bob-Pass-2026!x"}
-        assert client.post("/api/v1/auth/login", json=bob).json()["error"] == "No access"
-        wrong = {"username": "jdoe", "password": "nope"}
+        assert client.get("/api/v1/me").json()["role"] == "viewer", "the first sign-in"
+        wrong = {"username": USER, "password": "nope"}
         assert client.post("/api/v1/auth/login", json=wrong).status_code == 401
+    assert adb.call(identity_service.read, USER).roles == ("viewer",)

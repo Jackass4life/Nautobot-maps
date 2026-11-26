@@ -7332,7 +7332,7 @@
     },
     "/api/v1/auth/login": {
       "post": {
-        "description": "Sign in with an AD user name and password (#717). An AD user with an identity\ngets a token, for ``Authorization: Bearer``, also set as an HttpOnly cookie for\nthe pages. An unknown user and a wrong password get the same answer; failed\nsign-ins wait longer after 5.",
+        "description": "Sign in with an AD user name and password (#717). An AD user gets a token, for\n``Authorization: Bearer``, also set as an HttpOnly cookie for the pages; the first\ntime also an identity with the viewer role (#782). An unknown user and a wrong\npassword get the same answer; failed sign-ins wait longer after 5.",
         "operationId": "signIn",
         "requestBody": {
           "content": {

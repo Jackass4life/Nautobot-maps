@@ -1,10 +1,12 @@
 """Sign-in with AD in Chromium (#717, #723): the app's own page against a real domain
-controller (development/samba_ad.sh; CI's ad-live job starts one and the app).
+controller (development/samba_ad.sh), with the company's sit_core installed (#782: not
+on PyPI, so not in GitHub's CI).
 
     E2E_AD_BASE_URL=http://127.0.0.1:5057 python -m pytest e2e/test_ad_sign_in.py
 
-The app runs with LDAP_URL set to that domain controller and AUTH_REQUIRE_VIEWER=true;
-jdoe has an identity with the noc role, bob has none (the job makes them).
+The app runs with AD_HOST set to that domain controller and AUTH_REQUIRE_VIEWER=true;
+jdoe has an identity with the noc role (python -m app identity create jdoe --role noc),
+bob has none until he first signs in.
 """
 
 import os
@@ -14,7 +16,7 @@ import pytest
 
 BASE_URL = os.getenv("E2E_AD_BASE_URL", "").rstrip("/")
 if not BASE_URL:
-    pytest.skip("E2E_AD_BASE_URL not set: the ad-live job runs these", allow_module_level=True)
+    pytest.skip("E2E_AD_BASE_URL not set", allow_module_level=True)
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 expect = pytest.importorskip("playwright.sync_api").expect
 
@@ -65,8 +67,9 @@ def test_signing_in_and_out(page):
     page.wait_for_url(re.compile(r"/auth\?redirect="))
 
 
-def test_without_an_identity_no_access(page):
+def test_the_first_sign_in_is_a_viewer(page):
     page.goto(f"{BASE_URL}/auth")
     sign_in(page, *BOB)
-    expect(page.locator("#auth-error")).to_contain_text("No access")
-    assert not [c for c in page.context.cookies() if c["name"] == "nm_session"]
+    page.wait_for_url(lambda url: "/auth" not in url)
+    me = page.evaluate("fetch('/api/v1/me').then((r) => r.json())")
+    assert me["username"] == "bob" and me["access"]["roles"] == ["viewer"]

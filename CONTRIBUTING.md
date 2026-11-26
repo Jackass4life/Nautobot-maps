@@ -251,8 +251,8 @@ The suite:
   every link in the guides lands on a heading.
 - `web/tests/`: Vitest for the pages' logic in `utils/`; `e2e/`: Playwright in Chromium.
 - `api/tests/test_mcp.py`: the MCP server.
-- `api/tests/test_ad_login.py`: AD sign-in (#717) as the app sees it, with `ad_service.authenticate` faked (#774): a deployment with its own AD service keeps these; `test_ad_service.py`: this repo's ldap3 service against ldap3's fake directory.
-- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_URL` is set. `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem uv run pytest tests/test_ad_live.py`. CI's `ad-live` job does the same, then signs in on the page in Chromium (`e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `LDAP_URL` set, jdoe an identity with the noc role).
+- `api/tests/test_ad_login.py`: AD sign-in (#717) as the app sees it, with `ad_service.authenticate` faked (#774); `test_ad_service.py`: the AD service around `sit_core`'s `BasicAuthenticator`, with a pretend `sit_core` (#782: the company's package isn't on PyPI, so neither the tests nor CI install it).
+- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_HOST` is set and `sit_core` is installed (so not in GitHub's CI, #782). `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_HOST=dc1.nmaps.test uv run pytest tests/test_ad_live.py`; another AD: `AD_LIVE_USER`/`AD_LIVE_PASSWORD` too. In Chromium: `e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `AD_HOST` set, jdoe an identity with the noc role.
 - `api/tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
 
@@ -269,7 +269,7 @@ The tools' versions are in one place each: uv in `api/pyproject.toml` (`required
 - Chromium's system libraries, as root: `sudo "$(command -v uv)" run --project api --group e2e python -m playwright install-deps chromium` in a checkout (or set `PLAYWRIGHT_WITH_DEPS=1` when the runner may use sudo).
 - Outbound HTTPS to astral.sh and github.com (uv), bun.sh (bun), pypi.org and files.pythonhosted.org, registry.npmjs.org, cdn.playwright.dev and playwright.download.prss.microsoft.com (Chromium), and Docker Hub for `postgres:16-alpine`. Behind a proxy: `HTTPS_PROXY` and the company CA (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`) in the runner's environment.
 
-The tests run before deploy and need nothing that only the server has (#774): after loading the settings (`api/local.env`), the api and e2e parts set `CACHE_TYPE=SimpleCache` and an empty `LDAP_URL`, and the API tests do the same, so a deployment's `.env` with Redis or AD doesn't reach them.
+The tests run before deploy and need nothing that only the server has (#774): after loading the settings (`api/local.env`), the api and e2e parts set `CACHE_TYPE=SimpleCache` and an empty `AD_HOST`, and the API tests do the same, so a deployment's `.env` with Redis or AD doesn't reach them.
 
 The first pipeline installs uv and bun into the runner user's `~/.local/bin` and `~/.bun`; later ones find them there. Each job uses free ports and its own databases, so two pipelines can run on one runner at once.
 

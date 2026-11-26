@@ -2,6 +2,8 @@
 out and the settings that would quietly break something, once per server
 (gunicorn's ``when_ready``, api/gunicorn_config.py)."""
 
+import importlib.util
+
 from loguru import logger
 
 from app.core import env_names
@@ -26,17 +28,18 @@ def log_alert_board_exclusions() -> None:
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach "
             "the app can change criticality overrides"
         )
-    if settings.LDAP_URL:
+    if settings.AD_HOST:
         if settings.AUTH_MODE != "header":
-            logger.warning("LDAP_URL is set but AUTH_MODE isn't header: AD sign-in is off")
+            logger.warning("AD_HOST is set but AUTH_MODE isn't header: AD sign-in is off")
         else:
-            # The address only: never the service account's password or the JWT secret.
+            # The host only: never the JWT secret.
             logger.info(
-                "AD sign-in on: {} (base {}); tokens last {} s",
-                settings.LDAP_URL,
-                settings.LDAP_BASE_DN,
+                "AD sign-in on: {}; tokens last {} s",
+                settings.AD_HOST,
                 settings.JWT_LIFETIME_SECONDS,
             )
+            if importlib.util.find_spec("sit_core") is None:
+                logger.error("AD_HOST is set but sit_core isn't installed: nobody can sign in")
     if settings.AUTH_MODE == "header":
         # Only the networks reach the log (#613); two calls, so nothing derived from
         # the secret does.

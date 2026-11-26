@@ -103,7 +103,7 @@ A change reaches the running app within 30 seconds. The same through the API (ad
 
 A change that would leave nobody an admin is refused: deleting the last identity with admin rights, or taking admin from them, says "make someone else an admin first". (Before anyone has an identity, the groups give admin, so this starts with the first identity that is an admin.)
 
-**Without an identity**, `AUTH_GROUP_ROLES` decides:
+**Without an identity**, `AUTH_GROUP_ROLES` decides (the app's own [AD sign-in](#sign-in-with-ad) instead makes one with the viewer role at the first sign-in, #782):
 - `true` (the default): the role their groups give, as above. The log says once per name `Signed in without an identity: 'jdoe' (role from groups: viewer)`, so you can see who still needs one.
 - `false`: no access. Pages and the API answer "No access: ask an admin to add you".
 
@@ -327,14 +327,15 @@ With your own proxy, also set its session cookie to `SameSite=Lax`.
 
 ![The sign-in page: Nautobot Maps, Sign in with your company (AD) user name and password](images/sign-in.png)
 
-The app can also sign people in itself, with their **Active Directory** user name and password on its own page, `/auth` (#717). It is off until `LDAP_URL` is set, and works beside the sign-in proxy: a request with the proxy's headers is still the proxy's user. Use it where there is no company sign-in in front of the app, or for people the proxy doesn't cover.
+The app can also sign people in itself, with their **Active Directory** user name and password on its own page, `/auth` (#717). It is off until `AD_HOST` is set, and works beside the sign-in proxy: a request with the proxy's headers is still the proxy's user. Use it where there is no company sign-in in front of the app, or for people the proxy doesn't cover.
 
 How it works:
 1. The page sends the user name (`jdoe`, `DOMAIN\jdoe` or `jdoe@domain`) and password to `POST /api/v1/auth/login`.
-2. The app finds the user with a **read-only service account**, then signs in to AD as them with their password, over LDAPS with the domain controller's certificate checked.
-3. Only someone with an [identity](#identities) gets in ("No access" otherwise); a wrong password and an unknown user get the same answer. After 5 failed tries from one address the next has to wait 30 seconds, then longer each time.
-4. The app answers with a signed token (JWT). The page keeps it as a cookie that scripts can't read (HttpOnly, Secure, SameSite=Strict); a script can send it as `Authorization: Bearer <token>`. `GET /api/v1/auth/verify` shows what's in it.
-5. Every request reads the identity's roles again (within 30 seconds of a change), not from the token: taking a role away works at once, not when the token runs out. A token lasts `JWT_LIFETIME_SECONDS` (8 hours); then the page asks to sign in again.
+2. The app signs in to AD on `AD_HOST` as them with their password, through the company's `sit_core` package (`sit_core.auth.BasicAuthenticator`, #782). An empty password is refused before AD is asked.
+3. A wrong password and an unknown user get the same answer. After 5 failed tries from one address the next has to wait 30 seconds, then longer each time.
+4. Someone without an [identity](#identities) gets one at their first sign-in, with the **viewer** role (#782); an admin gives more on the Admin page or with `python -m app identity add-role`. With the viewer role deleted, they get "No access".
+5. The app answers with a signed token (JWT). The page keeps it as a cookie that scripts can't read (HttpOnly, Secure, SameSite=Strict); a script can send it as `Authorization: Bearer <token>`. `GET /api/v1/auth/verify` shows what's in it.
+6. Every request reads the identity's roles again (within 30 seconds of a change), not from the token: taking a role away works at once, not when the token runs out. A token lasts `JWT_LIFETIME_SECONDS` (8 hours); then the page asks to sign in again.
 
 **Sign out** in the top bar ends it (`POST /api/v1/auth/logout` removes the cookie). A token copied elsewhere stays valid until it runs out; changing `JWT_SIGNING_SECRET` ends every sign-in at once.
 
@@ -343,22 +344,17 @@ How it works:
 ```dotenv
 AUTH_MODE=header                       # also without a sign-in proxy
 AUTH_REQUIRE_VIEWER=true               # pages without sign-in go to /auth
-LDAP_URL=ldaps://dc1.example.local     # ldaps:// only
-LDAP_BASE_DN=DC=example,DC=local
-LDAP_BIND_DN=svc-maps@example.local    # the read-only service account
-LDAP_BIND_PASSWORD=...
-EXTRA_CA_PEM=-----BEGIN CERTIFICATE-----\nMIID...   # the CA that signed the DC's certificate
+AD_HOST=dc1.example.local              # the domain controller's host name
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 ```
 
-- **Base DN:** your domain's parts: `example.local` is `DC=example,DC=local`. To look further down only, an OU: `OU=Staff,DC=example,DC=local`.
-- **Service account:** an ordinary domain user with no rights beyond reading the directory (every domain user can). Its password goes in `.env`, never in the app's log.
-- **The CA:** the domain controller's certificate is usually from your company CA; export it as PEM (the same one as for [Company CA](#company-ca)) and put its text in `EXTRA_CA_PEM` (#739: one line with `\n` for the line breaks, or `base64 -w0 company-ca.pem`). With it, LDAP trusts only that CA; without it, the public CAs. A certificate the CA didn't sign, or for another name, is refused.
-- **The name in LDAP_URL** must be the one in the domain controller's certificate (not an IP address).
-- **People sign in with** `sAMAccountName` by default (`LDAP_USER_ATTRIBUTE`); it is their identity's name: `python -m app identity create jdoe --role noc`.
-- The app refuses to start with AD sign-in set up unsafely: `JWT_SIGNING_SECRET` shorter than 32 characters, `ldap://` instead of `ldaps://` (only `LDAP_ALLOW_PLAINTEXT=true`, for tests), or no `LDAP_BASE_DN`.
+- **sit_core:** your company's package, not on PyPI, so not in the published image. Install it into the API image yourself (from your company's package index). Without it the startup log says `AD_HOST is set but sit_core isn't installed`, and a sign-in answers "The directory can't be reached".
+- **How it talks to AD** (LDAPS or not, which CA it trusts, the timeout) is `sit_core`'s: check with whoever maintains it. Passwords go over that connection.
+- **Their identity's name** is the user name AD gives back (`sAMAccountName`), lower case. To give someone more than viewer before their first sign-in: `python -m app identity create jdoe --role noc`.
+- The app refuses to start with `AD_HOST` and a `JWT_SIGNING_SECRET` shorter than 32 characters.
+- **Upgrading from `LDAP_URL`:** the `LDAP_*` settings are gone (#782). An `.env` with `LDAP_URL` set stops the app and names `AD_HOST`; remove the `LDAP_*` lines, `LDAP_BIND_PASSWORD` with them.
 
-Check it: the startup log says `AD sign-in on: ldaps://… (base …)`; then open `/auth` and sign in. A wrong service-account password or an unreachable domain controller answers "The directory can't be reached" and is logged.
+Check it: the startup log says `AD sign-in on: dc1.example.local`; then open `/auth` and sign in. An unreachable domain controller answers "The directory can't be reached" and is logged.
 
 ### With the bundled proxy
 
@@ -368,18 +364,14 @@ The bundled proxy can run without oauth2-proxy, with the app's own sign-in in it
 COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml
 PUBLIC_HOSTNAME=maps.example.com
 AUTH_PROXY_SECRET=...                  # openssl rand -hex 32
-LDAP_URL=ldaps://dc1.example.local
-LDAP_BASE_DN=DC=example,DC=local
-LDAP_BIND_DN=svc-maps@example.local
-LDAP_BIND_PASSWORD=...
-EXTRA_CA_PEM=...                       # the DC's CA, its text (above)
+AD_HOST=dc1.example.local              # and sit_core in the API image (above)
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 AUTH_MODE=header
 AUTH_REQUIRE_VIEWER=true
 AUTH_TRUSTED_PROXIES=172.30.0.10/32    # PROXY_IP, /32
 ```
 
-then `docker compose up -d --build` (the proxy's image is built with `SIGN_IN=app`). The API refuses to start with `AUTH_PROXY_SECRET` but without `AUTH_MODE=header`, and with `LDAP_URL` but without `LDAP_BASE_DN` or a `JWT_SIGNING_SECRET` of 32 characters; without `LDAP_URL` nobody can sign in on `/auth`. Sign out is the app's own. To build the proxy's image yourself: `docker build --build-arg DOMAIN=… --build-arg SIGN_IN=app reverse-proxy` (the default, `SIGN_IN=oauth2-proxy`, is the company sign-in above). Going back is setting `COMPOSE_FILE` to `reverse-proxy/compose.yml` again.
+then `docker compose up -d --build` (the proxy's image is built with `SIGN_IN=app`). The API refuses to start with `AUTH_PROXY_SECRET` but without `AUTH_MODE=header`, and with `AD_HOST` but without a `JWT_SIGNING_SECRET` of 32 characters; without `AD_HOST` nobody can sign in on `/auth`. Sign out is the app's own. To build the proxy's image yourself: `docker build --build-arg DOMAIN=… --build-arg SIGN_IN=app reverse-proxy` (the default, `SIGN_IN=oauth2-proxy`, is the company sign-in above). Going back is setting `COMPOSE_FILE` to `reverse-proxy/compose.yml` again.
 
 ## API tokens
 

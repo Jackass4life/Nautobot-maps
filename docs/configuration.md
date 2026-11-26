@@ -27,7 +27,7 @@ Every setting the app has, with its value in `.env.example`. This page is for th
 
 Every container gets the whole `.env` (`env_file: .env` in each compose file, #739): the API, the pages, the database and, with the bundled proxy, nginx and oauth2-proxy. The compose files set no settings of their own.
 
-- **Keep it private:** `.env` holds the passwords (the database, the LDAP bind account, the wireless controllers', the proxy's secrets): `chmod 600 .env`. It is git-ignored and never goes into an image (each `.dockerignore` leaves it out). Back it up: it is not in the database.
+- **Keep it private:** `.env` holds the passwords (the database, the wireless controllers', the proxy's secrets): `chmod 600 .env`. It is git-ignored and never goes into an image (each `.dockerignore` leaves it out). Back it up: it is not in the database.
 - **Values as written:** no `${VAR}` references. Put single quotes around JSON and around a value with a `$` in it.
 - **JSON settings** (`WIRELESS_CONTROLLERS`, `CRITICALITY_RULES`): on one line, in single quotes, e.g. `CRITICALITY_RULES='{"office": ["core", "router"]}'`. A mistake stops the app at startup and says where (never a password).
 - **A certificate** (`EXTRA_CA_PEM`): the PEM text on one line with `\n` for each line break, or base64 of the file (`base64 -w0 company-ca.pem`).
@@ -94,12 +94,7 @@ See [authentication](authentication.md).
 | `AUTH_SIGN_OUT_URL` | api | — | Header mode: where the top bar's **Sign out** goes, your proxy's sign-out address (a path such as `/oauth2/sign_out`, or an `http(s)://` address); empty: no Sign out. The bundled proxy sets it ([signing out](authentication.md#signing-out)) |
 | `AUTH_REQUIRE_VIEWER` | api | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `AUTH_GROUP_ROLES` | api | `true` | Someone signed in without an [identity](authentication.md#identities) gets the role their groups give; `false`: no access. Set it to `false` once everyone has an identity |
-| `LDAP_URL` | api | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): `ldaps://dc1.example.local`. Needs `AUTH_MODE=header`, `LDAP_BASE_DN` and `JWT_SIGNING_SECRET` |
-| `LDAP_BASE_DN` | api | — | Where users are looked up, e.g. `DC=example,DC=local` |
-| `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | api | — | The read-only service account that finds a user before their own sign-in, e.g. `svc-maps@example.local` |
-| `LDAP_USER_ATTRIBUTE` | api | `sAMAccountName` | The attribute people sign in with (its value is their identity's name) |
-| `LDAP_ALLOW_PLAINTEXT` | api | `false` | Allow `ldap://` (passwords unencrypted): tests only |
-| `LDAP_TIMEOUT_SECONDS` | api | `10` | Connecting to and asking the directory |
+| `AD_HOST` | api | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): the domain controller's host name, `dc1.example.local`. Needs `AUTH_MODE=header`, `JWT_SIGNING_SECRET` and the company's `sit_core` package in the image. Replaces the `LDAP_*` settings (#782) |
 | `JWT_SIGNING_SECRET` | api | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
 | `JWT_LIFETIME_SECONDS` | api | `28800` | How long a sign-in lasts (8 hours) |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | api | `nautobot-maps` | Written in and checked on every token |
@@ -111,7 +106,7 @@ Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-
 
 The API behind it needs these in `.env` too (#739: the compose files set nothing): `AUTH_MODE=header`, `AUTH_REQUIRE_VIEWER=true`, `AUTH_TRUSTED_PROXIES=<PROXY_IP>/32` (`172.30.0.10/32` by default) and, with oauth2-proxy, `AUTH_SIGN_OUT_URL=/oauth2/sign_out`. The API refuses to start with `AUTH_PROXY_SECRET` set but without `AUTH_MODE=header`.
 
-Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`LDAP_URL`, `LDAP_BASE_DN`, `JWT_SIGNING_SECRET`, …); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
+Or nginx alone, with the app's own sign-in (AD on `/auth`) instead of oauth2-proxy: `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml` ([how](authentication.md#with-the-bundled-proxy)). It needs `PUBLIC_HOSTNAME`, `AUTH_PROXY_SECRET`, the ports and network below, and the [AD settings](#sign-in-and-roles) (`AD_HOST`, `JWT_SIGNING_SECRET`); none of the `OIDC_*`. The proxy's image is then built with `SIGN_IN=app` (`reverse-proxy/Dockerfile`'s build argument; default `oauth2-proxy`).
 
 | Variable | Read by | Value | Description |
 |---|---|---|---|
@@ -299,7 +294,7 @@ These are set in the shell for one command, never in `.env`; nothing in producti
 | `DATABASE_URL` / `SQL_ECHO` / `WEB_BUILD_DIR` | dev server | The development server's database (when `NAUTOBOT_MAPS_DATABASE_URL` is empty), its SQL log, and where `bun run generate` put the pages | [api/README](../api/README.md) |
 | `API_TEST_DATABASE_URL` | `api/tests/conftest.py` | The tests' database (default `fastapi_nuxt_test`, created when missing) | [CONTRIBUTING](../CONTRIBUTING.md) |
 | `NAUTOBOT_LIVE_URL` / `NAUTOBOT_LIVE_TOKEN` | `api/tests/test_nautobot_live.py` | A real Nautobot to test against; unset: skipped | [development/README](../development/README.md) |
-| `AD_LIVE_URL` / `AD_LIVE_CA_FILE` | `api/tests/test_ad_live.py` | A real domain controller (the development stack's Samba) and its CA; unset: skipped | [development/README](../development/README.md) |
+| `AD_LIVE_HOST` (`AD_LIVE_USER` / `AD_LIVE_PASSWORD`) | `api/tests/test_ad_live.py` | A real domain controller (the development stack's Samba) and an account on it; unset or no `sit_core`: skipped | [development/README](../development/README.md) |
 | `E2E_BASE_URL` / `E2E_OPERATOR_TOKEN` / `E2E_ADMIN_TOKEN` / `E2E_NOC_TOKEN` / `E2E_CUSTOMER_TOKEN` / `E2E_REQUIRED` | `e2e/test_e2e.py` | The running app the browser tests open, and an API token for each role they sign in as; `E2E_REQUIRED=1` (CI) makes a missing `E2E_BASE_URL` a failure, not a skip | [CONTRIBUTING](../CONTRIBUTING.md) |
 | `E2E_AD_BASE_URL` | `e2e/test_ad_sign_in.py` | The app with sign-in with AD, for its browser test | [CONTRIBUTING](../CONTRIBUTING.md) |
 | `MOCK_SCALE` / `MOCK_AP_DHCP` / `MOCK_HOST` / `MOCK_PORT` | `demo/mock_nautobot.py` | The demo's fake Nautobot: `MOCK_SCALE=1200` adds that many generated sites; `MOCK_AP_DHCP=1` drops the access points' primary IPs; where it listens (default `0.0.0.0:8080`) | [demo/README](../demo/README.md) |

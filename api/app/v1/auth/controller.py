@@ -12,6 +12,7 @@ from app.auth.dependencies import CurrentUserDep, require_permission
 from app.auth.permissions import Permission
 from app.core.exceptions import ApiError, responses
 from app.core.settings import settings
+from app.db import aconnection
 from app.frontend import controller as frontend
 from app.services import ad_service, auth_service, identity_service, login_service
 from app.utils.body import body_schema
@@ -54,7 +55,7 @@ WRONG = "Wrong user name or password"
 
 def _off() -> ApiError:
     return ApiError(
-        {"error": "Sign-in with AD is off", "detail": "Set LDAP_URL (and AUTH_MODE=header)."},
+        {"error": "Sign-in with AD is off", "detail": "Set AD_HOST (and AUTH_MODE=header)."},
         404,
     )
 
@@ -85,6 +86,29 @@ def _address(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+FIRST_SIGN_IN_ROLE = "viewer"
+
+
+async def _first_sign_in(found: ad_service.AdUser) -> identity_service.Identity | None:
+    """An AD user without an identity gets one with the viewer role (#782, the
+    example's _create_basic_reader_user); an admin gives more. None when it can't be
+    made (the viewer role deleted, say)."""
+    try:
+        async with aconnection.connect() as conn, conn.transaction():
+            await identity_service.create(
+                conn,
+                found.unique_name,
+                roles=[FIRST_SIGN_IN_ROLE],
+                common_name=found.common_name,
+                description="Created at the first AD sign-in.",
+            )
+    except identity_service.IdentityError as exc:
+        # Made at the same moment by another sign-in, or no viewer role.
+        logger.warning("AD sign-in {!r}: no identity made: {}", found.unique_name, exc.message)
+    identity_service.forget()
+    return await identity_service.lookup(found.unique_name)
+
+
 @sign_in_router.post(
     "/login",
     dependencies=[deps.PUBLIC],
@@ -94,10 +118,10 @@ def _address(request: Request) -> str:
     openapi_extra=body_schema(SignInDto),
 )
 async def sign_in(request: Request) -> JSONResponse:
-    """Sign in with an AD user name and password (#717). An AD user with an identity
-    gets a token, for ``Authorization: Bearer``, also set as an HttpOnly cookie for
-    the pages. An unknown user and a wrong password get the same answer; failed
-    sign-ins wait longer after 5."""
+    """Sign in with an AD user name and password (#717). An AD user gets a token, for
+    ``Authorization: Bearer``, also set as an HttpOnly cookie for the pages; the first
+    time also an identity with the viewer role (#782). An unknown user and a wrong
+    password get the same answer; failed sign-ins wait longer after 5."""
     if not auth_service.app_sign_in_on(settings):
         raise _off()
     username, password = await _credentials(request)
@@ -123,7 +147,8 @@ async def sign_in(request: Request) -> JSONResponse:
     identity_service.forget()
     identity = await identity_service.lookup(found.unique_name)
     if identity is None:
-        identity_service.note_unknown(found.unique_name, "AD sign-in refused: no identity")
+        identity = await _first_sign_in(found)
+    if identity is None:
         raise ApiError(
             {
                 "error": "No access",
