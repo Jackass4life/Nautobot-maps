@@ -1,69 +1,58 @@
-"""Sign-in with Active Directory (#717; the example's services/ad_service.py, on
-ldap3): find the user with the read-only service account, then bind as them with
-their password. Off until LDAP_URL is set. Blocking (ldap3 is synchronous): callers
-run it in a thread.
+"""Sign-in with Active Directory (#717, #782; the example's services/ad_service.py):
+``sit_core.auth.BasicAuthenticator`` binds as the user with their password on
+AD_HOST. Off until AD_HOST is set. ``sit_core`` is the company's own package, not on
+PyPI: imported only when someone signs in, so the app and the tests run without it.
+Blocking (ldap3 underneath is synchronous): callers run it in a thread.
 
 Never logged or kept: a password. An empty one is refused before any bind, as an LDAP
 simple bind with an empty password is an anonymous bind that "succeeds"."""
 
-import ssl
 from dataclasses import dataclass
 
-from ldap3 import SUBTREE, Connection, Server, Tls
 from ldap3.core.exceptions import LDAPBindError, LDAPException
-from ldap3.utils.conv import escape_filter_chars
 from loguru import logger
 
 from app.core.settings import Settings
 
 MAX_NAME_LENGTH = 256
-COMMON_NAME_ATTRIBUTES = ("displayName", "cn")
 
 
 class DirectoryUnavailable(Exception):
-    """The directory can't be asked (down, TLS refused, the service account refused):
-    not the user's fault, a 503."""
+    """The directory can't be asked (down, TLS refused, sit_core not installed): not
+    the user's fault, a 503."""
 
 
 @dataclass(frozen=True)
 class AdUser:
     unique_name: str
     common_name: str
-    dn: str
+    dn: str = ""
 
 
 def enabled(settings: Settings) -> bool:
-    return bool(settings.LDAP_URL)
+    return bool(settings.AD_HOST)
 
 
-def server(settings: Settings) -> Server:
-    """The domain controller, its certificate checked against EXTRA_CA_PEM (#739; else
-    the system's CAs) and its name."""
-    tls = Tls(
-        validate=ssl.CERT_REQUIRED,
-        version=ssl.PROTOCOL_TLS_CLIENT,
-        ca_certs_data=settings.EXTRA_CA_PEM or None,
-    )
-    secure = settings.LDAP_URL.lower().startswith("ldaps://")
-    return Server(
-        settings.LDAP_URL,
-        use_ssl=secure,
-        tls=tls if secure else None,
-        get_info=None,
-        connect_timeout=settings.LDAP_TIMEOUT_SECONDS,
-    )
+def authenticator(settings: Settings):
+    """The example's AdService on AD_HOST (tests replace this function)."""
+    try:
+        from sit_core.auth import BasicAuthenticator
+        from sit_core.auth.ldap import attributes
+    except ImportError:
+        logger.error("AD sign-in: sit_core is not installed (AD_HOST is set)")
+        raise DirectoryUnavailable("sit_core not installed") from None
 
+    class AdService(BasicAuthenticator):
+        UNIQUE_NAME_ATTRIBUTE = attributes.USERNAME
+        COMMON_NAME_ATTRIBUTE = attributes.COMMON_NAME
 
-def connect(target: Server, user: str, password: str, settings: Settings) -> Connection:
-    """A bound connection (tests replace it with ldap3's fake directory)."""
-    return Connection(
-        target,
-        user,
-        password,
-        auto_bind=True,
-        receive_timeout=settings.LDAP_TIMEOUT_SECONDS,
-        raise_exceptions=False,
-    )
+        def __init__(self):
+            super().__init__(
+                host=settings.AD_HOST,
+                attributes=[self.UNIQUE_NAME_ATTRIBUTE, self.COMMON_NAME_ATTRIBUTE],
+            )
+
+    return AdService()
 
 
 def _plain_name(username: str) -> str | None:
@@ -75,65 +64,30 @@ def _plain_name(username: str) -> str | None:
     return name.split("@", 1)[0] or None
 
 
-def find(username: str, settings: Settings) -> AdUser | None:
-    """*username* in the directory, with the service account: None when not there."""
-    name = _plain_name(username)
-    if name is None:
-        return None
-    target = server(settings)
-    try:
-        lookup = connect(target, settings.LDAP_BIND_DN, settings.LDAP_BIND_PASSWORD, settings)
-    except LDAPBindError:
-        logger.error("AD sign-in: the service account (LDAP_BIND_DN) was refused")
-        raise DirectoryUnavailable("service account refused") from None
-    except LDAPException as exc:
-        logger.error("AD sign-in: the directory can't be reached: {}", type(exc).__name__)
-        raise DirectoryUnavailable(type(exc).__name__) from None
-    try:
-        attribute = settings.LDAP_USER_ATTRIBUTE
-        lookup.search(
-            settings.LDAP_BASE_DN,
-            f"({attribute}={escape_filter_chars(name)})",
-            SUBTREE,
-            attributes=[attribute, *COMMON_NAME_ATTRIBUTES],
-            size_limit=2,
-        )
-        entries = list(lookup.entries)
-    except LDAPException as exc:
-        logger.error("AD sign-in: the search failed: {}", type(exc).__name__)
-        raise DirectoryUnavailable(type(exc).__name__) from None
-    finally:
-        lookup.unbind()
-    if len(entries) != 1:
-        if len(entries) > 1:
-            logger.warning("AD sign-in: {!r} is more than one entry: refused", name)
-        return None
-    entry = entries[0]
-    unique = str(entry[attribute].value or name)
-    common = next(
-        (
-            str(entry[key].value)
-            for key in COMMON_NAME_ATTRIBUTES
-            if key in entry and entry[key].value
-        ),
-        "",
-    )
-    return AdUser(unique_name=unique.lower(), common_name=common, dn=entry.entry_dn)
+def _text(value) -> str:
+    # An LDAP attribute may come back as a list of values.
+    if isinstance(value, list | tuple):
+        value = value[0] if value else ""
+    return str(value or "")
 
 
 def authenticate(username: str, password: str, settings: Settings) -> AdUser | None:
     """The user, when *password* is theirs; None for an unknown user or a wrong
     password alike (the caller says the same for both)."""
-    if not password:
+    name = _plain_name(username)
+    if name is None or not password:
         return None
-    found = find(username, settings)
-    if found is None:
-        return None
+    service = authenticator(settings)
     try:
-        connect(server(settings), found.dn, password, settings).unbind()
+        found = service.login(username=name, password=password)
     except LDAPBindError:
         return None
     except LDAPException as exc:
-        logger.error("AD sign-in: the user's bind failed: {}", type(exc).__name__)
+        logger.error("AD sign-in: the directory request failed: {}", type(exc).__name__)
         raise DirectoryUnavailable(type(exc).__name__) from None
-    return found
+    if not found:
+        return None
+    unique = _text(found.get(service.UNIQUE_NAME_ATTRIBUTE)) or name
+    common = _text(found.get(service.COMMON_NAME_ATTRIBUTE))
+    dn = _text(found.get("dn") or found.get("distinguishedName"))
+    return AdUser(unique_name=unique.lower(), common_name=common, dn=dn)

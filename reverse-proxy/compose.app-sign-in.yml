@@ -15,9 +15,9 @@
 # tests/test_proxy_compose.py keeps what this shares with compose.yml the same.
 #
 # Every setting is in .env (#739), the API's for this proxy too (AUTH_MODE=header,
-# AUTH_REQUIRE_VIEWER, AUTH_TRUSTED_PROXIES, AUTH_PROXY_SECRET, LDAP_URL, LDAP_BASE_DN,
-# JWT_SIGNING_SECRET; a company CA for the domain controller in EXTRA_CA_PEM). nginx
-# refuses to start without the proxy's; the API without LDAP_BASE_DN or the secret.
+# AUTH_REQUIRE_VIEWER, AUTH_TRUSTED_PROXIES, AUTH_PROXY_SECRET, AD_HOST,
+# JWT_SIGNING_SECRET; the API image with the company's sit_core installed). nginx
+# refuses to start without the proxy's; the API with AD_HOST but without the secret.
 
 services:
   # Only nginx talks to the pages and the API.

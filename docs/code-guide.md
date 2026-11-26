@@ -141,7 +141,7 @@ The real work happens here, one module per job. The big ones:
 | `auth_service.py` | **Who is calling and what they may do** (see [sign-in](#sign-in-and-permissions)) |
 | `token_service.py` | API tokens: create, check, revoke |
 | `identity_service.py`, `role_service.py` | Identities (people the app knows) and roles with their scopes |
-| `ad_service.py`, `login_service.py` | The app's own sign-in against Active Directory, and its signed token |
+| `ad_service.py`, `login_service.py` | The app's own sign-in against Active Directory (through the company's `sit_core`), and its signed token |
 | `status_link_service.py` | Each tenant's private status page link |
 | `mcp_service.py` | The MCP server: the board as tools for AI assistants |
 | `metrics_service.py`, `health_service.py` | `/metrics` for Prometheus, `/healthz` for probes |
@@ -199,7 +199,7 @@ Every route runs `auth_service.check_request()` before its own code. It works ou
 
 - With the bundled proxy (`AUTH_MODE=header`), nginx and oauth2-proxy sign the person in and send `X-Forwarded-User` and `X-Forwarded-Groups`. The app believes these headers only from a trusted proxy address (`AUTH_TRUSTED_PROXIES`) carrying the shared secret (`AUTH_PROXY_SECRET`).
 - With an API token (`Authorization: Bearer nmt_…`), `token_service` looks the token up. A token has exactly its identity's rights.
-- With the app's own sign-in (`LDAP_URL` set), the person signs in on `/auth` against Active Directory and gets a signed cookie (`login_service`).
+- With the app's own sign-in (`AD_HOST` set), the person signs in on `/auth` against Active Directory and gets a signed cookie (`login_service`).
 - With `AUTH_MODE=disabled`, nobody is signed in: reading is open, changes are not.
 
 Then it works out **what they may do**. An identity (managed on the Admin page) gives roles and scopes directly; otherwise the person's groups map to a role (`AUTH_*_GROUPS`). The route's required permission is checked against those scopes. Writes from another website are refused (a CSRF check).

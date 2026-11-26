@@ -232,10 +232,10 @@ export interface paths {
         put?: never;
         /**
          * Sign In
-         * @description Sign in with an AD user name and password (#717). An AD user with an identity
-         *     gets a token, for ``Authorization: Bearer``, also set as an HttpOnly cookie for
-         *     the pages. An unknown user and a wrong password get the same answer; failed
-         *     sign-ins wait longer after 5.
+         * @description Sign in with an AD user name and password (#717). An AD user gets a token, for
+         *     ``Authorization: Bearer``, also set as an HttpOnly cookie for the pages; the first
+         *     time also an identity with the viewer role (#782). An unknown user and a wrong
+         *     password get the same answer; failed sign-ins wait longer after 5.
          */
         post: operations["signIn"];
         delete?: never;

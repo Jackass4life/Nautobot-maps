@@ -425,7 +425,6 @@ FLAGS = (
     "GEOCODER_ENABLED",
     "AUTH_REQUIRE_VIEWER",
     "AUTH_GROUP_ROLES",
-    "LDAP_ALLOW_PLAINTEXT",
     "ALLOW_UNAUTHENTICATED_WRITES",
     "STATUS_PAGE_TENANT_DEVICES",
     "COMPRESS_RESPONSES",
@@ -463,7 +462,7 @@ class Settings(BaseSettings):
     NAUTOBOT_API_VERSION: str
     NAUTOBOT_VERIFY_SSL: bool
     # A company CA (#739): PEM text, trusted with the system's CAs by Nautobot, LibreNMS
-    # and the wireless controllers' connections, and alone by LDAP's.
+    # and the wireless controllers' connections.
     EXTRA_CA_PEM: str
 
     # --- Caching and sync intervals ------------------------------------------------------------
@@ -556,19 +555,11 @@ class Settings(BaseSettings):
     AUTH_PROXY_SECRET: str
     # Where Sign out goes (#546): a path on this site or an http(s):// address.
     AUTH_SIGN_OUT_URL: str
-    # --- Sign-in with AD (#717): off until LDAP_URL is set --------------------------------
-    # ldaps://dc1.example.local[:636]; ldap:// only with LDAP_ALLOW_PLAINTEXT (tests).
-    LDAP_URL: str
-    LDAP_BASE_DN: str
-    # The read-only service account that finds a user before their own bind.
-    LDAP_BIND_DN: str
-    LDAP_BIND_PASSWORD: str
-    LDAP_USER_ATTRIBUTE: str
-    # The CA that signed the domain controller's certificate: EXTRA_CA_PEM (#739), else
-    # the system's.
-    LDAP_ALLOW_PLAINTEXT: bool
-    LDAP_TIMEOUT_SECONDS: int
-    # Signs the app's own sign-in tokens: required with LDAP_URL, at least 32 characters.
+    # --- Sign-in with AD (#717, #782): off until AD_HOST is set ---------------------------
+    # The domain controller's host name, e.g. dc1.example.local: sit_core's
+    # BasicAuthenticator binds there as the user (the company's package, installed apart).
+    AD_HOST: str
+    # Signs the app's own sign-in tokens: required with AD_HOST, at least 32 characters.
     JWT_SIGNING_SECRET: str
     JWT_LIFETIME_SECONDS: int
     JWT_ISSUER: str
@@ -636,6 +627,8 @@ class Settings(BaseSettings):
     WIRELESS_CONTROLLERS_FILE: str = ""
     CRITICALITY_RULES_FILE: str = ""
     LDAP_CA_FILE: str = ""
+    # Removed in #782 (sign-in through sit_core needs only AD_HOST): set, it stops startup.
+    LDAP_URL: str = ""
     # Removed in #153 (SQLite); only read to warn when it is still set.
     NAUTOBOT_MAPS_DB: str = ""
 
@@ -665,16 +658,14 @@ class Settings(BaseSettings):
         "AUTH_HEADER_USER",
         "AUTH_HEADER_GROUPS",
         "AUTH_PROXY_SECRET",
-        "LDAP_URL",
-        "LDAP_BASE_DN",
-        "LDAP_BIND_DN",
-        "LDAP_USER_ATTRIBUTE",
+        "AD_HOST",
         "JWT_ISSUER",
         "JWT_AUDIENCE",
         "CRITICAL_ROLE_KEYWORDS",
         "WIRELESS_CONTROLLERS_FILE",
         "CRITICALITY_RULES_FILE",
         "LDAP_CA_FILE",
+        "LDAP_URL",
         "ALERT_CRITICAL_PERCENT",
         "SITE_TIER_FIELD",
         "TENANT_SCOPE_FIELD",
@@ -712,7 +703,7 @@ class Settings(BaseSettings):
         lambda v: _csv_list(v, ","), "MCP_ALLOWED_ORIGINS", "ALERTMANAGER_DEVICE_LABELS"
     )
     _at_least_0 = _parse(_at_least(0), "ALERT_DELAY_SECONDS", "FLAP_CHANGES")
-    _at_least_1 = _parse(_at_least(1), "LDAP_TIMEOUT_SECONDS", "WEBHOOK_ALERT_TTL_HOURS")
+    _at_least_1 = _parse(_at_least(1), "WEBHOOK_ALERT_TTL_HOURS")
     _at_least_60 = _parse(_at_least(60), "WIRELESS_SYNC_INTERVAL_SECONDS", "JWT_LIFETIME_SECONDS")
     _database_urls = _parse(_sqlalchemy_scheme, "NAUTOBOT_MAPS_DATABASE_URL", "DATABASE_URL")
     _cors_origins = _parse(_origins, "CORS_ORIGINS")
@@ -850,6 +841,12 @@ class Settings(BaseSettings):
                 "AUTH_TRUSTED_PROXIES=<the proxy's address>/32 in .env (.env.example)"
             )
         if self.LDAP_URL:
+            raise RuntimeError(
+                "LDAP_URL was removed (#782): set AD_HOST (the domain controller's host name, "
+                "e.g. dc1.example.local) instead; LDAP_BASE_DN, LDAP_BIND_DN, "
+                "LDAP_BIND_PASSWORD and the other LDAP_* settings aren't needed any more"
+            )
+        if self.AD_HOST:
             _check_ad_login(self)
         return self
 
@@ -867,16 +864,9 @@ def _check_ad_login(settings: "Settings") -> None:
     """AD sign-in on (#717): refused at start when it can't be safe."""
     if len(settings.JWT_SIGNING_SECRET) < MIN_JWT_SECRET_LENGTH:
         raise RuntimeError(
-            f"LDAP_URL is set: JWT_SIGNING_SECRET must be at least {MIN_JWT_SECRET_LENGTH} "
+            f"AD_HOST is set: JWT_SIGNING_SECRET must be at least {MIN_JWT_SECRET_LENGTH} "
             "characters (e.g. openssl rand -base64 48)"
         )
-    if not settings.LDAP_URL.lower().startswith("ldaps://") and not settings.LDAP_ALLOW_PLAINTEXT:
-        raise RuntimeError(
-            "LDAP_URL must be ldaps:// (passwords go over it); ldap:// only with "
-            "LDAP_ALLOW_PLAINTEXT=true, for tests"
-        )
-    if not settings.LDAP_BASE_DN:
-        raise RuntimeError("LDAP_URL is set: LDAP_BASE_DN is needed too")
 
 
 # Every setting the API needs in its environment or .env (#760): all but the names only

@@ -244,7 +244,7 @@ def app_token(request: Request) -> str:
 
 
 def app_sign_in_on(settings: Settings) -> bool:
-    """AD sign-in (#717): with LDAP_URL, in header mode (the proxy optional)."""
+    """AD sign-in (#717): with AD_HOST, in header mode (the proxy optional)."""
     return settings.AUTH_MODE == "header" and ad_service.enabled(settings)
 
 

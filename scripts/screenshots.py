@@ -9,7 +9,7 @@ Run the mock at a NOC's scale and the app against an empty database, then this:
     uv run --project api --group e2e --with Pillow python scripts/screenshots.py --token nmt_... --seed
 
 Run the app with demo/wireless.env's WIRELESS_CONTROLLERS for the access
-points, and with AD sign-in on (LDAP_URL, AUTH_MODE=header; development/samba_ad.sh
+points, and with AD sign-in on (AD_HOST, AUTH_MODE=header; development/samba_ad.sh
 starts a domain controller) for the sign-in page's picture; without it that one is
 skipped.  --only admin,sign-in writes only those pictures.  An operator token works too, without the Admin page's picture and the
 workspaces' (each role's pages, #697: the admin token makes a key per role).
@@ -232,7 +232,7 @@ def sign_in_page(browser, base, out):
     try:
         urllib.request.urlopen(base + "/auth", timeout=10).close()
     except urllib.error.HTTPError:
-        print("AD sign-in off (no LDAP_URL): the sign-in page skipped")
+        print("AD sign-in off (no AD_HOST): the sign-in page skipped")
         return
     # A small window: the form is all there is.
     ctx = browser.new_context(viewport={"width": 720, "height": 560})

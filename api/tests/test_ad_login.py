@@ -1,7 +1,7 @@
 """Sign-in with AD and the app's own token (#717): the login, not the directory (#774).
 ad_service.authenticate is faked, so these hold for any AD service with its interface
-(a user, None, or DirectoryUnavailable); this repo's ldap3 one: test_ad_service.py, a
-real Samba AD: test_ad_live.py."""
+(a user, None, or DirectoryUnavailable); the sit_core one: test_ad_service.py, a real
+AD: test_ad_live.py."""
 
 import logging
 import time
@@ -17,7 +17,6 @@ from tests import db as adb
 from tests.test_auth import PROXY
 
 SECRET = "s" * 40
-BASE = "DC=nmaps,DC=test"
 USERS = {
     "jdoe": ("Jane-Pass-1!", "Jane Doe"),
     "bob": ("Bob-Pass-1!", "Bob Builder"),
@@ -49,10 +48,7 @@ def signed_in_mode(override_settings, pg_database, directory):
     override_settings(
         AUTH_MODE="header",
         AUTH_REQUIRE_VIEWER="true",
-        LDAP_URL="ldaps://fake-ad",
-        LDAP_BASE_DN=BASE,
-        LDAP_BIND_DN=f"CN=svc,{BASE}",
-        LDAP_BIND_PASSWORD="Svc-Pass-1!",
+        AD_HOST="fake-ad",
         JWT_SIGNING_SECRET=SECRET,
     )
     adb.call(identity_service.create, "jdoe", ["noc"], [], "Jane Doe")
@@ -110,10 +106,23 @@ def test_wrong_password_and_unknown_user_answer_the_same(signed_in_mode, client,
     assert wrong.json() == unknown.json() == {"error": "Wrong user name or password"}
 
 
-def test_no_identity_no_access(signed_in_mode, client):
+def test_the_first_sign_in_makes_a_viewer(signed_in_mode, client):
+    """#782 (the example's _create_basic_reader_user): viewer, nothing more."""
+    answer = login(client, username="bob", password="Bob-Pass-1!")
+    assert answer.status_code == 200
+    me = client.get("/api/v1/me").json()
+    assert me["username"] == "bob" and me["role"] == "viewer" and not me["can_write"]
+    made = adb.call(identity_service.read, "bob")
+    assert made.roles == ("viewer",) and made.common_name == "Bob Builder" and not made.scopes
+    assert login(client, username="bob", password="Bob-Pass-1!").status_code == 200, "again"
+
+
+def test_no_viewer_role_no_access(signed_in_mode, client):
+    adb.sql("DELETE FROM roles WHERE name = 'viewer'")
     answer = login(client, username="bob", password="Bob-Pass-1!")
     assert answer.status_code == 403 and answer.json()["error"] == "No access"
     assert "set-cookie" not in answer.headers
+    assert adb.call(identity_service.read, "bob") is None
 
 
 def test_failed_sign_ins_wait(signed_in_mode, client):
@@ -124,7 +133,7 @@ def test_failed_sign_ins_wait(signed_in_mode, client):
     # Another address isn't held up, nor is another name.
     with TestClient(app, base_url="https://maps.test", client=("10.1.1.1", 5000)) as other:
         assert login(other).status_code == 200
-    assert login(client, username="bob", password="Bob-Pass-1!").status_code == 403
+    assert login(client, username="bob", password="Bob-Pass-1!").status_code == 200
 
 
 def test_a_token_that_is_not_ours_or_not_any_more(signed_in_mode, client, monkeypatch):
@@ -208,11 +217,11 @@ def test_no_password_in_the_log(signed_in_mode, client, caplog):
     login(client)
     login(client, password="Wrong-Secret-9!")
     assert "Jane-Pass-1!" not in caplog.text and "Wrong-Secret-9!" not in caplog.text
-    assert "Svc-Pass-1!" not in caplog.text and SECRET not in caplog.text
+    assert SECRET not in caplog.text
     assert "AD sign-in: 'jdoe'" in caplog.text
 
 
-def test_off_without_ldap_url(override_settings, client):
+def test_off_without_ad_host(override_settings, client):
     override_settings(AUTH_MODE="header")
     assert login(client).status_code == 404
     assert client.get("/auth", headers={"Accept": "text/html"}).status_code == 404
@@ -221,23 +230,13 @@ def test_off_without_ldap_url(override_settings, client):
 @pytest.mark.parametrize(
     ("env", "message"),
     [
-        ({"JWT_SIGNING_SECRET": "short"}, "at least 32"),
-        ({"LDAP_URL": "ldap://dc1"}, "must be ldaps://"),
-        ({"LDAP_BASE_DN": ""}, "LDAP_BASE_DN"),
+        ({"AD_HOST": "dc1", "JWT_SIGNING_SECRET": "short"}, "at least 32"),
+        # An old .env (#782): AD on as before would be quietly off.
+        ({"LDAP_URL": "ldaps://dc1", "JWT_SIGNING_SECRET": SECRET}, "set AD_HOST"),
     ],
 )
 def test_an_unsafe_setup_is_refused(monkeypatch, env, message):
-    base = {
-        "LDAP_URL": "ldaps://dc1",
-        "LDAP_BASE_DN": BASE,
-        "JWT_SIGNING_SECRET": SECRET,
-    }
-    for key, value in {**base, **env}.items():
+    for key, value in env.items():
         monkeypatch.setenv(key, value)
     with pytest.raises(Exception, match=message):
         config.Settings()
-    monkeypatch.setenv("LDAP_URL", "ldap://dc1")
-    monkeypatch.setenv("LDAP_ALLOW_PLAINTEXT", "true")
-    monkeypatch.setenv("JWT_SIGNING_SECRET", SECRET)
-    monkeypatch.setenv("LDAP_BASE_DN", BASE)
-    assert config.Settings().LDAP_ALLOW_PLAINTEXT

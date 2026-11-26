@@ -82,7 +82,7 @@ os.environ["BACKGROUND_SYNC_ENABLED"] = "false"
 # Nothing that only the server has (#774): the tests run before deploy, also with the
 # deployment's .env loaded. Redis and AD come up with the server; tests that need
 # either fake them.
-os.environ.update(CACHE_TYPE="SimpleCache", CACHE_REDIS_URL="", LDAP_URL="")
+os.environ.update(CACHE_TYPE="SimpleCache", CACHE_REDIS_URL="", AD_HOST="")
 
 import logging  # noqa: E402
 

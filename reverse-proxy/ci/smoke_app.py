@@ -4,9 +4,9 @@ with SIGN_IN=app (reverse-proxy/compose.app-sign-in.yml), no oauth2-proxy.
     SESSION=<the app's sign-in token for olga> python reverse-proxy/ci/smoke_app.py \
         https://localhost:443 http://localhost:80
 
-olga must have an identity with the operator role; the domain controller in LDAP_URL
-needn't answer (CI has none: a sign-in then answers 503, which shows it reached the
-app).  The AD sign-in itself is checked by the ad-live job.
+olga must have an identity with the operator role; the domain controller in AD_HOST
+needn't answer (CI has none, nor sit_core: a sign-in then answers 503, which shows it
+reached the app).  The AD sign-in itself: api/tests/test_ad_live.py.
 """
 
 import json
