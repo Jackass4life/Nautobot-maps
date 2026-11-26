@@ -33,14 +33,7 @@ def verify(token: str) -> dict | None:
 
 
 def raw_rows() -> list[dict]:
-    conn = adb.connect()
-    try:
-        return [
-            db.row_to_dict(row)
-            for row in conn.execute("SELECT * FROM api_tokens ORDER BY id").fetchall()
-        ]
-    finally:
-        conn.close()
+    return [db.row_to_dict(row) for row in adb.sql("SELECT * FROM api_tokens ORDER BY id")]
 
 
 class TestTokens:

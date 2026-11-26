@@ -19,14 +19,10 @@ def ack(device_ids=None, note="", clear=False, by="olga"):
 
 
 def events() -> list[tuple]:
-    conn = adb.connect()
-    try:
-        rows = conn.execute(
-            "SELECT i.device_id, e.event_type FROM alert_events e JOIN alert_instances i ON i.id = e.alert_instance_id "
-            "WHERE e.event_type IN ('acknowledged', 'unacknowledged') ORDER BY e.id"
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = adb.sql(
+        "SELECT i.device_id, e.event_type FROM alert_events e JOIN alert_instances i ON i.id = e.alert_instance_id "
+        "WHERE e.event_type IN ('acknowledged', 'unacknowledged') ORDER BY e.id"
+    )
     return [(row["device_id"], row["event_type"]) for row in rows]
 
 
@@ -135,13 +131,9 @@ class TestApi:
             operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
             resp = client.post("/api/v1/alert-acks", json={"site_id": "loc-lon"}, headers=operator)
             assert resp.status_code == 200
-        conn = adb.connect()
-        try:
-            (by,) = {
-                r["acknowledged_by"]
-                for r in conn.execute("SELECT acknowledged_by FROM alert_instances").fetchall()
-                if r["acknowledged_by"]
-            }
-        finally:
-            conn.close()
+        (by,) = {
+            r["acknowledged_by"]
+            for r in adb.sql("SELECT acknowledged_by FROM alert_instances")
+            if r["acknowledged_by"]
+        }
         assert by == "olga"

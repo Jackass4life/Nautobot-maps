@@ -35,19 +35,14 @@ def sources(
 
 def finished(source: str, seconds_ago: int, status: str = "idle") -> None:
     at = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(
-                inventory.record_sync_state,
-                source,
-                last_completed_at=at,
-                last_successful_sync=at,
-                cache_version=inventory.cache_version(),
-                status=status,
-            )
-    finally:
-        conn.close()
+    adb.call(
+        inventory.record_sync_state,
+        source,
+        last_completed_at=at,
+        last_successful_sync=at,
+        cache_version=inventory.cache_version(),
+        status=status,
+    )
 
 
 def force(cooldown: int) -> bool:

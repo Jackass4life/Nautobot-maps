@@ -90,15 +90,10 @@ class TestTier:
     def test_on_the_board_and_sorting(self, site, override_settings):
         from tests.test_app import _snapshot_location
 
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(
-                    inventory.write_locations,
-                    [{**_snapshot_location("loc-lon", "London HQ"), "tier": "gold"}],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [{**_snapshot_location("loc-lon", "London HQ"), "tier": "gold"}],
+        )
         row = build()
         assert (row["tier"], row["tier_rank"]) == ("gold", 0)
         override_settings(SITE_TIERS=["platinum"])

@@ -97,12 +97,8 @@ def channels(monkeypatch, override_settings):
 
 
 def outbox():
-    conn = adb.connect()
-    try:
-        rows = conn.execute("SELECT * FROM notification_outbox ORDER BY id").fetchall()
-        return [db.row_to_dict(row) for row in rows]
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT * FROM notification_outbox ORDER BY id")
+    return [db.row_to_dict(row) for row in rows]
 
 
 def change(levels_before, levels_after, sites=None):
@@ -280,14 +276,10 @@ class TestOutbox:
         )
         sites = {f"loc-{n}": site(f"loc-{n}") for n in range(2)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE notification_outbox SET attempts = %s WHERE site_id = 'loc-0'",
-                (notify.MAX_ATTEMPTS - 1,),
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE notification_outbox SET attempts = %s WHERE site_id = 'loc-0'",
+            (notify.MAX_ATTEMPTS - 1,),
+        )
 
         class Bad:
             status_code = 503
@@ -332,14 +324,10 @@ class TestOutbox:
         assert "secret-token-123" not in caplog.text
         assert asyncio.run(notify.send_pending()) == 0, "not due again yet"
 
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE notification_outbox SET attempts = %s, next_attempt_at = %s",
-                (notify.MAX_ATTEMPTS - 1, NOW),
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE notification_outbox SET attempts = %s, next_attempt_at = %s",
+            (notify.MAX_ATTEMPTS - 1, NOW),
+        )
         asyncio.run(notify.send_pending())
         (row,) = outbox()
         assert row["status"] == "failed" and row["attempts"] == notify.MAX_ATTEMPTS

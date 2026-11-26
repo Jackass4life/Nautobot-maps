@@ -19,12 +19,8 @@ site = test_maintenance.site
 
 
 def stats() -> dict:
-    conn = adb.connect()
-    try:
-        rows = conn.execute("SELECT trigger, builds FROM board_build_stats").fetchall()
-        return {row["trigger"]: row["builds"] for row in map(db.row_to_dict, rows)}
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT trigger, builds FROM board_build_stats")
+    return {row["trigger"]: row["builds"] for row in map(db.row_to_dict, rows)}
 
 
 def test_a_request_builds_once_then_serves_the_stored_board(site):
@@ -151,26 +147,21 @@ def commit_sync(completed_at: str, **statuses) -> None:
     from tests.test_app import _snapshot_device, _snapshot_location
 
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
-            adb.call(
-                inventory.write_devices,
-                [
-                    _snapshot_device(name, "loc-lon", roles[name], status)
-                    for name, status in statuses.items()
-                ],
-            )
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at=completed_at,
-                last_successful_sync=completed_at,
-                cache_version=inventory.CACHE_VERSION,
-            )
-    finally:
-        conn.close()
+    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(
+        inventory.write_devices,
+        [
+            _snapshot_device(name, "loc-lon", roles[name], status)
+            for name, status in statuses.items()
+        ],
+    )
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at=completed_at,
+        last_successful_sync=completed_at,
+        cache_version=inventory.CACHE_VERSION,
+    )
 
 
 def london_down(board: dict) -> int:

@@ -109,11 +109,7 @@ class TestCatalystTopology:
         controllers["topology"]["dk"] = RuntimeError("timeout")
         asyncio.run(wireless.sync_controller(DK))
         assert load()["serial"]["FGL1"]["port"] == "Gi1/0/14"
-        conn = adb.connect()
-        try:
-            assert asyncio.run(inventory.sync_state(wireless.source(DK)))["status"] == "idle"
-        finally:
-            conn.close()
+        assert asyncio.run(inventory.sync_state(wireless.source(DK)))["status"] == "idle"
 
 
 def load(devices=None) -> dict:
@@ -162,42 +158,28 @@ class TestNautobotCables:
 
         monkeypatch.setattr(nautobot, "fetch_all_pages", broken)
         assert inventory.fetch_cables(None) is None, "kept: not an empty list"
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(inventory.write_cables, inventory.fetch_cables(None) or [], full=False)
-                adb.call(
-                    inventory.write_cables,
-                    [dict(cable_id="c1", a_device_id="a", a_port="p", b_device_id="b", b_port="q")],
-                    full=False,
-                )
-                adb.call(
-                    inventory.write_cables,
-                    [
-                        dict(
-                            cable_id="c1", a_device_id="a", a_port="p2", b_device_id="b", b_port="q"
-                        )
-                    ],
-                    full=False,
-                )
-                adb.call(
-                    inventory.write_cables,
-                    [dict(cable_id="c2", a_device_id="x", a_port="", b_device_id="y", b_port="")],
-                    full=False,
-                )
-            assert [
-                r["a_port"]
-                for r in conn.execute(
-                    "SELECT a_port FROM nautobot_cable_cache WHERE cable_id = 'c1'"
-                ).fetchall()
-            ] == ["p2"]
-            with conn.transaction():
-                adb.call(inventory.write_cables, [], full=True)
-            assert (
-                conn.execute("SELECT count(*) AS n FROM nautobot_cable_cache").fetchone()["n"] == 0
-            )
-        finally:
-            conn.close()
+        adb.call(inventory.write_cables, inventory.fetch_cables(None) or [], full=False)
+        adb.call(
+            inventory.write_cables,
+            [dict(cable_id="c1", a_device_id="a", a_port="p", b_device_id="b", b_port="q")],
+            full=False,
+        )
+        adb.call(
+            inventory.write_cables,
+            [dict(cable_id="c1", a_device_id="a", a_port="p2", b_device_id="b", b_port="q")],
+            full=False,
+        )
+        adb.call(
+            inventory.write_cables,
+            [dict(cable_id="c2", a_device_id="x", a_port="", b_device_id="y", b_port="")],
+            full=False,
+        )
+        assert [
+            r["a_port"]
+            for r in adb.sql("SELECT a_port FROM nautobot_cable_cache WHERE cable_id = 'c1'")
+        ] == ["p2"]
+        adb.call(inventory.write_cables, [], full=True)
+        assert adb.one("SELECT count(*) AS n FROM nautobot_cable_cache")["n"] == 0
 
 
 def cable(conn, ap_id: str, switch_id: str, port: str) -> None:

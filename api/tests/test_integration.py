@@ -495,13 +495,7 @@ class TestAlertBoardWithPersistence:
         asyncio.run(
             alerts.build_alert_board_payload(snapshot_only=True)
         )  # records every site's level
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE site_alert_levels SET alert_level = 'ok' WHERE site_id = 'loc-lon'"
-            )
-        finally:
-            conn.close()
+        adb.sql("UPDATE site_alert_levels SET alert_level = 'ok' WHERE site_id = 'loc-lon'")
         asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))  # London: OK -> Medium
         assert asyncio.run(notify.send_pending()) == 1
         (body,) = [json.loads(data) for data in posts]

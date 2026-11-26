@@ -39,27 +39,22 @@ def site(pg_database, monkeypatch, clock, override_settings):
 
 def set_devices(**statuses):
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
-            # A completed sync of the current cache: alert history is written.
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at=NOW,
-                last_successful_sync=NOW,
-                cache_version=inventory.CACHE_VERSION,
-            )
-            adb.call(
-                inventory.write_devices,
-                [
-                    _snapshot_device(name, "loc-lon", roles[name], status)
-                    for name, status in statuses.items()
-                ],
-            )
-    finally:
-        conn.close()
+    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    # A completed sync of the current cache: alert history is written.
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at=NOW,
+        last_successful_sync=NOW,
+        cache_version=inventory.CACHE_VERSION,
+    )
+    adb.call(
+        inventory.write_devices,
+        [
+            _snapshot_device(name, "loc-lon", roles[name], status)
+            for name, status in statuses.items()
+        ],
+    )
 
 
 def build() -> dict:
@@ -70,22 +65,14 @@ def build() -> dict:
 
 
 def open_alerts() -> dict:
-    conn = adb.connect()
-    try:
-        rows = conn.execute("SELECT device_id, status FROM alert_instances ORDER BY id").fetchall()
-        return {row["device_id"]: row["status"] for row in map(db.row_to_dict, rows)}
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT device_id, status FROM alert_instances ORDER BY id")
+    return {row["device_id"]: row["status"] for row in map(db.row_to_dict, rows)}
 
 
 def window(**body) -> list[dict]:
-    conn = adb.connect()
-    try:
-        return adb.call(
-            maintenance.create, {"site_id": "loc-lon", "reason": "Core upgrade", **body}, "olga"
-        )
-    finally:
-        conn.close()
+    return adb.call(
+        maintenance.create, {"site_id": "loc-lon", "reason": "Core upgrade", **body}, "olga"
+    )
 
 
 @pytest.mark.usefixtures("pg_database")
@@ -147,12 +134,8 @@ class TestWindows:
         ],
     )
     def test_invalid_requests(self, body, error):
-        conn = adb.connect()
-        try:
-            with pytest.raises(maintenance.WindowError, match=error):
-                adb.call(maintenance.create, body, "olga")
-        finally:
-            conn.close()
+        with pytest.raises(maintenance.WindowError, match=error):
+            adb.call(maintenance.create, body, "olga")
 
     def test_now_planned_device_windows_and_their_states(self):
         (site_window,) = window(duration_minutes=120)
@@ -207,20 +190,16 @@ class TestBoard:
 
     def test_device_in_maintenance_is_left_out_of_the_level(self, site):
         build()
-        conn = adb.connect()
-        try:
-            adb.call(
-                maintenance.create,
-                {
-                    "site_id": "loc-lon",
-                    "reason": "Swap",
-                    "duration_minutes": 60,
-                    "device_ids": ["core"],
-                },
-                "olga",
-            )
-        finally:
-            conn.close()
+        adb.call(
+            maintenance.create,
+            {
+                "site_id": "loc-lon",
+                "reason": "Swap",
+                "duration_minutes": 60,
+                "device_ids": ["core"],
+            },
+            "olga",
+        )
         set_devices(core="Active", acc1="Offline", acc2="Active")
         row = build()
         # Without the core: 1 of 2 down is Medium, not Critical.
@@ -247,20 +226,16 @@ class TestBoard:
         # Availability's "12 network · 40 APs" (#499): by role, capitals aside,
         # a device in maintenance too, and no AP role means none.
         build()
-        conn = adb.connect()
-        try:
-            adb.call(
-                maintenance.create,
-                {
-                    "site_id": "loc-lon",
-                    "reason": "Swap",
-                    "duration_minutes": 60,
-                    "device_ids": ["core"],
-                },
-                "olga",
-            )
-        finally:
-            conn.close()
+        adb.call(
+            maintenance.create,
+            {
+                "site_id": "loc-lon",
+                "reason": "Swap",
+                "duration_minutes": 60,
+                "device_ids": ["core"],
+            },
+            "olga",
+        )
 
         # And of each, how many are down (#503): acc1; the core is in maintenance.
         def counts(row):
@@ -281,15 +256,11 @@ class TestBoard:
         # A site window leaves its devices counted, for the level; the status
         # page must not call the two down ones down (#503 review).
         assert build()["down_network_device_count"] == 2
-        conn = adb.connect()
-        try:
-            adb.call(
-                maintenance.create,
-                {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60},
-                "olga",
-            )
-        finally:
-            conn.close()
+        adb.call(
+            maintenance.create,
+            {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60},
+            "olga",
+        )
         row = build()
         assert row["alert_level"] == "maintenance"
         assert (
@@ -305,20 +276,16 @@ class TestBoard:
     def test_a_device_going_down_in_maintenance_is_listed_not_counted(self, site):
         set_devices(core="Active", acc1="Active", acc2="Active")
         build()
-        conn = adb.connect()
-        try:
-            adb.call(
-                maintenance.create,
-                {
-                    "site_id": "loc-lon",
-                    "reason": "Swap",
-                    "duration_minutes": 60,
-                    "device_ids": ["acc2"],
-                },
-                "olga",
-            )
-        finally:
-            conn.close()
+        adb.call(
+            maintenance.create,
+            {
+                "site_id": "loc-lon",
+                "reason": "Swap",
+                "duration_minutes": 60,
+                "device_ids": ["acc2"],
+            },
+            "olga",
+        )
         set_devices(core="Active", acc1="Active", acc2="Offline")
         row = build()
         assert row["alert_level"] == "ok" and row["down_device_count"] == 0
@@ -346,21 +313,17 @@ class TestBoard:
     def test_a_device_gone_from_the_inventory_keeps_its_frozen_alert(self, site):
         """Copilot on #303: frozen ids come from the windows, not the inventory."""
         build()
-        conn = adb.connect()
-        try:
-            adb.call(
-                maintenance.create,
-                {
-                    "site_id": "loc-lon",
-                    "reason": "Swap",
-                    "duration_minutes": 60,
-                    "device_ids": ["core"],
-                },
-                "olga",
-            )
-            conn.execute("DELETE FROM nautobot_device_cache WHERE device_id = 'core'")
-        finally:
-            conn.close()
+        adb.call(
+            maintenance.create,
+            {
+                "site_id": "loc-lon",
+                "reason": "Swap",
+                "duration_minutes": 60,
+                "device_ids": ["core"],
+            },
+            "olga",
+        )
+        adb.sql("DELETE FROM nautobot_device_cache WHERE device_id = 'core'")
         build()
         assert open_alerts()["core"] == "open"
 
@@ -396,11 +359,7 @@ class TestNotifications:
         (created,) = window(duration_minutes=60)
         build()
         assert outbox_kinds() == [], "going into maintenance sends nothing"
-        conn = adb.connect()
-        try:
-            adb.call(maintenance.end, created["id"], "olga")
-        finally:
-            conn.close()
+        adb.call(maintenance.end, created["id"], "olga")
         assert build()["alert_level"] == "critical"
         assert outbox_kinds() == [("alarm", "maintenance", "critical")], (
             "still Critical when it ends"
@@ -412,27 +371,19 @@ class TestNotifications:
         set_devices(core="Offline", acc1="Active", acc2="Active")
         build()
         build()
-        conn = adb.connect()
-        try:
-            (created,) = adb.call(
-                maintenance.create,
-                {
-                    "site_id": "loc-lon",
-                    "reason": "Swap",
-                    "duration_minutes": 60,
-                    "device_ids": ["core"],
-                },
-                "olga",
-            )
-        finally:
-            conn.close()
+        (created,) = adb.call(
+            maintenance.create,
+            {
+                "site_id": "loc-lon",
+                "reason": "Swap",
+                "duration_minutes": 60,
+                "device_ids": ["core"],
+            },
+            "olga",
+        )
         assert build()["alert_level"] == "ok"
         assert outbox_kinds() == [], "planned, not a recovery"
-        conn = adb.connect()
-        try:
-            adb.call(maintenance.end, created["id"], "olga")
-        finally:
-            conn.close()
+        adb.call(maintenance.end, created["id"], "olga")
         build()
         assert outbox_kinds() == [("alarm", "ok", "critical")], "still down when it ends"
 
@@ -444,18 +395,12 @@ class TestNotifications:
 
 
 def outbox_kinds() -> list:
-    conn = adb.connect()
-    try:
-        rows = conn.execute(
-            "SELECT kind, payload_json FROM notification_outbox ORDER BY id"
-        ).fetchall()
-        result = []
-        for row in map(db.row_to_dict, rows):
-            payload = json.loads(row["payload_json"])
-            result.append((row["kind"], payload["previous_level"], payload["level"]))
-        return result
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT kind, payload_json FROM notification_outbox ORDER BY id")
+    result = []
+    for row in map(db.row_to_dict, rows):
+        payload = json.loads(row["payload_json"])
+        result.append((row["kind"], payload["previous_level"], payload["level"]))
+    return result
 
 
 class TestCache:
@@ -481,19 +426,14 @@ class TestCache:
 
 class TestSiteDevices:
     def test_monitored_devices_of_a_site(self, site, override_settings):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                no_ip = {
-                    **_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"),
-                    "primary_ip": "",
-                }
-                adb.call(
-                    inventory.write_devices,
-                    [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")],
-                )
-        finally:
-            conn.close()
+        no_ip = {
+            **_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"),
+            "primary_ip": "",
+        }
+        adb.call(
+            inventory.write_devices,
+            [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")],
+        )
         override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"planned"})
         devices = asyncio.run(alerts.site_monitored_devices("loc-lon"))
         assert [d["id"] for d in devices] == ["acc1", "acc2", "core"], (
@@ -508,23 +448,18 @@ class TestSiteDevices:
         }
 
     def test_rolled_up_site_includes_devices_below_it(self, site, override_settings):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                building = {
-                    **_snapshot_location("bld-a", "Bygning A", "Building"),
-                    "parent_id": "loc-lon",
-                }
-                adb.call(
-                    inventory.write_locations,
-                    [_snapshot_location("loc-lon", "London HQ", "Site"), building],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")],
-                )
-        finally:
-            conn.close()
+        building = {
+            **_snapshot_location("bld-a", "Bygning A", "Building"),
+            "parent_id": "loc-lon",
+        }
+        adb.call(
+            inventory.write_locations,
+            [_snapshot_location("loc-lon", "London HQ", "Site"), building],
+        )
+        adb.call(
+            inventory.write_devices,
+            [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")],
+        )
         override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site")
         devices = {d["id"]: d for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))}
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
@@ -532,23 +467,18 @@ class TestSiteDevices:
     def test_not_below_an_excluded_location_unless_shown_on_the_board(
         self, site, override_settings
     ):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                closed = {
-                    **_snapshot_location("bld-old", "Old Building", "Building"),
-                    "parent_id": "loc-lon",
-                }
-                adb.call(
-                    inventory.write_locations,
-                    [_snapshot_location("loc-lon", "London HQ", "Site"), closed],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")],
-                )
-        finally:
-            conn.close()
+        closed = {
+            **_snapshot_location("bld-old", "Old Building", "Building"),
+            "parent_id": "loc-lon",
+        }
+        adb.call(
+            inventory.write_locations,
+            [_snapshot_location("loc-lon", "London HQ", "Site"), closed],
+        )
+        adb.call(
+            inventory.write_devices,
+            [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")],
+        )
         override_settings(
             ALERT_BOARD_SITE_LOCATION_TYPE="site",
             ALERT_BOARD_EXCLUDED_LOCATION_NAMES={"old building"},
@@ -578,15 +508,11 @@ class TestBatches:
         self.clock = clock
 
     def _create(self, body):
-        conn = adb.connect()
-        try:
-            return adb.call(
-                maintenance.create,
-                {"reason": "Core upgrade", "duration_minutes": 120, **body},
-                "olga",
-            )
-        finally:
-            conn.close()
+        return adb.call(
+            maintenance.create,
+            {"reason": "Core upgrade", "duration_minutes": 120, **body},
+            "olga",
+        )
 
     def test_thirty_sites_in_one_request(self):
         sites = [f"site-{i:02d}" for i in range(30)] + ["site-00"]  # a repeat counts once
@@ -611,75 +537,61 @@ class TestBatches:
         planned = self._create(
             {"site_ids": ["c"], "starts_at": "2026-10-10T08:00:00Z", "duration_minutes": 60}
         )
-        conn = adb.connect()
-        try:
-            result = adb.call(
-                maintenance.end_many, [w["id"] for w in active + planned] + [999], "ivan"
-            )
-            ended = result["windows"]
-            assert result["changed"] == 3
-            # The ended time returned is the one stored.
-            assert ended[0]["ended_at"] == "2026-10-09T12:00:00Z"
-            assert [(w["site_id"], w["state"], w["ended_by"]) for w in ended] == [
-                ("a", "ended", "ivan"),
-                ("b", "ended", "ivan"),
-                ("c", "cancelled", "ivan"),
-            ]
-            # Already over: returned as they are, not ended again.
-            again = adb.call(maintenance.end_many, [active[0]["id"]], "someone")
-            assert again["windows"][0]["ended_by"] == "ivan" and again["changed"] == 0
-        finally:
-            conn.close()
+        result = adb.call(maintenance.end_many, [w["id"] for w in active + planned] + [999], "ivan")
+        ended = result["windows"]
+        assert result["changed"] == 3
+        # The ended time returned is the one stored.
+        assert ended[0]["ended_at"] == "2026-10-09T12:00:00Z"
+        assert [(w["site_id"], w["state"], w["ended_by"]) for w in ended] == [
+            ("a", "ended", "ivan"),
+            ("b", "ended", "ivan"),
+            ("c", "cancelled", "ivan"),
+        ]
+        # Already over: returned as they are, not ended again.
+        again = adb.call(maintenance.end_many, [active[0]["id"]], "someone")
+        assert again["windows"][0]["ended_by"] == "ivan" and again["changed"] == 0
 
     def test_open_windows_are_never_crowded_out(self):
         # A week of ended 200-site batches must not push tonight's work past the limit (review on #343).
-        conn = adb.connect()
-        try:
-            for day in range(3):
-                old = self._create(
-                    {"site_ids": [f"old-{day}-{i}" for i in range(5)], "duration_minutes": 60}
-                )
-                adb.call(maintenance.end_many, [w["id"] for w in old], "olga")
-            fresh = self._create(
-                {
-                    "site_ids": ["tonight"],
-                    "starts_at": "2026-10-09T20:00:00Z",
-                    "duration_minutes": 60,
-                }
+        for day in range(3):
+            old = self._create(
+                {"site_ids": [f"old-{day}-{i}" for i in range(5)], "duration_minutes": 60}
             )
-            listed = adb.call(maintenance.list_windows, recent_days=7, limit=3)
-        finally:
-            conn.close()
+            adb.call(maintenance.end_many, [w["id"] for w in old], "olga")
+        fresh = self._create(
+            {
+                "site_ids": ["tonight"],
+                "starts_at": "2026-10-09T20:00:00Z",
+                "duration_minutes": 60,
+            }
+        )
+        listed = adb.call(maintenance.list_windows, recent_days=7, limit=3)
         assert listed[0]["id"] == fresh[0]["id"] and listed[0]["state"] == "upcoming"
 
     def test_recent_windows_and_names(self):
         old = self._create({"site_ids": ["gone"], "duration_minutes": 60})
         current = self._create({"site_ids": ["site-a"]})
         device = self._create({"site_id": "site-a", "device_ids": ["dev-1"]})
-        conn = adb.connect()
-        try:
-            adb.call(maintenance.end_many, [old[0]["id"]], "olga")
-            self.clock["now"] = "2026-10-12T12:00:00Z"  # three days later: all over
-            assert adb.call(maintenance.list_windows) == []
-            recent = adb.call(maintenance.list_windows, recent_days=7)
-            assert {w["site_id"] for w in recent} == {"gone", "site-a"}
-            assert adb.call(maintenance.list_windows, recent_days=2) == []
-            adb.call(
-                inventory.write_devices,
-                [_snapshot_device("dev-1", "site-a", "Core Router", "Active")],
-            )
-            sites = [
-                {
-                    "id": "site-a",
-                    "name": "Aarhus",
-                    "ancestor_path": "EMEA › DNK",
-                    "tenants": ["Acme"],
-                    "tenant_descriptions": {"Acme": "Gold"},
-                }
-            ]
-            described = adb.call(maintenance.describe, current + device, sites)
-        finally:
-            conn.close()
+        adb.call(maintenance.end_many, [old[0]["id"]], "olga")
+        self.clock["now"] = "2026-10-12T12:00:00Z"  # three days later: all over
+        assert adb.call(maintenance.list_windows) == []
+        recent = adb.call(maintenance.list_windows, recent_days=7)
+        assert {w["site_id"] for w in recent} == {"gone", "site-a"}
+        assert adb.call(maintenance.list_windows, recent_days=2) == []
+        adb.call(
+            inventory.write_devices,
+            [_snapshot_device("dev-1", "site-a", "Core Router", "Active")],
+        )
+        sites = [
+            {
+                "id": "site-a",
+                "name": "Aarhus",
+                "ancestor_path": "EMEA › DNK",
+                "tenants": ["Acme"],
+                "tenant_descriptions": {"Acme": "Gold"},
+            }
+        ]
+        described = adb.call(maintenance.describe, current + device, sites)
         whole, dev = described["windows"]
         assert (whole["site_name"], whole["site_path"], whole["tenants"], whole["device_name"]) == (
             "Aarhus",
@@ -700,23 +612,15 @@ class TestHistory:
         self.clock = clock
 
     def _create(self, **body):
-        conn = adb.connect()
-        try:
-            return adb.call(maintenance.create, {"reason": "Work", **body}, "olga")
-        finally:
-            conn.close()
+        return adb.call(maintenance.create, {"reason": "Work", **body}, "olga")
 
     def _history(self, start, end, site_id=""):
-        conn = adb.connect()
-        try:
-            return adb.call(
-                maintenance.history,
-                timeutil.parse_iso_datetime(start),
-                timeutil.parse_iso_datetime(end),
-                [site_id] if site_id else None,
-            )
-        finally:
-            conn.close()
+        return adb.call(
+            maintenance.history,
+            timeutil.parse_iso_datetime(start),
+            timeutil.parse_iso_datetime(end),
+            [site_id] if site_id else None,
+        )
 
     def test_overlap_state_and_minutes(self):
         # Now is 2026-10-09 12:00.
@@ -725,13 +629,9 @@ class TestHistory:
         )
         cancelled = self._create(site_id="c", starts_at="2026-10-09T20:00:00Z", duration_minutes=60)
         self.clock["now"] = "2026-10-09T12:30:00Z"
-        conn = adb.connect()
-        try:
-            adb.call(
-                maintenance.end_many, [ran[0]["id"], cancelled[0]["id"]], "ivan"
-            )  # a ends early, c is cancelled
-        finally:
-            conn.close()
+        adb.call(
+            maintenance.end_many, [ran[0]["id"], cancelled[0]["id"]], "ivan"
+        )  # a ends early, c is cancelled
         self.clock["now"] = "2026-10-10T12:00:00Z"
         later = self._create(
             site_id="a", device_ids=["d1"], starts_at="2026-10-12T08:00:00Z", duration_minutes=30
@@ -765,34 +665,24 @@ class TestHistory:
     def test_export(self):
         self._create(site_id="=cmd", device_ids=["d1"], reason="=HYPERLINK()", duration_minutes=90)
         # Streamed from a server-side cursor, the device name joined in (#353).
-        inventory_conn = adb.connect()
-        try:
+        adb.call(inventory.write_devices, [_snapshot_device("d1", "=cmd", "Core Router", "Active")])
+        text = "".join(
             adb.call(
-                inventory.write_devices, [_snapshot_device("d1", "=cmd", "Core Router", "Active")]
-            )
-        finally:
-            inventory_conn.close()
-        conn = adb.connect()
-        try:
-            text = "".join(
-                adb.call(
-                    maintenance.history_csv_lines,
-                    timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
-                    timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
-                    None,
-                    [{"id": "=cmd", "name": "Oslo", "tenants": ["Acme"]}],
-                )
-            )
-            # Over the limit is a probe, not a read.
-            assert adb.call(
-                maintenance.history_exceeds,
+                maintenance.history_csv_lines,
                 timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
                 timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
                 None,
-                0,
+                [{"id": "=cmd", "name": "Oslo", "tenants": ["Acme"]}],
             )
-        finally:
-            conn.close()
+        )
+        # Over the limit is a probe, not a read.
+        assert adb.call(
+            maintenance.history_exceeds,
+            timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
+            timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
+            None,
+            0,
+        )
         lines = text.lstrip("\ufeff").splitlines()
         assert lines[0].split(",") == list(maintenance.HISTORY_COLUMNS)
         row = next(csv.reader(lines[1:]))

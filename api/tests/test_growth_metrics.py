@@ -24,15 +24,10 @@ def test_table_sizes_and_the_oldest_history(pg_database):
     assert not any(line.startswith("nautobot_maps_history_oldest") for line in samples), (
         "no history yet: no sample"
     )
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            conn.execute(
-                "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
-                "VALUES ('s1', 'Oslo', 'ok', 'critical', '2026-01-01T00:00:00Z')"
-            )
-    finally:
-        conn.close()
+    adb.sql(
+        "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
+        "VALUES ('s1', 'Oslo', 'ok', 'critical', '2026-01-01T00:00:00Z')"
+    )
     assert "nautobot_maps_history_oldest_timestamp_seconds 1767225600" in scrape()
 
 

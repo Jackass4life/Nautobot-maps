@@ -36,29 +36,24 @@ def site(pg_database, monkeypatch, clock, override_settings):
 
 def set_devices(**devices):
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at=NOW,
-                last_successful_sync=NOW,
-                cache_version=inventory.CACHE_VERSION,
-            )
-            adb.call(
-                inventory.write_devices,
-                [
-                    {
-                        **_snapshot_device(name, "loc-lon", roles[name], status),
-                        "last_updated": changed,
-                    }
-                    for name, (status, changed) in devices.items()
-                ],
-            )
-    finally:
-        conn.close()
+    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at=NOW,
+        last_successful_sync=NOW,
+        cache_version=inventory.CACHE_VERSION,
+    )
+    adb.call(
+        inventory.write_devices,
+        [
+            {
+                **_snapshot_device(name, "loc-lon", roles[name], status),
+                "last_updated": changed,
+            }
+            for name, (status, changed) in devices.items()
+        ],
+    )
 
 
 def build() -> dict:
@@ -68,11 +63,7 @@ def build() -> dict:
 
 
 def rows(sql: str) -> list[dict]:
-    conn = adb.connect()
-    try:
-        return [db.row_to_dict(row) for row in conn.execute(sql).fetchall()]
-    finally:
-        conn.close()
+    return [db.row_to_dict(row) for row in adb.sql(sql)]
 
 
 class TestDelay:
@@ -159,21 +150,16 @@ class TestDelay:
         assert build()["down_device_count"] == 1
 
     def test_a_site_whose_only_device_is_pending_is_ok_on_the_map_not_no_data(self, site, clock):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(inventory.write_locations, [_snapshot_location("loc-one", "One Device")])
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            **_snapshot_device("solo", "loc-one", "Access Switch", "Offline"),
-                            "last_updated": NOW,
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(inventory.write_locations, [_snapshot_location("loc-one", "One Device")])
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    **_snapshot_device("solo", "loc-one", "Access Switch", "Offline"),
+                    "last_updated": NOW,
+                }
+            ],
+        )
         caching.cache.clear()
         asyncio.run(
             alerts.build_alert_board_payload(snapshot_only=True)
@@ -204,21 +190,16 @@ class TestDelay:
 
 class TestCleanup:
     def test_rows_of_devices_gone_for_a_week_are_dropped(self, site, clock):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                conn.execute(
-                    "INSERT INTO device_states (device_id, site_id, state, since, updated_at) "
-                    "VALUES ('gone', 'loc-lon', 'down', %s, %s), ('recent', 'loc-lon', 'down', %s, %s)",
-                    (
-                        "2026-09-01T00:00:00Z",
-                        "2026-10-02T00:00:00Z",
-                        "2026-10-09T00:00:00Z",
-                        "2026-10-09T00:00:00Z",
-                    ),
-                )
-        finally:
-            conn.close()
+        adb.sql(
+            "INSERT INTO device_states (device_id, site_id, state, since, updated_at) "
+            "VALUES ('gone', 'loc-lon', 'down', %s, %s), ('recent', 'loc-lon', 'down', %s, %s)",
+            (
+                "2026-09-01T00:00:00Z",
+                "2026-10-02T00:00:00Z",
+                "2026-10-09T00:00:00Z",
+                "2026-10-09T00:00:00Z",
+            ),
+        )
         build()  # nothing else changed
         assert rows("SELECT device_id FROM device_states") == [{"device_id": "recent"}]
 

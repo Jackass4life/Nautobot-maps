@@ -15,13 +15,7 @@ site = test_maintenance.site
 
 
 def causes() -> dict:
-    conn = adb.connect()
-    try:
-        rows = conn.execute(
-            "SELECT device_id, probable_cause FROM alert_instances WHERE status = 'open'"
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT device_id, probable_cause FROM alert_instances WHERE status = 'open'")
     return {row["device_id"]: row["probable_cause"] for row in map(db.row_to_dict, rows)}
 
 
@@ -49,15 +43,10 @@ def test_a_core_back_up_clears_the_cause(site):
 
 
 def test_several_core_devices(site):
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            conn.execute(
-                "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at) "
-                "VALUES ('acc2', 1, 'test', '2026-10-09T00:00:00Z')"
-            )
-    finally:
-        conn.close()
+    adb.sql(
+        "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at) "
+        "VALUES ('acc2', 1, 'test', '2026-10-09T00:00:00Z')"
+    )
     set_devices(core="Offline", acc1="Offline", acc2="Offline")
     row = build()
     assert {d["device_name"] for d in row["down_devices"] if d.get("core")} == {"core", "acc2"}

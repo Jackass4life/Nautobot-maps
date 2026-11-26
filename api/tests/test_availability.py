@@ -223,13 +223,7 @@ class TestReport:
             incident(conn, "s1", "d1", t(9), t(9, 0, 10))
 
         write(setup)
-        conn = adb.connect()
-        try:
-            rows = conn.execute(
-                "SELECT down_started_at, resolved_at FROM alert_instances"
-            ).fetchall()
-        finally:
-            conn.close()
+        rows = adb.sql("SELECT down_started_at, resolved_at FROM alert_instances")
         history = availability.union([(r["down_started_at"], r["resolved_at"]) for r in rows])
         assert (
             run()["sites"][0]["downtime_seconds"] == availability.seconds(history) == 3 * 3600 + 600
