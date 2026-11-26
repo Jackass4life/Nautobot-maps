@@ -1748,10 +1748,6 @@ class TestLocationDetailWithLocationType:
 class TestCriticalityOverrideEndpoints:
     """Tests for /api/criticality-overrides (requires the persistence database)."""
 
-    @pytest.fixture(autouse=True)
-    def _database(self, pg_database):
-        self.db = pg_database
-
     def test_list_empty(self, client):
         resp = client.get("/api/v1/criticality-overrides")
         assert resp.status_code == 200
@@ -1885,10 +1881,6 @@ class TestCriticalityOverrideEndpoints:
 # Tests: alert lifecycle history and cases
 # ---------------------------------------------------------------------------
 class TestAlertLifecycleTracking:
-    @pytest.fixture(autouse=True)
-    def _database(self, pg_database):
-        self.db = pg_database
-
     def test_api_alerts_contains_lifecycle_fields(self, client):
         with (
             patch.object(
@@ -2466,8 +2458,7 @@ class TestAlertLifecycleTracking:
 
 class TestInventoryCacheSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
-        self.db = pg_database
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
@@ -4104,8 +4095,7 @@ class TestAlertBoardBulkReads:
     CHECKED_AT = "2026-09-25T12:00:00+00:00"
 
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, monkeypatch, override_settings):
-        self.db = pg_database
+    def _database(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4120,7 +4110,7 @@ class TestAlertBoardBulkReads:
         caching.cache.clear()
 
     def _execute(self, sql, rows):
-        self.db.executemany(sql, rows)
+        adb.many(sql, rows)
 
     def _seed(self, site_count, down_every=10, backfill_done=True):
         """Seed *site_count* sites with 3 devices; every *down_every*-th site has its router down."""
@@ -4345,8 +4335,7 @@ class TestSiteRollup:
     ]
 
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, monkeypatch, override_settings):
-        self.db = pg_database
+    def _database(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4359,7 +4348,7 @@ class TestSiteRollup:
             ALERT_BOARD_EXCLUDED_LOCATION_TYPES=set(),
         )
         names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
-        self.db.executemany(
+        adb.many(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, parent_id, parent, status) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
             [
@@ -4367,7 +4356,7 @@ class TestSiteRollup:
                 for location_id, name, location_type, parent_id, status in self.LOCATIONS
             ],
         )
-        self.db.executemany(
+        adb.many(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
             [
@@ -4463,8 +4452,7 @@ class TestSiteRollup:
 # ---------------------------------------------------------------------------
 class TestBackgroundScheduler:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
-        self.db = pg_database
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4701,7 +4689,7 @@ class TestRealStartTimes:
         assert "down_source" not in enriched[1]
 
     @pytest.fixture
-    def board(self, pg_database, monkeypatch, override_settings):
+    def board(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4714,7 +4702,7 @@ class TestRealStartTimes:
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
             "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
         )
-        pg_database.executemany(
+        adb.many(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip, last_updated) "
             "VALUES (%s, 'loc-1', %s, 'access', %s, %s, %s)",
             [
@@ -4771,7 +4759,7 @@ class TestRealStartTimes:
 # ---------------------------------------------------------------------------
 class TestAlertFeed:
     @pytest.fixture
-    def board(self, pg_database, monkeypatch, override_settings):
+    def board(self, monkeypatch, override_settings):
         """A site with two switches; returns (build, set_status, clock)."""
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
@@ -4786,7 +4774,7 @@ class TestAlertFeed:
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
             "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
         )
-        pg_database.executemany(
+        adb.many(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES (%s, 'loc-1', %s, 'access', 'Active', %s)",
             [("d-1", "sw01", "10.0.0.1/32"), ("d-2", "sw02", "10.0.0.2/32")],
@@ -6084,8 +6072,7 @@ class TestAlertHistoryCsv:
     @pytest.fixture(autouse=True)
     def _history(self, monkeypatch):
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.NOW)
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 for device_id, name, role, ip in (
                     ("d1", "lon-sw01", "Access Switch", "10.0.8.4/24"),
@@ -6173,8 +6160,6 @@ class TestAlertHistoryCsv:
                     "INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at) VALUES "
                     "(1, 'INC-881', '', now()), (1, 'INC-1', '', now()), (2, 'INC-900', '', now())"
                 )
-        finally:
-            conn.close()
 
     @staticmethod
     def _rows(resp):

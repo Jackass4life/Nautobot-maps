@@ -130,8 +130,7 @@ class TestPrimaryIpExtraction:
 
 class TestInventoryCacheSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
-        self.db = pg_database
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )

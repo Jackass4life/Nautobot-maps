@@ -97,8 +97,7 @@ def test_the_csv_reads_the_numbers_as_a_list(override_settings):
     from app.services import export_service as export
 
     override_settings(CASE_URL_TEMPLATE=TEMPLATE)
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             row = conn.execute(
                 "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
@@ -109,8 +108,6 @@ def test_the_csv_reads_the_numbers_as_a_list(override_settings):
                 "INSERT INTO alert_cases (alert_instance_id, case_number, created_by) VALUES (%s, 'INC;7', 'x')",
                 (row["id"],),
             )
-    finally:
-        conn.close()
     lines = adb.call(
         lambda aconn: export.incident_lines(
             export.iter_site_incidents(aconn, "s", None), datetime.now(UTC)

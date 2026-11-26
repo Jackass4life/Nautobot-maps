@@ -231,13 +231,10 @@ class TestOutbox:
     def test_a_locked_row_is_not_sent_twice(self, channels):
         """Two senders at once: the second skips what the first holds (FOR UPDATE SKIP LOCKED)."""
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        holder = adb.connect()
-        try:
+        with adb.connect() as holder:
             with holder.transaction():
                 holder.execute("SELECT id FROM notification_outbox FOR UPDATE").fetchall()
                 assert asyncio.run(notify.send_pending()) == 0
-        finally:
-            holder.close()
         assert asyncio.run(notify.send_pending()) == 3
 
     def test_a_burst_is_one_summary(self, channels, override_settings):

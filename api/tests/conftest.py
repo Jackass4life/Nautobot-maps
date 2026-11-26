@@ -220,6 +220,11 @@ def seed_roles() -> None:
 
 @pytest.fixture(autouse=True)
 def clean_tables():
+    """Every test starts with an empty cache and leaves empty tables (#784: no fixture
+    to ask for the database; ``tests/db.py`` reaches it)."""
+    from app.clients import caching
+
+    caching.cache.clear()
     yield
     # A sync or rebuild a test started must end first: emptying the tables under it is a
     # deadlock (whatever order pytest tears the fixtures down in). One still running after
@@ -232,16 +237,15 @@ def clean_tables():
     # As a migrated database has them (#719: a key made with a role is an identity
     # with that role).
     seed_roles()
+    caching.cache.clear()
 
 
 @pytest.fixture
 def client():
-    """The whole app, from 127.0.0.1 with an empty cache (tests/http_client.py; another
-    address or options: ``http_client.make(address=(ip, port), ...)``)."""
-    from app.clients import caching
+    """The whole app, from 127.0.0.1 (tests/http_client.py; another address or
+    options: ``http_client.make(address=(ip, port), ...)``)."""
     from tests import http_client
 
-    caching.cache.clear()
     with http_client.make() as c:
         yield c
 
@@ -296,21 +300,6 @@ def override_settings():
         undo()
 
 
-class TestDatabase:
-    """Direct access to the test database, for seeding and checking rows: the current
-    app's tests/conftest.py helper, for the tests ported from it (#600, #602)."""
-
-    __test__ = False  # not a test class
-
-    def execute(self, sql: str, params=None) -> list[dict]:
-        """Run one statement; return its rows as dicts (``[]`` when it returns none)."""
-        return adb.sql(sql, params)
-
-    def executemany(self, sql: str, rows) -> None:
-        with adb.connect() as conn:
-            conn.executemany(sql, list(rows))
-
-
 def join_background_threads(timeout: float = 30.0) -> list[str]:
     """Wait for background syncs and rebuilds a test started, so none runs into the next
     test (as the current app's conftest). Their tasks (#663) run on the app's loop, a
@@ -346,19 +335,7 @@ def _no_background_threads_left():
 
 
 @pytest.fixture
-def pg_database():
-    """The current app's per-test database, for tests ported from it: here the test
-    database (emptied after each test by ``clean_tables``), with its helper."""
-    from app.clients import caching
-
-    caching.cache.clear()
-    yield TestDatabase()
-    join_background_threads()
-    caching.cache.clear()
-
-
-@pytest.fixture
-def board(pg_database, monkeypatch, override_settings):
+def board(monkeypatch, override_settings):
     """A board built from the database only (no Nautobot, no LibreNMS), at a clock the test
     sets: ``board["now"]`` (the current app's fixture)."""
     from app.services import inventory_service

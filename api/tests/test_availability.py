@@ -57,12 +57,9 @@ def window(conn, site, device, starts, ends, ended=None):
 
 
 def write(fn):
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             fn(conn)
-    finally:
-        conn.close()
 
 
 def run(
@@ -714,8 +711,7 @@ class TestPages:
         assert client.get("/api/v1/availability").status_code == 200, "synced, and really no sites"
 
     def test_the_period_query_can_use_the_index(self):
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             conn.execute("SET enable_seqscan = off")
             plan = "\n".join(
                 str(next(iter(db.row_to_dict(row).values())))
@@ -724,8 +720,6 @@ class TestPages:
                     "WHERE COALESCE(resolved_at, 'infinity'::timestamptz) > now() AND down_started_at < now()"
                 ).fetchall()
             )
-        finally:
-            conn.close()
         assert "idx_alert_instances_period" in plan, plan
 
     def test_bad_input(self, client):

@@ -144,8 +144,7 @@ def test_a_site_in_maintenance_keeps_its_counts(synced):
 def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, override_settings):
     from app.utils import timeutil
 
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
@@ -156,8 +155,6 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
                 "UPDATE nautobot_device_cache SET last_updated = %s WHERE device_id = 'dev-aar-2'",
                 (timeutil.iso_utc_now(),),
             )
-    finally:
-        conn.close()
     override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site", ALERT_DELAY_SECONDS=3600)
     caching.cache.clear()
     _, levels = three_views()
@@ -168,8 +165,7 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, override
     """Its state row can outlive its IP; the board's rule still applies."""
     from app.utils import timeutil
 
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
@@ -179,8 +175,6 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, override
                 "UPDATE nautobot_device_cache SET last_updated = %s WHERE device_id = 'dev-aar-2'",
                 (timeutil.iso_utc_now(),),
             )
-    finally:
-        conn.close()
     override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site", ALERT_DELAY_SECONDS=3600)
     caching.cache.clear()
     three_views()  # the board records that dev-aar-2 is pending

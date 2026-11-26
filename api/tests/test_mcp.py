@@ -530,10 +530,6 @@ class TestRoles:
 
 
 class TestAddCase:
-    @pytest.fixture(autouse=True)
-    def _database(self, pg_database):
-        self.db = pg_database
-
     def _open_alerts(self):
         site = {"id": "loc-1", "name": "Aarhus HQ"}
         down = [

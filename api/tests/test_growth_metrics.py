@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-import app  # noqa: F401  (initializes the cache pg_database clears)
+import app  # noqa: F401  (initializes the cache the tests clear)
 from app.services import metrics_service as metrics
 from tests import db as adb
 

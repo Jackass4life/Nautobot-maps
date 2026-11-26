@@ -204,8 +204,7 @@ class TestOnTheBoard:
     ):
         write_sites({"cph": {"sw1": "Active", **{name: "Active" for name in APS[:16]}}})
         controller_says(monkeypatch, {"cph": APS[:12]}, every={"cph": APS[:16]})
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 # Catalyst Center says the first 14 are on sw02; Nautobot's cables, ap15 and ap16 on sw1.
                 rows = [
@@ -226,8 +225,6 @@ class TestOnTheBoard:
                 )
                 for n, name in enumerate(APS[14:16], start=15):
                     cable(conn, f"cph-{name}", "cph-sw1", f"Gi1/0/{n}")
-        finally:
-            conn.close()
         (row,) = build_board()["alerts"]
         first = next(d for d in row["down_devices"] if d["device_name"] == f"cph-{APS[0]}")
         assert first["neighbour"] == {
@@ -240,13 +237,10 @@ class TestOnTheBoard:
     def test_one_down_names_its_switch_but_no_row_line(self, board, monkeypatch):
         write_sites({"cph": {"sw1": "Active", APS[0]: "Active", APS[1]: "Active"}})
         controller_says(monkeypatch, {"cph": APS[:1]}, every={"cph": APS[:2]})
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 for name in APS[:2]:
                     cable(conn, f"cph-{name}", "cph-sw1", "Gi1/0/1")
-        finally:
-            conn.close()
         (row,) = build_board()["alerts"]
         (down,) = row["down_devices"]
         assert down["neighbour"] == {
@@ -266,12 +260,9 @@ class TestOnTheBoard:
     def test_the_site_panel(self, board, monkeypatch):
         write_sites({"cph": {"sw1": "Active", APS[0]: "Active"}})
         controller_says(monkeypatch, {"cph": APS[:1]}, every={"cph": APS[:1]})
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 cable(conn, f"cph-{APS[0]}", "cph-sw1", "Gi1/0/9")
-        finally:
-            conn.close()
         monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
         monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
         caching.cache.clear()
