@@ -19,11 +19,7 @@ site = test_maintenance.site
 
 
 def rows(sql: str) -> list[dict]:
-    conn = adb.connect()
-    try:
-        return [dict(row) for row in conn.execute(sql).fetchall()]
-    finally:
-        conn.close()
+    return [dict(row) for row in adb.sql(sql)]
 
 
 def test_waiting_for_another_build_leaves_the_event_loop_free(site):

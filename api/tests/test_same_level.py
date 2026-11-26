@@ -14,7 +14,7 @@ from tests.test_integration import mock_nautobot_server  # noqa: F401 - the fixt
 
 
 @pytest.fixture
-def synced(pg_database, mock_nautobot_server, monkeypatch, override_settings):
+def synced(mock_nautobot_server, monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL=mock_nautobot_server, NAUTOBOT_TOKEN="demo-token", LIBRENMS_URL=""
     )
@@ -86,15 +86,11 @@ def test_excluded_statuses_count_nowhere(synced, override_settings):
 def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, override_settings):
     """With rows per Site, a floor below a site isn't a row: its own devices, by the board's rule."""
 
-    conn = adb.connect()
-    try:
-        with conn.transaction():  # put Etage 2 (below Aarhus Campus) on the map
-            conn.execute(
-                "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
-                "WHERE location_id = 'loc-aar-bld-a-f2'"
-            )
-    finally:
-        conn.close()
+    # put Etage 2 (below Aarhus Campus) on the map
+    adb.sql(
+        "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
+        "WHERE location_id = 'loc-aar-bld-a-f2'"
+    )
     override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site")
     board, levels = three_views()
     assert "loc-aar-bld-a-f2" not in board and "loc-aar" in board  # rolled up into its site
@@ -113,15 +109,11 @@ def _monitored_london_ids():
 def _window(body):
     from app.services import maintenance_service as maintenance
 
-    conn = adb.connect()
-    try:
-        return adb.call(
-            maintenance.create,
-            {"site_id": "loc-lon", "reason": "Upgrade", "duration_minutes": 60, **body},
-            "olga",
-        )
-    finally:
-        conn.close()
+    return adb.call(
+        maintenance.create,
+        {"site_id": "loc-lon", "reason": "Upgrade", "duration_minutes": 60, **body},
+        "olga",
+    )
 
 
 def test_every_device_in_maintenance_is_no_data_everywhere_and_says_why(synced):
@@ -152,8 +144,7 @@ def test_a_site_in_maintenance_keeps_its_counts(synced):
 def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, override_settings):
     from app.utils import timeutil
 
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
@@ -164,8 +155,6 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
                 "UPDATE nautobot_device_cache SET last_updated = %s WHERE device_id = 'dev-aar-2'",
                 (timeutil.iso_utc_now(),),
             )
-    finally:
-        conn.close()
     override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site", ALERT_DELAY_SECONDS=3600)
     caching.cache.clear()
     _, levels = three_views()
@@ -176,8 +165,7 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, override
     """Its state row can outlive its IP; the board's rule still applies."""
     from app.utils import timeutil
 
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
@@ -187,19 +175,10 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, override
                 "UPDATE nautobot_device_cache SET last_updated = %s WHERE device_id = 'dev-aar-2'",
                 (timeutil.iso_utc_now(),),
             )
-    finally:
-        conn.close()
     override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site", ALERT_DELAY_SECONDS=3600)
     caching.cache.clear()
     three_views()  # the board records that dev-aar-2 is pending
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            conn.execute(
-                "UPDATE nautobot_device_cache SET primary_ip = '' WHERE device_id = 'dev-aar-2'"
-            )
-    finally:
-        conn.close()
+    adb.sql("UPDATE nautobot_device_cache SET primary_ip = '' WHERE device_id = 'dev-aar-2'")
     caching.cache.clear()
     _, levels = three_views()
     assert "loc-aar-bld-a-f2" not in levels, "no monitored device: no data"
@@ -210,15 +189,10 @@ def test_a_stack_is_one_device_everywhere(synced):
     answering, the whole stack is down: one device down on the board, the map
     and in the panel (#405)."""
 
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            conn.execute(
-                "UPDATE nautobot_device_cache SET primary_ip = '10.0.6.9', status = 'Offline' "
-                "WHERE device_id = 'dev-par-stk-2'"
-            )
-    finally:
-        conn.close()
+    adb.sql(
+        "UPDATE nautobot_device_cache SET primary_ip = '10.0.6.9', status = 'Offline' "
+        "WHERE device_id = 'dev-par-stk-2'"
+    )
     caching.cache.clear()
     board, levels = three_views()
     row = board["loc-par"]

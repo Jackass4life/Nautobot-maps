@@ -381,7 +381,7 @@ class TestEndToEndScenario:
 # 6. Alert board backed by the persisted inventory snapshot
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def persisted_integration_client(integration_client, pg_database, override_settings):
+def persisted_integration_client(integration_client, override_settings):
     """Integration client with PostgreSQL persistence and a synced inventory snapshot."""
     override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
     assert asyncio.run(inventory.ensure_snapshot(force=True, wait=True))
@@ -495,13 +495,7 @@ class TestAlertBoardWithPersistence:
         asyncio.run(
             alerts.build_alert_board_payload(snapshot_only=True)
         )  # records every site's level
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE site_alert_levels SET alert_level = 'ok' WHERE site_id = 'loc-lon'"
-            )
-        finally:
-            conn.close()
+        adb.sql("UPDATE site_alert_levels SET alert_level = 'ok' WHERE site_id = 'loc-lon'")
         asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))  # London: OK -> Medium
         assert asyncio.run(notify.send_pending()) == 1
         (body,) = [json.loads(data) for data in posts]
@@ -525,7 +519,7 @@ class TestAlertBoardWithPersistence:
 # ---------------------------------------------------------------------------
 class TestAlertBoardColdStart:
     def test_first_request_starts_sync_and_board_fills_in(
-        self, integration_client, pg_database, override_settings
+        self, integration_client, override_settings
     ):
         import time
 

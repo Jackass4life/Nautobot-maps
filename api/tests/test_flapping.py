@@ -233,24 +233,19 @@ class TestCameUpAt:
 class TestMapWindow:
     def test_flapping_ends_with_the_window_also_before_a_board_build(self, flapping, clock):
 
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                conn.execute(
-                    "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since) VALUES "
-                    "('quiet', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s), "
-                    "('busy', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s)",
-                    (
-                        "2026-10-10T11:00:00Z",
-                        "2026-10-10T11:00:00Z",
-                        "2026-10-10T10:50:00Z",
-                        "2026-10-10T11:50:00Z",
-                        "2026-10-10T11:50:00Z",
-                        "2026-10-10T11:40:00Z",
-                    ),
-                )
-            assert adb.call(
-                board_store.flapping_device_ids, "2026-10-10T12:00:00Z", alerts.FLAP_WINDOW
-            ) == {"busy"}
-        finally:
-            conn.close()
+        adb.sql(
+            "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since) VALUES "
+            "('quiet', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s), "
+            "('busy', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s)",
+            (
+                "2026-10-10T11:00:00Z",
+                "2026-10-10T11:00:00Z",
+                "2026-10-10T10:50:00Z",
+                "2026-10-10T11:50:00Z",
+                "2026-10-10T11:50:00Z",
+                "2026-10-10T11:40:00Z",
+            ),
+        )
+        assert adb.call(
+            board_store.flapping_device_ids, "2026-10-10T12:00:00Z", alerts.FLAP_WINDOW
+        ) == {"busy"}

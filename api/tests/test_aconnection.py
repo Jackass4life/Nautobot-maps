@@ -146,7 +146,7 @@ async def _links(conn):
 class TestAdvisoryLock:
     """``try_advisory_lock`` (#663): the scheduler's, the syncs' and the board build's."""
 
-    def test_held_until_released_and_exclusive_meanwhile(self, pg_database):
+    def test_held_until_released_and_exclusive_meanwhile(self):
         async def go() -> tuple:
             release = await aconnection.try_advisory_lock("a-test-lock")
             other = await aconnection.try_advisory_lock("a-test-lock")
@@ -158,7 +158,7 @@ class TestAdvisoryLock:
         release, other, again = asyncio.run(go())
         assert callable(release) and other is False and callable(again)
 
-    def test_another_session_holding_it_excludes_this_one_both_ways(self, pg_database):
+    def test_another_session_holding_it_excludes_this_one_both_ways(self):
         """Another worker (here a connection on the tests' own loop) and this one never
         both hold it."""
         held = adb.hold_lock("a-test-lock")
@@ -176,7 +176,7 @@ class TestAdvisoryLock:
 
         assert asyncio.run(go()) is False
 
-    def test_a_failed_unlock_closes_the_connection_and_so_the_lock(self, pg_database, monkeypatch):
+    def test_a_failed_unlock_closes_the_connection_and_so_the_lock(self, monkeypatch):
         """No pooled connection is left holding the lock: when the unlock fails (a
         cancelled shutdown, a lost connection), the connection is closed instead. On a
         real pool (the tests' own closes every connection anyway); another session then

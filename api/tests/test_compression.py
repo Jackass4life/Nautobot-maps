@@ -105,7 +105,7 @@ class TestRules:
 
 
 class TestRealRequests:
-    def test_a_new_token_is_never_compressed(self, client, monkeypatch, pg_database):
+    def test_a_new_token_is_never_compressed(self, client, monkeypatch):
         # The secret is shown once beside the name the client gave it (BREACH): no-transform.
         monkeypatch.setattr(compression, "MIN_BYTES", 10)
         admin = adb.run(tokens.create, {"name": "bootstrap", "role": "admin"}, "test")["token"]

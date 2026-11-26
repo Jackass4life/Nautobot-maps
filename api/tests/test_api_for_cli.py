@@ -59,16 +59,11 @@ def test_every_everyday_command_has_an_api_route():
 
 
 @pytest.fixture
-def client(pg_database, clock):
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(
-                inventory.write_tenants,
-                [{"tenant_id": "t1", "name": "Acme Corp"}, {"tenant_id": "t2", "name": "Nord A/S"}],
-            )
-    finally:
-        conn.close()
+def client(clock):
+    adb.call(
+        inventory.write_tenants,
+        [{"tenant_id": "t1", "name": "Acme Corp"}, {"tenant_id": "t2", "name": "Nord A/S"}],
+    )
     with http_client.make() as test_client:
         yield test_client
 
@@ -78,11 +73,7 @@ def link_of(tenant: str) -> str:
 
 
 def links() -> int:
-    conn = adb.connect()
-    try:
-        return conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"]
-    finally:
-        conn.close()
+    return adb.one("SELECT count(*) AS n FROM status_links")["n"]
 
 
 class TestStatusLinks:

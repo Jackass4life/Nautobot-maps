@@ -1748,10 +1748,6 @@ class TestLocationDetailWithLocationType:
 class TestCriticalityOverrideEndpoints:
     """Tests for /api/criticality-overrides (requires the persistence database)."""
 
-    @pytest.fixture(autouse=True)
-    def _database(self, pg_database):
-        self.db = pg_database
-
     def test_list_empty(self, client):
         resp = client.get("/api/v1/criticality-overrides")
         assert resp.status_code == 200
@@ -1827,7 +1823,7 @@ class TestCriticalityOverrideEndpoints:
 
     def test_override_affects_compute_alert_level(self):
         """A device marked is_critical=False must not trigger a critical alert."""
-        self.db.execute(
+        adb.sql(
             "INSERT INTO device_criticality_override "
             "(nautobot_device_id, is_critical, reason, updated_by) "
             "VALUES (%s, %s, %s, %s)",
@@ -1885,10 +1881,6 @@ class TestCriticalityOverrideEndpoints:
 # Tests: alert lifecycle history and cases
 # ---------------------------------------------------------------------------
 class TestAlertLifecycleTracking:
-    @pytest.fixture(autouse=True)
-    def _database(self, pg_database):
-        self.db = pg_database
-
     def test_api_alerts_contains_lifecycle_fields(self, client):
         with (
             patch.object(
@@ -2016,7 +2008,7 @@ class TestAlertLifecycleTracking:
             )
         )
 
-        rows = self.db.execute(
+        rows = adb.sql(
             "SELECT device_id, status, alert_level, down_started_at FROM alert_instances ORDER BY device_id, id"
         )
         dev1 = [row for row in rows if row["device_id"] == "dev-1"]
@@ -2024,7 +2016,7 @@ class TestAlertLifecycleTracking:
         assert dev1[0]["status"] == "open"
         assert dev1[0]["alert_level"] == "critical"
         assert db.serialize_value(dev1[0]["down_started_at"]) == t0
-        events = self.db.execute(
+        events = adb.sql(
             "SELECT e.event_type, e.alert_level FROM alert_events e "
             "JOIN alert_instances i ON i.id = e.alert_instance_id WHERE i.device_id = 'dev-1' ORDER BY e.id"
         )
@@ -2074,21 +2066,16 @@ class TestAlertLifecycleTracking:
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
         )
         assert created.status_code == 200
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         with (
             patch.object(
@@ -2218,14 +2205,10 @@ class TestAlertLifecycleTracking:
         assert data["alerts"][0]["alert_level"] == "no_data"
         history = asyncio.run(alerts.get_alert_context_for_site("loc-1", timeutil.iso_utc_now()))
         assert history["active_alert_instance_count"] == 1
-        conn = adb.connect()
-        try:
-            rows = conn.execute(
-                "SELECT status FROM alert_instances WHERE site_id = %s ORDER BY id DESC",
-                ("loc-1",),
-            ).fetchall()
-        finally:
-            conn.close()
+        rows = adb.sql(
+            "SELECT status FROM alert_instances WHERE site_id = %s ORDER BY id DESC",
+            ("loc-1",),
+        )
         assert db.row_to_dict(rows[0])["status"] == "open"
 
     def test_get_alert_board_data_uses_cache_when_persistence_enabled(self):
@@ -2475,44 +2458,38 @@ class TestAlertLifecycleTracking:
 
 class TestInventoryCacheSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
-        self.db = pg_database
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": ["cached"],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": ["cached"],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         with patch.object(
             nautobot,
@@ -2552,37 +2529,32 @@ class TestInventoryCacheSync:
         ]
 
     def test_cached_locations_allow_null_time_zone(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": None,
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": None,
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         location = next(item for item in locations if item["id"] == "loc-1")
@@ -2590,37 +2562,32 @@ class TestInventoryCacheSync:
         assert location["time_zone"] is None
 
     def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": None,
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": None,
-                            "physical_address": None,
-                            "facility": None,
-                            "tenant": None,
-                            "tenant_id": None,
-                            "tenant_group": None,
-                            "asn": None,
-                            "time_zone": None,
-                            "tags": [],
-                            "url": None,
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": None,
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": None,
+                    "physical_address": None,
+                    "facility": None,
+                    "tenant": None,
+                    "tenant_id": None,
+                    "tenant_group": None,
+                    "asn": None,
+                    "time_zone": None,
+                    "tags": [],
+                    "url": None,
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         assert len(locations) == 1
@@ -2635,30 +2602,25 @@ class TestInventoryCacheSync:
         assert locations[0]["url"] == ""
 
     def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-1",
-                            "location_id": None,
-                            "name": None,
-                            "device_type": None,
-                            "manufacturer": None,
-                            "role": None,
-                            "status": None,
-                            "primary_ip": None,
-                            "platform": None,
-                            "serial": None,
-                            "tenant": None,
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-1",
+                    "location_id": None,
+                    "name": None,
+                    "device_type": None,
+                    "manufacturer": None,
+                    "role": None,
+                    "status": None,
+                    "primary_ip": None,
+                    "platform": None,
+                    "serial": None,
+                    "tenant": None,
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         devices = asyncio.run(inventory.read_devices())
         assert len(devices) == 1
@@ -2674,56 +2636,51 @@ class TestInventoryCacheSync:
         assert devices[0]["tenant"] == ""
 
     def test_alert_board_uses_cached_inventory_snapshot(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-1",
-                            "location_id": "loc-1",
-                            "name": "router01",
-                            "device_type": "ASR1001-X",
-                            "manufacturer": "Cisco",
-                            "role": "Core Router",
-                            "status": "offline",
-                            "primary_ip": "192.0.2.1/32",
-                            "platform": "IOS-XE",
-                            "serial": "SN123",
-                            "tenant": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-1",
+                    "location_id": "loc-1",
+                    "name": "router01",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "offline",
+                    "primary_ip": "192.0.2.1/32",
+                    "platform": "IOS-XE",
+                    "serial": "SN123",
+                    "tenant": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         caching.cache.clear()
         with patch.object(
@@ -2739,47 +2696,42 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["alert_level"] == "critical"
 
     def test_cached_location_read_triggers_background_refresh_when_sync_is_due(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:00:00Z",
-                    last_successful_sync="2026-01-01T00:00:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:00:00Z",
+            last_successful_sync="2026-01-01T00:00:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         refresh_called = threading.Event()
 
@@ -2861,31 +2813,26 @@ class TestInventoryCacheSync:
         assert device_calls[1]["depth"] == 1
 
     def test_incremental_sync_keeps_existing_watermark_without_newer_last_updated(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory_reconcile",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2099-01-01T00:00:00Z",
-                    last_successful_sync="2099-01-01T00:00:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory_reconcile",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2099-01-01T00:00:00Z",
+            last_successful_sync="2099-01-01T00:00:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
@@ -2982,21 +2929,16 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version="1",
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version="1",
+            status="idle",
+            error_message="",
+        )
 
         with (
             overridden(NAUTOBOT_URL="https://nautobot.example.com"),
@@ -3025,21 +2967,16 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version="1",
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version="1",
+            status="idle",
+            error_message="",
+        )
 
         with (
             overridden(NAUTOBOT_URL="https://nautobot.example.com"),
@@ -3095,21 +3032,16 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         with (
             overridden(NAUTOBOT_URL="https://nautobot.example.com"),
@@ -3159,65 +3091,60 @@ class TestInventoryCacheSync:
             )
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Pending Site",
-                            "slug": "pending-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-1",
-                            "location_id": "loc-1",
-                            "name": "router01",
-                            "device_type": "ASR1001-X",
-                            "manufacturer": "Cisco",
-                            "role": "Core Router",
-                            "status": "offline",
-                            "primary_ip": "",
-                            "platform": "IOS-XE",
-                            "serial": "SN123",
-                            "tenant": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at=None,
-                    last_completed_at=None,
-                    last_successful_sync=None,
-                    status="pending",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Pending Site",
+                    "slug": "pending-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-1",
+                    "location_id": "loc-1",
+                    "name": "router01",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "offline",
+                    "primary_ip": "",
+                    "platform": "IOS-XE",
+                    "serial": "SN123",
+                    "tenant": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at=None,
+            last_completed_at=None,
+            last_successful_sync=None,
+            status="pending",
+            error_message="",
+        )
 
         caching.cache.clear()
         with patch.object(
@@ -3232,80 +3159,75 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["down_device_count"] == 0
 
     def test_api_alerts_filters_cached_devices_without_primary_ip(self, client):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Filtered Site",
-                            "slug": "filtered-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-1",
-                            "location_id": "loc-1",
-                            "name": "ap01",
-                            "device_type": "AP",
-                            "manufacturer": "Cisco",
-                            "role": "Access Point",
-                            "status": "offline",
-                            "primary_ip": "",
-                            "platform": "",
-                            "serial": "",
-                            "tenant": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        },
-                        {
-                            "id": "dev-2",
-                            "location_id": "loc-1",
-                            "name": "router01",
-                            "device_type": "ASR1001-X",
-                            "manufacturer": "Cisco",
-                            "role": "Core Router",
-                            "status": "offline",
-                            "primary_ip": "192.0.2.1/32",
-                            "platform": "IOS-XE",
-                            "serial": "SN123",
-                            "tenant": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        },
-                    ],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Filtered Site",
+                    "slug": "filtered-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-1",
+                    "location_id": "loc-1",
+                    "name": "ap01",
+                    "device_type": "AP",
+                    "manufacturer": "Cisco",
+                    "role": "Access Point",
+                    "status": "offline",
+                    "primary_ip": "",
+                    "platform": "",
+                    "serial": "",
+                    "tenant": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "id": "dev-2",
+                    "location_id": "loc-1",
+                    "name": "router01",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "offline",
+                    "primary_ip": "192.0.2.1/32",
+                    "platform": "IOS-XE",
+                    "serial": "SN123",
+                    "tenant": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                },
+            ],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         caching.cache.clear()
         with patch.object(
@@ -3333,56 +3255,51 @@ class TestInventoryCacheSync:
         ]
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-stale",
-                            "name": "Stale Site",
-                            "slug": "stale-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2025-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-stale",
-                            "location_id": "loc-stale",
-                            "name": "stale-router",
-                            "device_type": "ASR1001-X",
-                            "manufacturer": "Cisco",
-                            "role": "Core Router",
-                            "status": "active",
-                            "primary_ip": "198.51.100.1/32",
-                            "platform": "IOS-XE",
-                            "serial": "SN-STALE",
-                            "tenant": "",
-                            "last_updated": "2025-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-stale",
+                    "name": "Stale Site",
+                    "slug": "stale-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2025-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-stale",
+                    "location_id": "loc-stale",
+                    "name": "stale-router",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "active",
+                    "primary_ip": "198.51.100.1/32",
+                    "platform": "IOS-XE",
+                    "serial": "SN-STALE",
+                    "tenant": "",
+                    "last_updated": "2025-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
@@ -3747,27 +3664,22 @@ class TestDeviceDisplayIp:
 # ---------------------------------------------------------------------------
 class TestAlertBoardSyncProgress:
     @pytest.fixture(autouse=True)
-    def _persistence(self, pg_database):
+    def _persistence(self):
         caching.cache.clear()
         yield
         caching.cache.clear()
 
     def _set_nautobot_sync_state(self, status, started_at, completed_at=None):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at=started_at,
-                    last_completed_at=completed_at,
-                    last_successful_sync=completed_at,
-                    cache_version=inventory.CACHE_VERSION,
-                    status=status,
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at=started_at,
+            last_completed_at=completed_at,
+            last_successful_sync=completed_at,
+            cache_version=inventory.CACHE_VERSION,
+            status=status,
+            error_message="",
+        )
 
     def _board(self, alerts=None):
         board = {
@@ -3890,16 +3802,13 @@ class TestAlertBoardSyncProgress:
         )
         now = datetime.now(UTC).isoformat()
         self._set_nautobot_sync_state("idle", now, now)
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "librenms_inventory",
-                last_started_at=now,
-                last_completed_at=now,
-                status="idle",
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "librenms_inventory",
+            last_started_at=now,
+            last_completed_at=now,
+            status="idle",
+        )
         due, next_in = asyncio.run(alerts.inventory_update_schedule())
         assert due is False
         assert 115 <= next_in <= 120
@@ -3951,7 +3860,7 @@ class TestAlertBoardSyncProgress:
 # ---------------------------------------------------------------------------
 class TestMultiDeviceCases:
     @pytest.fixture(autouse=True)
-    def _database_with_open_alerts(self, pg_database):
+    def _database_with_open_alerts(self):
         asyncio.run(
             alerts.upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
@@ -4030,7 +3939,7 @@ class TestMultiDeviceCases:
 # Tests: /healthz (#131)
 # ---------------------------------------------------------------------------
 class TestHealthz:
-    def test_ok_with_reachable_database(self, client, monkeypatch, pg_database):
+    def test_ok_with_reachable_database(self, client, monkeypatch):
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.json()["checks"] == {"app": "ok", "database": "ok"}
@@ -4067,7 +3976,7 @@ class TestLibreNMSPolledIp:
     def test_polled_ip_selection(self, record, expected):
         assert inventory.librenms_polled_ip(record) == expected
 
-    def test_sync_caches_polled_ip(self, pg_database, override_settings):
+    def test_sync_caches_polled_ip(self, override_settings):
         override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
         pass  # the schema: Alembic's (tests/test_schema.py)
         with patch.object(
@@ -4121,7 +4030,7 @@ class TestLibreNMSPolledIp:
 # Tests: alert board explains a missing persistence database (#136)
 # ---------------------------------------------------------------------------
 class TestAlertBoardWithoutPersistence:
-    def test_payload_reports_configured_database(self, client, monkeypatch, pg_database):
+    def test_payload_reports_configured_database(self, client, monkeypatch):
         pass  # the schema: Alembic's (tests/test_schema.py)
         caching.cache.clear()
         with (
@@ -4143,7 +4052,7 @@ class TestAlertBoardWithoutPersistence:
 # ---------------------------------------------------------------------------
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
-    def _database_and_nautobot(self, pg_database, override_settings):
+    def _database_and_nautobot(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4186,8 +4095,7 @@ class TestAlertBoardBulkReads:
     CHECKED_AT = "2026-09-25T12:00:00+00:00"
 
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, monkeypatch, override_settings):
-        self.db = pg_database
+    def _database(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4202,7 +4110,7 @@ class TestAlertBoardBulkReads:
         caching.cache.clear()
 
     def _execute(self, sql, rows):
-        self.db.executemany(sql, rows)
+        adb.many(sql, rows)
 
     def _seed(self, site_count, down_every=10, backfill_done=True):
         """Seed *site_count* sites with 3 devices; every *down_every*-th site has its router down."""
@@ -4227,21 +4135,18 @@ class TestAlertBoardBulkReads:
                 for j in range(3)
             ],
         )
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_started_at="2026-09-25T11:00:00+00:00",
-                last_completed_at="2026-09-25T11:00:00+00:00",
-                last_successful_sync="2026-09-25T11:00:00+00:00" if backfill_done else None,
-                cache_version=inventory.CACHE_VERSION,
-                status="idle",
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-09-25T11:00:00+00:00",
+            last_completed_at="2026-09-25T11:00:00+00:00",
+            last_successful_sync="2026-09-25T11:00:00+00:00" if backfill_done else None,
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+        )
 
     def _add_alert(self, site_id, device_id, status, down_started_at, total_downtime_seconds=0):
-        return self.db.execute(
+        return adb.sql(
             "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
             "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
             "VALUES (%s, %s, '', %s, %s, 'critical', '', %s, %s, %s, %s) RETURNING id",
@@ -4347,9 +4252,7 @@ class TestAlertBoardBulkReads:
     def test_sites_and_devices_carry_when_they_went_down(self):
         """The board's default sort and Copy need each down device's start (#227, #228)."""
         self._seed(3, down_every=1)  # every site has its router down
-        self.db.execute(
-            "UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'dev-2-1'"
-        )
+        adb.sql("UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'dev-2-1'")
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T10:00:00+00:00")
         self._add_alert("loc-2", "dev-2-0", "open", "2026-09-25T09:00:00+00:00")
         self._add_alert("loc-2", "dev-2-1", "open", "2026-09-25T11:30:00+00:00")
@@ -4379,7 +4282,7 @@ class TestAlertBoardBulkReads:
 
     def test_excluded_device_status_resolves_its_open_alert(self):
         self._seed(3, down_every=2)  # loc-0 and loc-2: router down (status Offline)
-        self.db.execute(
+        adb.sql(
             "UPDATE nautobot_device_cache SET status = 'Decommissioning' WHERE device_id = 'dev-0-0'"
         )
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
@@ -4392,7 +4295,7 @@ class TestAlertBoardBulkReads:
         assert by_site["loc-0"]["device_count"] == 2
         assert by_site["loc-0"]["active_alert_instance_count"] == 0
         assert by_site["loc-2"]["alert_level"] == "critical"  # Offline is still down
-        rows = self.db.execute("SELECT status FROM alert_instances WHERE device_id = 'dev-0-0'")
+        rows = adb.sql("SELECT status FROM alert_instances WHERE device_id = 'dev-0-0'")
         assert [row["status"] for row in rows] == ["resolved"]
 
     def test_backfill_pending_skips_writes_and_hides_open_alerts(self):
@@ -4432,8 +4335,7 @@ class TestSiteRollup:
     ]
 
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, monkeypatch, override_settings):
-        self.db = pg_database
+    def _database(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4446,7 +4348,7 @@ class TestSiteRollup:
             ALERT_BOARD_EXCLUDED_LOCATION_TYPES=set(),
         )
         names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
-        self.db.executemany(
+        adb.many(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, parent_id, parent, status) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
             [
@@ -4454,7 +4356,7 @@ class TestSiteRollup:
                 for location_id, name, location_type, parent_id, status in self.LOCATIONS
             ],
         )
-        self.db.executemany(
+        adb.many(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
             [
@@ -4466,18 +4368,15 @@ class TestSiteRollup:
                 ("d-orphan", "bld-orphan", "loose01", "access", "Active", "10.3.0.1/32"),
             ],
         )
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_started_at="2026-09-25T11:00:00+00:00",
-                last_completed_at="2026-09-25T11:00:00+00:00",
-                last_successful_sync="2026-09-25T11:00:00+00:00",
-                cache_version=inventory.CACHE_VERSION,
-                status="idle",
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-09-25T11:00:00+00:00",
+            last_completed_at="2026-09-25T11:00:00+00:00",
+            last_successful_sync="2026-09-25T11:00:00+00:00",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+        )
 
     def _board(self, monkeypatch, site_type="site"):
         caching.cache.clear()
@@ -4512,7 +4411,7 @@ class TestSiteRollup:
 
     def test_alerts_are_recorded_on_the_site(self, monkeypatch):
         self._board(monkeypatch)
-        rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
+        rows = adb.sql("SELECT site_id, device_id, status FROM alert_instances")
         assert rows == [{"site_id": "site-aar", "device_id": "d-flr", "status": "open"}]
 
     def test_setting_is_case_insensitive_and_unset_keeps_one_row_per_location(self, monkeypatch):
@@ -4553,40 +4452,36 @@ class TestSiteRollup:
 # ---------------------------------------------------------------------------
 class TestBackgroundScheduler:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
-        self.db = pg_database
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
             LIBRENMS_URL="",
             LIBRENMS_API_TOKEN="",
         )
-        self.db.execute(
+        adb.sql(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
             "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
         )
-        self.db.execute(
+        adb.sql(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES ('dev-1', 'loc-1', 'router01', 'router', 'Offline', '10.0.0.1/32')"
         )
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_started_at="2026-09-25T11:00:00+00:00",
-                last_completed_at="2026-09-25T11:00:00+00:00",
-                last_successful_sync="2026-09-25T11:00:00+00:00",
-                cache_version=inventory.CACHE_VERSION,
-                status="idle",
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-09-25T11:00:00+00:00",
+            last_completed_at="2026-09-25T11:00:00+00:00",
+            last_successful_sync="2026-09-25T11:00:00+00:00",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+        )
 
     def test_tick_after_a_sync_records_alert_history_without_any_request(self):
         with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
             assert asyncio.run(scheduler.tick()) is True
         ensure.assert_called_once_with(wait=True)
-        rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
+        rows = adb.sql("SELECT site_id, device_id, status FROM alert_instances")
         assert rows == [{"site_id": "loc-1", "device_id": "dev-1", "status": "open"}]
         # The rebuilt board is cached, so the next page load is instant.
         assert caching.cache.get("alert-board-data:v3")["summary"]["critical"] == 1
@@ -4794,7 +4689,7 @@ class TestRealStartTimes:
         assert "down_source" not in enriched[1]
 
     @pytest.fixture
-    def board(self, pg_database, monkeypatch, override_settings):
+    def board(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4803,11 +4698,11 @@ class TestRealStartTimes:
         )
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
-        pg_database.execute(
+        adb.sql(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
             "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
         )
-        pg_database.executemany(
+        adb.many(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip, last_updated) "
             "VALUES (%s, 'loc-1', %s, 'access', %s, %s, %s)",
             [
@@ -4817,18 +4712,15 @@ class TestRealStartTimes:
                 ("d-up3", "sw-up3", "Active", "10.0.0.4/32", "2026-09-01T00:00:00Z"),
             ],
         )
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_started_at="2026-09-28T11:00:00+00:00",
-                last_completed_at="2026-09-28T11:00:00+00:00",
-                last_successful_sync="2026-09-28T11:00:00+00:00",
-                cache_version=inventory.CACHE_VERSION,
-                status="idle",
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-09-28T11:00:00+00:00",
+            last_completed_at="2026-09-28T11:00:00+00:00",
+            last_successful_sync="2026-09-28T11:00:00+00:00",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+        )
 
         def build():
             caching.cache.clear()
@@ -4836,20 +4728,18 @@ class TestRealStartTimes:
 
         return build
 
-    def _start(self, pg_database):
-        rows = pg_database.execute(
-            "SELECT down_started_at FROM alert_instances WHERE device_id = 'd-old'"
-        )
+    def _start(self):
+        rows = adb.sql("SELECT down_started_at FROM alert_instances WHERE device_id = 'd-old'")
         return [db.serialize_value(row["down_started_at"]) for row in rows]
 
-    def test_new_alert_starts_when_nautobot_status_changed(self, board, pg_database):
+    def test_new_alert_starts_when_nautobot_status_changed(self, board):
         site = board()["loc-1"]
-        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert self._start() == ["2026-09-25T12:00:00Z"]
         assert site["current_downtime_seconds"] == 3 * 24 * 3600
 
-    def test_open_alert_is_moved_earlier_once_and_never_later(self, board, pg_database):
+    def test_open_alert_is_moved_earlier_once_and_never_later(self, board):
         # An alert opened before #166: started when the app first saw it.
-        pg_database.execute(
+        adb.sql(
             "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
             "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
             "VALUES (%s, 'loc-1', 'Site One', 'd-old', 'sw-old', 'low', '', 'open', "
@@ -4857,13 +4747,11 @@ class TestRealStartTimes:
             (db.build_alert_key("loc-1", "d-old"),),
         )
         board()
-        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert self._start() == ["2026-09-25T12:00:00Z"]
         # A later edit in Nautobot must not move it back.
-        pg_database.execute(
-            "UPDATE nautobot_device_cache SET last_updated = '2026-09-28T11:30:00Z'"
-        )
+        adb.sql("UPDATE nautobot_device_cache SET last_updated = '2026-09-28T11:30:00Z'")
         board()
-        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert self._start() == ["2026-09-25T12:00:00Z"]
 
 
 # ---------------------------------------------------------------------------
@@ -4871,7 +4759,7 @@ class TestRealStartTimes:
 # ---------------------------------------------------------------------------
 class TestAlertFeed:
     @pytest.fixture
-    def board(self, pg_database, monkeypatch, override_settings):
+    def board(self, monkeypatch, override_settings):
         """A site with two switches; returns (build, set_status, clock)."""
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
@@ -4882,27 +4770,24 @@ class TestAlertFeed:
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         clock = {"now": "2026-09-28T12:00:00+00:00"}
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
-        pg_database.execute(
+        adb.sql(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
             "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
         )
-        pg_database.executemany(
+        adb.many(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES (%s, 'loc-1', %s, 'access', 'Active', %s)",
             [("d-1", "sw01", "10.0.0.1/32"), ("d-2", "sw02", "10.0.0.2/32")],
         )
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_started_at="2026-09-28T11:00:00+00:00",
-                last_completed_at="2026-09-28T11:00:00+00:00",
-                last_successful_sync="2026-09-28T11:00:00+00:00",
-                cache_version=inventory.CACHE_VERSION,
-                status="idle",
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-09-28T11:00:00+00:00",
+            last_completed_at="2026-09-28T11:00:00+00:00",
+            last_successful_sync="2026-09-28T11:00:00+00:00",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+        )
 
         def build(at):
             clock["now"] = at
@@ -4910,7 +4795,7 @@ class TestAlertFeed:
             return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
 
         def set_status(device_id, status):
-            pg_database.execute(
+            adb.sql(
                 "UPDATE nautobot_device_cache SET status = %s WHERE device_id = %s",
                 (status, device_id),
             )
@@ -4922,7 +4807,7 @@ class TestAlertFeed:
         assert resp.status_code == 200, resp.json()
         return resp.json()
 
-    def test_level_changes_are_logged_but_not_first_sightings(self, pg_database):
+    def test_level_changes_are_logged_but_not_first_sightings(self):
         at = "2026-09-28T12:00:00+00:00"
         assert (
             asyncio.run(
@@ -4948,11 +4833,9 @@ class TestAlertFeed:
             )
             == 1
         )
-        rows = pg_database.execute("SELECT site_id, from_level, to_level FROM site_level_changes")
+        rows = adb.sql("SELECT site_id, from_level, to_level FROM site_level_changes")
         assert rows == [{"site_id": "s1", "from_level": "ok", "to_level": "low"}]
-        levels = pg_database.execute(
-            "SELECT site_id, alert_level FROM site_alert_levels ORDER BY site_id"
-        )
+        levels = adb.sql("SELECT site_id, alert_level FROM site_alert_levels ORDER BY site_id")
         assert levels == [
             {"site_id": "s1", "alert_level": "low"},
             {"site_id": "s2", "alert_level": "critical"},
@@ -4998,17 +4881,17 @@ class TestAlertFeed:
         since = self._feed(client, "?since=2026-09-28T12:05:00Z")["events"]
         assert [e["kind"] for e in since] == ["severity", "up"]
 
-    def test_a_board_for_some_sites_reads_their_feed(self, board, client, pg_database):
+    def test_a_board_for_some_sites_reads_their_feed(self, board, client):
         """?tenant= / ?q= (#369): only those sites' entries, and the limit counts them."""
         build, set_status = board
-        pg_database.execute(
+        adb.sql(
             "UPDATE nautobot_location_cache SET tenant = 'Acme Corp' WHERE location_id = 'loc-1'"
         )
-        pg_database.execute(
+        adb.sql(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status, tenant) "
             "VALUES ('loc-2', 'Site Two', 'Office', 'Active', 'Nordic Net')"
         )
-        pg_database.execute(
+        adb.sql(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES ('d-3', 'loc-2', 'sw03', 'access', 'Active', '10.0.0.3/32')"
         )
@@ -5040,7 +4923,7 @@ class TestAlertFeed:
         assert self._feed(client, "?q=site")["matching_sites"] == 2
         assert "matching_sites" not in self._feed(client)
 
-    def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, client):
+    def test_a_scoped_feed_without_stored_sites_says_so(self, client):
         """No stored locations (not synced yet, or the read failed): an error,
         not an empty feed that looks like an all-clear (#369)."""
         resp = client.get("/api/v1/alert-feed?tenant=Acme")
@@ -5048,7 +4931,7 @@ class TestAlertFeed:
         assert "not stored yet" in resp.json()["error"]
         assert self._feed(client)["events"] == []  # the whole network's feed still answers
 
-    def test_bad_parameters_are_rejected(self, pg_database, client):
+    def test_bad_parameters_are_rejected(self, client):
         assert client.get("/api/v1/alert-feed?limit=many").status_code == 400
         assert client.get("/api/v1/alert-feed?since=yesterday").status_code == 400
         resp = client.get("/api/v1/alert-feed?kinds=down,cases")
@@ -5057,7 +4940,7 @@ class TestAlertFeed:
         assert client.get("/api/v1/alert-feed?limit=0").status_code == 200
         assert client.get("/api/v1/alert-feed?limit=100000").status_code == 200
 
-    def test_failed_observation_is_not_a_level_change(self, board, monkeypatch, pg_database):
+    def test_failed_observation_is_not_a_level_change(self, board, monkeypatch):
         build, _ = board
         build("2026-09-28T12:00:00+00:00")
 
@@ -5066,7 +4949,7 @@ class TestAlertFeed:
 
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", adb.async_of(fail))
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
-        assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+        assert adb.sql("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
 
 
 # ---------------------------------------------------------------------------
@@ -5187,70 +5070,70 @@ class TestSecurityHeaders:
 # Tests: alert history retention (#194)
 # ---------------------------------------------------------------------------
 class TestHistoryRetention:
-    def _alert(self, db_, device, status, resolved_days_ago=None):
-        row = db_.execute(
+    def _alert(self, device, status, resolved_days_ago=None):
+        row = adb.sql(
             "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
             "status, down_started_at, last_seen_down_at, resolved_at) VALUES "
             "(%s, 'loc-1', 'Site', %s, %s, 'low', %s, now() - interval '400 days', now() - interval '400 days', "
             "CASE WHEN %s::int IS NULL THEN NULL ELSE now() - make_interval(days => %s::int) END) RETURNING id",
             (f"key-{device}", device, device, status, resolved_days_ago, resolved_days_ago),
         )[0]["id"]
-        db_.execute(
+        adb.sql(
             "INSERT INTO alert_events (alert_instance_id, event_type, event_at) VALUES (%s, 'opened', now())",
             (row,),
         )
-        db_.execute(
+        adb.sql(
             "INSERT INTO alert_cases (alert_instance_id, case_number) VALUES (%s, 'INC-1')", (row,)
         )
         return row
 
-    def _change(self, db_, days_ago):
-        db_.execute(
+    def _change(self, days_ago):
+        adb.sql(
             "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
             "VALUES ('loc-1', 'Site', 'ok', 'low', now() - make_interval(days => %s))",
             (days_ago,),
         )
 
-    def _devices(self, db_):
-        return sorted(r["device_id"] for r in db_.execute("SELECT device_id FROM alert_instances"))
+    def _devices(self):
+        return sorted(r["device_id"] for r in adb.sql("SELECT device_id FROM alert_instances"))
 
-    def test_deletes_only_old_resolved_history(self, pg_database):
-        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
-        self._alert(pg_database, "new-resolved", "resolved", resolved_days_ago=5)
-        self._alert(pg_database, "old-open", "open")  # started 400 days ago, still down
-        self._change(pg_database, 100)
-        self._change(pg_database, 5)
+    def test_deletes_only_old_resolved_history(self):
+        self._alert("old-resolved", "resolved", resolved_days_ago=100)
+        self._alert("new-resolved", "resolved", resolved_days_ago=5)
+        self._alert("old-open", "open")  # started 400 days ago, still down
+        self._change(100)
+        self._change(5)
         deleted = adb.call(board_store.prune_alert_history, 30)
         assert deleted == {"alert_instances": 1, "site_level_changes": 1}
-        assert self._devices(pg_database) == ["new-resolved", "old-open"]
+        assert self._devices() == ["new-resolved", "old-open"]
         # Its events and cases went with it.
-        assert pg_database.execute("SELECT count(*) AS n FROM alert_events") == [{"n": 2}]
-        assert pg_database.execute("SELECT count(*) AS n FROM alert_cases") == [{"n": 2}]
+        assert adb.sql("SELECT count(*) AS n FROM alert_events") == [{"n": 2}]
+        assert adb.sql("SELECT count(*) AS n FROM alert_cases") == [{"n": 2}]
 
-    def test_deletes_in_batches(self, pg_database, monkeypatch):
+    def test_deletes_in_batches(self, monkeypatch):
         monkeypatch.setattr(board_store, "RETENTION_BATCH_SIZE", 2)
         for i in range(5):
-            self._alert(pg_database, f"d{i}", "resolved", resolved_days_ago=100)
+            self._alert(f"d{i}", "resolved", resolved_days_ago=100)
         assert adb.call(board_store.prune_alert_history, 30)["alert_instances"] == 5
-        assert self._devices(pg_database) == []
+        assert self._devices() == []
 
-    def test_off_by_default_and_once_a_day(self, pg_database, override_settings):
-        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+    def test_off_by_default_and_once_a_day(self, override_settings):
+        self._alert("old-resolved", "resolved", resolved_days_ago=100)
         override_settings(ALERT_HISTORY_RETENTION_DAYS=0)
         assert adb.call(alerts.maybe_prune_alert_history) is None
-        assert self._devices(pg_database) == ["old-resolved"]
+        assert self._devices() == ["old-resolved"]
         override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         assert adb.call(alerts.maybe_prune_alert_history)["alert_instances"] == 1
-        self._alert(pg_database, "later", "resolved", resolved_days_ago=100)
+        self._alert("later", "resolved", resolved_days_ago=100)
         assert adb.call(alerts.maybe_prune_alert_history) is None  # already ran today
-        assert self._devices(pg_database) == ["later"]
+        assert self._devices() == ["later"]
 
-    def test_scheduler_tick_runs_retention(self, pg_database, monkeypatch, override_settings):
+    def test_scheduler_tick_runs_retention(self, monkeypatch, override_settings):
         override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
-        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+        self._alert("old-resolved", "resolved", resolved_days_ago=100)
         asyncio.run(scheduler.tick())
-        assert self._devices(pg_database) == []
+        assert self._devices() == []
 
 
 # ---------------------------------------------------------------------------
@@ -5258,24 +5141,21 @@ class TestHistoryRetention:
 # ---------------------------------------------------------------------------
 class TestMetrics:
     def _record(self, status, started, completed):
-        conn = adb.connect()
-        with conn:
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_started_at=started,
-                last_completed_at=completed,
-                last_successful_sync="2026-09-01T00:00:00+00:00",
-                status=status,
-            )
-        conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at=started,
+            last_completed_at=completed,
+            last_successful_sync="2026-09-01T00:00:00+00:00",
+            status=status,
+        )
 
     @staticmethod
     def _value(body: str, sample: str) -> float:
         line = next(line for line in body.splitlines() if line.startswith(sample + " "))
         return float(line.rsplit(" ", 1)[1])
 
-    def test_last_success_survives_a_failure(self, pg_database, client):
+    def test_last_success_survives_a_failure(self, client):
         self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
         self._record("running", "2026-09-29T10:05:00+00:00", None)
         self._record("error", "2026-09-29T10:05:00+00:00", "2026-09-29T10:05:10+00:00")
@@ -5288,7 +5168,7 @@ class TestMetrics:
         assert self._value(body, "nautobot_maps_sync_failing" + src) == 1
         assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
 
-    def test_alert_and_site_counts(self, pg_database, client):
+    def test_alert_and_site_counts(self, client):
         asyncio.run(
             alerts.upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
@@ -5324,7 +5204,7 @@ class TestMetrics:
         out.gauge("m", "h", [({"level": 'a"b\\c\nd'}, 1)])
         assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
 
-    def test_healthz_reports_sync_age_without_failing(self, pg_database, client):
+    def test_healthz_reports_sync_age_without_failing(self, client):
         assert client.get("/healthz").json()["inventory_sync_age_seconds"] is None  # never synced
         self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
         resp = client.get("/healthz")
@@ -5575,46 +5455,41 @@ class TestLocationAlertLevels:
     """/api/v1/location-alerts colours the map markers without a click (#234)."""
 
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        _snapshot_location("loc-core", "Core down"),
-                        _snapshot_location("loc-few", "One of five down"),
-                        _snapshot_location("loc-ok", "All up"),
-                        _snapshot_location("loc-empty", "No devices"),
-                    ],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        _snapshot_device("core-1", "loc-core", "Core Router", "Offline"),
-                        _snapshot_device("acc-1", "loc-core", "Access Switch", "Active"),
-                        _snapshot_device("few-1", "loc-few", "Access Switch", "Offline"),
-                        *[
-                            _snapshot_device(f"few-{n}", "loc-few", "Access Switch", "Active")
-                            for n in range(2, 6)
-                        ],
-                        _snapshot_device("ok-1", "loc-ok", "Access Switch", "Active"),
-                    ],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:01:00Z",
-                    last_successful_sync="2026-01-01T00:01:00Z",
-                    status="success",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                _snapshot_location("loc-core", "Core down"),
+                _snapshot_location("loc-few", "One of five down"),
+                _snapshot_location("loc-ok", "All up"),
+                _snapshot_location("loc-empty", "No devices"),
+            ],
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                _snapshot_device("core-1", "loc-core", "Core Router", "Offline"),
+                _snapshot_device("acc-1", "loc-core", "Access Switch", "Active"),
+                _snapshot_device("few-1", "loc-few", "Access Switch", "Offline"),
+                *[
+                    _snapshot_device(f"few-{n}", "loc-few", "Access Switch", "Active")
+                    for n in range(2, 6)
+                ],
+                _snapshot_device("ok-1", "loc-ok", "Access Switch", "Active"),
+            ],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:01:00Z",
+            last_successful_sync="2026-01-01T00:01:00Z",
+            status="success",
+            error_message="",
+        )
         caching.cache.clear()
 
     def test_returns_every_location_with_monitored_devices(self, client):
@@ -5671,43 +5546,26 @@ class TestLocationAlertLevels:
             "core-1": "critical",
             "acc-1": "",
         }
-        conn = adb.connect()
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
-                    " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
-                )
-        finally:
-            conn.close()
+        adb.sql(
+            "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
+            " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
+        )
         with patch.object(nautobot, "fetch_all_pages", return_value=[]):
             detail = asyncio.run(alerts.get_location_detail("loc-few", location_type="Data Center"))
         assert [d["id"] for d in detail["devices"] if d["core"]] == ["few-1"]
 
     def test_criticality_override_is_applied(self, client):
-        conn = adb.connect()
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
-                    " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
-                )
-        finally:
-            conn.close()
+        adb.sql(
+            "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
+            " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
+        )
         assert (
             client.get("/api/v1/location-alerts").json()["levels"]["loc-few"]["level"] == "critical"
         )
 
     def test_cached_until_a_sync_invalidates_it(self, client):
         assert client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"] == "ok"
-        conn = adb.connect()
-        try:
-            with conn:
-                conn.execute(
-                    "UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'ok-1'"
-                )
-        finally:
-            conn.close()
+        adb.sql("UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'ok-1'")
         assert client.get("/api/v1/location-alerts").json()["levels"]["loc-ok"]["level"] == "ok", (
             "cached"
         )
@@ -5945,7 +5803,7 @@ class TestLocationTenantRelationships:
 
 class TestLocationTenantSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -6010,7 +5868,7 @@ class TestTenantDescriptions:
     """The tenant (i) shows the Nautobot description (#263)."""
 
     @pytest.fixture(autouse=True)
-    def _sync_setup(self, pg_database, override_settings):
+    def _sync_setup(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -6100,7 +5958,7 @@ class TestLibreNMSMappingsAreBatched:
     DEVICES = 60
 
     @pytest.fixture(autouse=True)
-    def _inventory(self, pg_database, monkeypatch, override_settings):
+    def _inventory(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="",
             NAUTOBOT_TOKEN="",
@@ -6111,54 +5969,45 @@ class TestLibreNMSMappingsAreBatched:
         monkeypatch.setattr(
             inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
         )
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Big site")])
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
-                            "name": f"sw{n}",
-                        }
-                        for n in range(self.DEVICES)
-                    ],
-                )
-                adb.call(
-                    inventory.write_librenms_devices,
-                    [
-                        # The first device matches by hostname and is down in LibreNMS.
-                        {
-                            "device_id": 1000 + n,
-                            "hostname": f"sw{n}.corp.example",
-                            "status": 0 if n == 0 else 1,
-                        }
-                        for n in range(self.DEVICES)
-                    ],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:01:00Z",
-                    last_successful_sync="2026-01-01T00:01:00Z",
-                    status="success",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Big site")])
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
+                    "name": f"sw{n}",
+                }
+                for n in range(self.DEVICES)
+            ],
+        )
+        adb.call(
+            inventory.write_librenms_devices,
+            [
+                # The first device matches by hostname and is down in LibreNMS.
+                {
+                    "device_id": 1000 + n,
+                    "hostname": f"sw{n}.corp.example",
+                    "status": 0 if n == 0 else 1,
+                }
+                for n in range(self.DEVICES)
+            ],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:01:00Z",
+            last_successful_sync="2026-01-01T00:01:00Z",
+            status="success",
+            error_message="",
+        )
         caching.cache.clear()
 
     def _mappings(self):
-        conn = adb.connect()
-        try:
-            return {
-                row["nautobot_device_id"]: row["librenms_device_id"]
-                for row in conn.execute("SELECT * FROM librenms_device_map").fetchall()
-            }
-        finally:
-            conn.close()
+        return {
+            row["nautobot_device_id"]: row["librenms_device_id"]
+            for row in adb.sql("SELECT * FROM librenms_device_map")
+        }
 
     def _count_connections(self):
         return adb.counting_connections()
@@ -6221,10 +6070,9 @@ class TestAlertHistoryCsv:
     NOW = "2026-10-07T12:00:00Z"
 
     @pytest.fixture(autouse=True)
-    def _history(self, pg_database, monkeypatch):
+    def _history(self, monkeypatch):
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.NOW)
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 for device_id, name, role, ip in (
                     ("d1", "lon-sw01", "Access Switch", "10.0.8.4/24"),
@@ -6312,8 +6160,6 @@ class TestAlertHistoryCsv:
                     "INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at) VALUES "
                     "(1, 'INC-881', '', now()), (1, 'INC-1', '', now()), (2, 'INC-900', '', now())"
                 )
-        finally:
-            conn.close()
 
     @staticmethod
     def _rows(resp):

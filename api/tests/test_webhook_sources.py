@@ -26,7 +26,7 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def site(pg_database, monkeypatch, clock, override_settings):
+def site(monkeypatch, clock, override_settings):
     """London: a core router and two access switches, all up in Nautobot."""
     override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
@@ -44,20 +44,15 @@ def site(pg_database, monkeypatch, clock, override_settings):
             "primary_ip": "2001:db8::3/64",
         },
     ]
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at=NOW,
-                last_successful_sync=NOW,
-                cache_version=inventory.CACHE_VERSION,
-            )
-            adb.call(inventory.write_devices, devices)
-    finally:
-        conn.close()
+    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at=NOW,
+        last_successful_sync=NOW,
+        cache_version=inventory.CACHE_VERSION,
+    )
+    adb.call(inventory.write_devices, devices)
 
 
 @pytest.fixture
@@ -298,35 +293,23 @@ class TestReviewFixes:
         assert len(event["key"]) == 64, "a hash of the labels instead"
 
     def test_an_expired_alert_firing_again_starts_anew_and_is_pruned(self, site, clock):
-        conn = adb.connect()
-        try:
-            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
-            clock["now"] = "2026-10-11T12:00:00Z"  # past the 24 h TTL
-            adb.call(webhooks.store, webhooks.parse_generic({"device": "other", "status": "down"}))
-            keys = [
-                r["alert_key"]
-                for r in conn.execute("SELECT alert_key FROM webhook_device_alerts").fetchall()
-            ]
-            assert keys == ["other"], "the expired one is gone"
-            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
-            assert (
-                adb.call(webhooks.read_index)["by_host"]["acc1"]["started_at"]
-                == "2026-10-11T12:00:00Z"
-            )
-        finally:
-            conn.close()
+        adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+        clock["now"] = "2026-10-11T12:00:00Z"  # past the 24 h TTL
+        adb.call(webhooks.store, webhooks.parse_generic({"device": "other", "status": "down"}))
+        keys = [r["alert_key"] for r in adb.sql("SELECT alert_key FROM webhook_device_alerts")]
+        assert keys == ["other"], "the expired one is gone"
+        adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+        assert (
+            adb.call(webhooks.read_index)["by_host"]["acc1"]["started_at"] == "2026-10-11T12:00:00Z"
+        )
 
     def test_a_rebuild_that_lost_the_lock_is_done_by_the_tick(self, site, clock, monkeypatch):
         from app.services import scheduler
 
-        conn = adb.connect()
-        try:
-            assert adb.call(webhooks.pending_rebuild) is None
-            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
-            received = adb.call(webhooks.pending_rebuild)
-            assert received is not None
-        finally:
-            conn.close()
+        assert adb.call(webhooks.pending_rebuild) is None
+        adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+        received = adb.call(webhooks.pending_rebuild)
+        assert received is not None
         built = []
         monkeypatch.setattr(
             scheduler, "rebuild_board", adb.async_of(lambda *args: built.append(True))

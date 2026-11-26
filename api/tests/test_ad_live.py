@@ -25,7 +25,7 @@ pytestmark = [
 
 
 @pytest.fixture
-def live(override_settings, pg_database):
+def live(override_settings):
     adb.sql("TRUNCATE roles, permissions, identities, identities_to_roles CASCADE")
     adb.call(role_service.seed_defaults)
     override_settings(

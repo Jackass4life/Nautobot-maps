@@ -24,7 +24,7 @@ def nautobot_set(override_settings):
     )
 
 
-def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board(pg_database):
+def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board():
     """The full tick (#602): after a sync the board is rebuilt here (alert history,
     notifications), so no rebuild request is left for the current app."""
     with (

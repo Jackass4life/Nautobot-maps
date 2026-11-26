@@ -14,25 +14,15 @@ site = test_maintenance.site
 
 
 def instance_ids() -> dict:
-    conn = adb.connect()
-    try:
-        rows = conn.execute(
-            "SELECT id, device_id FROM alert_instances WHERE status = 'open'"
-        ).fetchall()
-        return {row["device_id"]: row["id"] for row in rows}
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT id, device_id FROM alert_instances WHERE status = 'open'")
+    return {row["device_id"]: row["id"] for row in rows}
 
 
 def add_case(instance_id: int, number: str, at: str) -> None:
-    conn = adb.connect()
-    try:
-        conn.execute(
-            "INSERT INTO alert_cases (alert_instance_id, case_number, created_at) VALUES (%s, %s, %s)",
-            (instance_id, number, at),
-        )
-    finally:
-        conn.close()
+    adb.sql(
+        "INSERT INTO alert_cases (alert_instance_id, case_number, created_at) VALUES (%s, %s, %s)",
+        (instance_id, number, at),
+    )
 
 
 def detail(monkeypatch) -> dict:
@@ -56,13 +46,7 @@ class TestSitePanelCases:
         add_case(ids["acc1"], "INC0048290", "2026-10-09T12:05:00Z")
         add_case(ids["core"], "INC0048213", "2026-10-09T12:00:00Z")
         add_case(ids["core"], "INC0048300", "2026-10-09T12:03:00Z")
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE alert_instances SET acknowledged_by = 'olga' WHERE id = %s", (ids["core"],)
-            )
-        finally:
-            conn.close()
+        adb.sql("UPDATE alert_instances SET acknowledged_by = 'olga' WHERE id = %s", (ids["core"],))
 
         after = detail(monkeypatch)
         devices = {d["id"]: d for d in after["devices"]}

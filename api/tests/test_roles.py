@@ -40,7 +40,7 @@ def empty_roles():
 
 
 @pytest.fixture
-def seeded(pg_database):
+def seeded():
     """The tables as a migrated database has them (each test empties them)."""
     empty_roles()
     adb.call(role_service.seed_defaults)
@@ -78,7 +78,7 @@ def test_a_change_in_the_database_reaches_the_checks(seeded, monkeypatch):
     assert permissions.ROLES["auditor"].scopes == frozenset()
 
 
-def test_without_roles_in_the_database_the_built_in_ones(pg_database, caplog):
+def test_without_roles_in_the_database_the_built_in_ones(caplog):
     empty_roles()
     permissions.ROLES.clear()
     role_service.forget()
@@ -101,7 +101,7 @@ def test_an_unreadable_database_keeps_the_last_ones(seeded, monkeypatch, caplog)
     assert "Roles could not be read, the last ones kept: OSError" in caplog.text
 
 
-def test_seed_defaults_only_into_an_empty_table(pg_database):
+def test_seed_defaults_only_into_an_empty_table():
     empty_roles()
     assert adb.call(role_service.seed_defaults) == 5
     assert adb.call(role_service.seed_defaults) == 0

@@ -23,12 +23,7 @@ FLAGS = {
 
 
 def store(lnms_devices: list) -> None:
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(inventory.write_librenms_devices, lnms_devices)
-    finally:
-        conn.close()
+    adb.call(inventory.write_librenms_devices, lnms_devices)
     caching.cache.clear()
 
 
@@ -111,25 +106,20 @@ class TestBoard:
         assert "librenms_muted" not in devices["sw1"]
 
     def test_a_muted_member_is_not_in_its_stack(self, lnms):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
-                            "name": f"sw{n}",
-                            "vc_id": "vc-1",
-                            "vc_name": "sw-stack",
-                            "vc_position": n + 1,
-                            "vc_master": n == 0,
-                        }
-                        for n in range(3)
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
+                    "name": f"sw{n}",
+                    "vc_id": "vc-1",
+                    "vc_name": "sw-stack",
+                    "vc_position": n + 1,
+                    "vc_master": n == 0,
+                }
+                for n in range(3)
+            ],
+        )
         store([{**lnms.devices[1000], "status": 0}, {**lnms.devices[1002], "disable_notify": 1}])
         (down,) = board_row()["down_devices"]
         assert down["stack"]["size"] == 2 and down["stack"]["members"] == ["sw0", "sw1"]

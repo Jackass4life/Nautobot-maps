@@ -436,7 +436,7 @@ class TestArubaCentral:
 
 
 @pytest.fixture
-def controllers(pg_database, monkeypatch, override_settings):
+def controllers(monkeypatch, override_settings):
     """Two instances, dk and se; each test says what they list."""
     override_settings(WIRELESS_CONTROLLERS=(DK, SE))
     answers = {"dk": [], "se": []}
@@ -478,11 +478,7 @@ def read_index() -> dict:
 
 
 def sync_states() -> dict:
-    conn = adb.connect()
-    try:
-        return {c["name"]: asyncio.run(inventory.sync_state(wireless.source(c))) for c in (DK, SE)}
-    finally:
-        conn.close()
+    return {c["name"]: asyncio.run(inventory.sync_state(wireless.source(c))) for c in (DK, SE)}
 
 
 class TestSync:
@@ -537,14 +533,10 @@ class TestSync:
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE wireless_ap_status SET seen_at = seen_at - make_interval(secs => %s) WHERE controller = %s",
-                (wireless.stale_seconds() + 60, "catalyst_center:se"),
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE wireless_ap_status SET seen_at = seen_at - make_interval(secs => %s) WHERE controller = %s",
+            (wireless.stale_seconds() + 60, "catalyst_center:se"),
+        )
         # se's answer is old: kept as its last known (#521), so it never clears the board.
         index = read_index()
         assert ups(index["serial"]) == {"FGL1": False, "FGL9": False}
@@ -561,22 +553,18 @@ class TestSync:
         controllers["dk"] = [ap("ap1", False, "FGL1")]
         controllers["se"] = [ap("ap1", True, "FGL1")]
         asyncio.run(wireless.sync_due())
-        conn = adb.connect()
-        try:
-            # Read at the same moment: up wins, a stale copy never shows it down.
-            conn.execute("UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z'")
-            assert ups(
-                adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]
-            ) == {"FGL1": True}
-            # The newest answer wins.
-            conn.execute(
-                "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:30Z' WHERE controller = 'catalyst_center:dk'"
-            )
-            assert ups(
-                adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]
-            ) == {"FGL1": False}
-        finally:
-            conn.close()
+        # Read at the same moment: up wins, a stale copy never shows it down.
+        adb.sql("UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z'")
+        assert ups(adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {
+            "FGL1": True
+        }
+        # The newest answer wins.
+        adb.sql(
+            "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:30Z' WHERE controller = 'catalyst_center:dk'"
+        )
+        assert ups(adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {
+            "FGL1": False
+        }
 
     def test_matching_by_serial_then_name(self):
         def found(up: bool) -> dict:
@@ -649,20 +637,16 @@ class TestSync:
         controllers["dk"] = [ap("ap1", False, "FGL1")]
         controllers["se"] = [ap("ap1", True, "FGL1")]
         asyncio.run(wireless.sync_due())
-        conn = adb.connect()
-        try:
-            # As text "...T12:00:00Z" sorts after "...T12:00:00.500000Z": the older one would win.
-            conn.execute(
-                "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z' WHERE controller = 'catalyst_center:dk'"
-            )
-            conn.execute(
-                "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00.5Z' WHERE controller = 'catalyst_center:se'"
-            )
-            assert ups(
-                adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]
-            ) == {"FGL1": True}
-        finally:
-            conn.close()
+        # As text "...T12:00:00Z" sorts after "...T12:00:00.500000Z": the older one would win.
+        adb.sql(
+            "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z' WHERE controller = 'catalyst_center:dk'"
+        )
+        adb.sql(
+            "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00.5Z' WHERE controller = 'catalyst_center:se'"
+        )
+        assert ups(adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {
+            "FGL1": True
+        }
 
     def test_a_removed_instance_is_forgotten(self, controllers, override_settings):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
@@ -670,20 +654,13 @@ class TestSync:
         asyncio.run(wireless.sync_due())
         override_settings(WIRELESS_CONTROLLERS=(DK,))
         asyncio.run(wireless.sync_due())
-        conn = adb.connect()
-        try:
-            assert [
-                r["controller"]
-                for r in conn.execute("SELECT DISTINCT controller FROM wireless_ap_status")
-            ] == ["catalyst_center:dk"]
-            assert asyncio.run(inventory.sync_state("wireless:catalyst_center:se")) == {}
-        finally:
-            conn.close()
+        assert [
+            r["controller"] for r in adb.sql("SELECT DISTINCT controller FROM wireless_ap_status")
+        ] == ["catalyst_center:dk"]
+        assert asyncio.run(inventory.sync_state("wireless:catalyst_center:se")) == {}
         assert 'source="wireless:catalyst_center:se"' not in adb.call(metrics.collect)
 
-    def test_instances_sync_side_by_side_a_few_at_a_time(
-        self, pg_database, monkeypatch, override_settings
-    ):
+    def test_instances_sync_side_by_side_a_few_at_a_time(self, monkeypatch, override_settings):
         """On the event loop (#657): at most MAX_PARALLEL instances at once, all of them."""
         controllers = tuple({**DK, "name": f"c{n}"} for n in range(5))
         override_settings(WIRELESS_CONTROLLERS=controllers)
@@ -701,14 +678,14 @@ class TestSync:
         asyncio.run(wireless.sync_due())
         assert most[0] == 2 and sorted(done) == [f"c{n}" for n in range(5)]
 
-    def test_a_sync_failure_never_stops_the_tick(self, pg_database, monkeypatch):
+    def test_a_sync_failure_never_stops_the_tick(self, monkeypatch):
         async def failing():
             return 1 / 0
 
         monkeypatch.setattr(wireless, "sync_due", failing)
         assert asyncio.run(scheduler.sync_wireless()) is False
 
-    def test_a_change_rebuilds_the_board_as_any_change(self, pg_database, monkeypatch):
+    def test_a_change_rebuilds_the_board_as_any_change(self, monkeypatch):
         rebuilds = []
         monkeypatch.setattr(scheduler, "board_changed", adb.async_of(lambda: rebuilds.append(1)))
         for changed in (False, True):
@@ -734,32 +711,25 @@ APS = [f"ap{n:02d}" for n in range(1, 41)]
 def write_sites(sites: dict[str, dict[str, str]]) -> None:
     """*sites*: ``{site_id: {device: Nautobot status}}``; ``sw*`` are switches
     with a primary IP, ``ap*`` access points without one (DHCP), serial FGL-<site>-<ap>."""
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(
-                inventory.write_locations,
-                [_snapshot_location(site_id, site_id.title()) for site_id in sites],
-            )
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at=test_maintenance.NOW,
-                last_successful_sync=test_maintenance.NOW,
-                cache_version=inventory.CACHE_VERSION,
-            )
-            devices = []
-            for site_id, statuses in sites.items():
-                for name, state in statuses.items():
-                    device = _snapshot_device(f"{site_id}-{name}", site_id, "Access Switch", state)
-                    if name.startswith("ap"):
-                        device.update(
-                            role="Access Point", primary_ip="", serial=f"FGL-{site_id}-{name}"
-                        )
-                    devices.append(device)
-            adb.call(inventory.write_devices, devices)
-    finally:
-        conn.close()
+    adb.call(
+        inventory.write_locations,
+        [_snapshot_location(site_id, site_id.title()) for site_id in sites],
+    )
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at=test_maintenance.NOW,
+        last_successful_sync=test_maintenance.NOW,
+        cache_version=inventory.CACHE_VERSION,
+    )
+    devices = []
+    for site_id, statuses in sites.items():
+        for name, state in statuses.items():
+            device = _snapshot_device(f"{site_id}-{name}", site_id, "Access Switch", state)
+            if name.startswith("ap"):
+                device.update(role="Access Point", primary_ip="", serial=f"FGL-{site_id}-{name}")
+            devices.append(device)
+    adb.call(inventory.write_devices, devices)
 
 
 def controller_says(
@@ -787,7 +757,7 @@ def one_site(**statuses) -> dict[str, dict[str, str]]:
 
 
 @pytest.fixture
-def board(pg_database, monkeypatch, clock, override_settings):
+def board(monkeypatch, clock, override_settings):
     override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     override_settings(WIRELESS_CONTROLLERS=(DK,))
@@ -860,13 +830,7 @@ class TestOnTheBoard:
 
     def test_a_reason_names_only_the_access_points_set_in_nautobot(self, board, monkeypatch):
         write_sites(one_site())
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE nautobot_device_cache SET criticality = 'low' WHERE device_id = 'cph-ap40'"
-            )
-        finally:
-            conn.close()
+        adb.sql("UPDATE nautobot_device_cache SET criticality = 'low' WHERE device_id = 'cph-ap40'")
         controller_says(monkeypatch, {"cph": APS})
         (row,) = build_board()["alerts"]
         assert (row["alert_level"], row["alert_reason"]) == (
@@ -892,13 +856,9 @@ class TestOnTheBoard:
 
     def test_a_level_set_in_nautobot_is_an_alarm(self, board, monkeypatch):
         write_sites(one_site())
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE nautobot_device_cache SET criticality = 'critical' WHERE device_id = 'cph-ap05'"
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE nautobot_device_cache SET criticality = 'critical' WHERE device_id = 'cph-ap05'"
+        )
         controller_says(monkeypatch, {"cph": []})
         build_board()  # a new site's first level is stored, not notified
         controller_says(monkeypatch, {"cph": ["ap05", "ap06"]})
@@ -946,21 +906,17 @@ class TestOnTheBoard:
         write_sites(one_site(sw2="Offline"))
         controller_says(monkeypatch, {"cph": ["ap01"]})
         build_board()
-        conn = adb.connect()
-        try:
-            flags = {
-                r["device_id"]: r["access_point"]
-                for r in conn.execute("SELECT device_id, access_point FROM alert_instances")
-            }
-            feed = adb.call(board_store.read_alert_feed, 50)
-            incidents = adb.call(
-                availability.read_incidents,
-                _utc("2026-10-01T00:00:00Z"),
-                _utc("2026-11-01T00:00:00Z"),
-                _utc(test_maintenance.NOW),
-            )
-        finally:
-            conn.close()
+        flags = {
+            r["device_id"]: r["access_point"]
+            for r in adb.sql("SELECT device_id, access_point FROM alert_instances")
+        }
+        feed = adb.call(board_store.read_alert_feed, 50)
+        incidents = adb.call(
+            availability.read_incidents,
+            _utc("2026-10-01T00:00:00Z"),
+            _utc("2026-11-01T00:00:00Z"),
+            _utc(test_maintenance.NOW),
+        )
         assert flags == {"cph-sw2": False, "cph-ap01": True}
         assert [event["device_id"] for event in feed if event["kind"] == "down"] == ["cph-sw2"]
         assert list(incidents["cph"]["devices"]) == ["cph-sw2"]
@@ -1121,14 +1077,10 @@ class TestTopBarAndMetrics:
     def test_metrics_per_instance(self, controllers, monkeypatch):
         controllers["dk"] = [ap("dk-ap1", True, "FGL1"), ap("dk-ap2", False, "FGL2")]
         controllers["se"] = [ap("se-ap1", False)]
-        conn = adb.connect()
-        try:
-            adb.call(
-                inventory.write_devices,
-                [{"id": "d1", "location_id": "x", "name": "x", "serial": "fgl2"}],
-            )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_devices,
+            [{"id": "d1", "location_id": "x", "name": "x", "serial": "fgl2"}],
+        )
         asyncio.run(wireless.sync_due())
         text = adb.call(metrics.collect)
         assert (
@@ -1297,16 +1249,10 @@ class TestPlugAndPlay:
         assert "FJC9" in read_index()["pnp"]
         override_settings(WIRELESS_CONTROLLERS=(DK,))
         adb.call(wireless.prune)
-        conn = adb.connect()
-        try:
-            assert (
-                conn.execute(
-                    "SELECT count(*) AS n FROM wireless_pnp_status WHERE serial_key = 'FJC9'"
-                ).fetchone()["n"]
-                == 0
-            )
-        finally:
-            conn.close()
+        assert (
+            adb.one("SELECT count(*) AS n FROM wireless_pnp_status WHERE serial_key = 'FJC9'")["n"]
+            == 0
+        )
 
     def test_the_site_panel_says_where_it_is_and_the_board_nothing(self, board, monkeypatch):
         write_sites(

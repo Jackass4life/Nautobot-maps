@@ -29,17 +29,12 @@ def test_the_board_build_at_scale(board, override_settings):
     # s39: no firewall at all.
     devices = [d for d in devices if not d["id"].startswith("s39-fw")]
     write(sites, devices)
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            for n in range(40):
-                scope = {"acme corp": ["firewall"]} if n % 2 == 0 or n in (1, 39) else {}
-                conn.execute(
-                    "UPDATE nautobot_location_cache SET tenant = %s, tenant_scope_json = %s WHERE location_id = %s",
-                    ("Acme Corp", json.dumps(scope), f"s{n}"),
-                )
-    finally:
-        conn.close()
+    for n in range(40):
+        scope = {"acme corp": ["firewall"]} if n % 2 == 0 or n in (1, 39) else {}
+        adb.sql(
+            "UPDATE nautobot_location_cache SET tenant = %s, tenant_scope_json = %s WHERE location_id = %s",
+            ("Acme Corp", json.dumps(scope), f"s{n}"),
+        )
     rows = build(board, "2026-10-18T12:00:00Z")
     assert rows["s0"]["alert_level"] == "critical" and rows["s39"]["alert_level"] == "ok"
     payload = {"checked_at": "2026-10-18T12:00:00Z", "alerts": list(rows.values())}

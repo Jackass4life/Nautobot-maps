@@ -128,7 +128,7 @@ def test_an_incremental_sync_finds_it_in_the_stored_tree(no_lookups):
     assert _countries([ODENSE], existing_location_tree=stored) == {"odense": "Denmark"}
 
 
-def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch, override_settings):
+def test_through_full_and_incremental_syncs(client, monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token", LIBRENMS_URL=""
     )
@@ -153,7 +153,7 @@ def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch, ov
 
 
 def test_a_renamed_country_reaches_its_sites_at_the_next_sync(
-    client, pg_database, monkeypatch, override_settings
+    client, monkeypatch, override_settings
 ):
     override_settings(
         NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token", LIBRENMS_URL=""

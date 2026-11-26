@@ -50,18 +50,13 @@ class TestWhoSeesIt:
 
 
 def test_the_tenants_for_a_status_token(client):
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(
-                inventory.write_tenants,
-                [
-                    {"tenant_id": "t2", "name": "nordic net", "description": ""},
-                    {"tenant_id": "t1", "name": "Acme Corp", "description": "Retail bank"},
-                ],
-            )
-    finally:
-        conn.close()
+    adb.call(
+        inventory.write_tenants,
+        [
+            {"tenant_id": "t2", "name": "nordic net", "description": ""},
+            {"tenant_id": "t1", "name": "Acme Corp", "description": "Retail bank"},
+        ],
+    )
     admin = make("admin", "admin")["token"]
     answer = client.get("/api/v1/tenants", headers=bearer(admin))
     assert answer.json() == {

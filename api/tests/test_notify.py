@@ -97,12 +97,8 @@ def channels(monkeypatch, override_settings):
 
 
 def outbox():
-    conn = adb.connect()
-    try:
-        rows = conn.execute("SELECT * FROM notification_outbox ORDER BY id").fetchall()
-        return [db.row_to_dict(row) for row in rows]
-    finally:
-        conn.close()
+    rows = adb.sql("SELECT * FROM notification_outbox ORDER BY id")
+    return [db.row_to_dict(row) for row in rows]
 
 
 def change(levels_before, levels_after, sites=None):
@@ -163,7 +159,6 @@ class TestRules:
         assert not any(line.startswith("Down:") for line in notify.detail_lines(recovery))
 
 
-@pytest.mark.usefixtures("pg_database")
 class TestOutbox:
     def test_nothing_without_a_channel(self, monkeypatch):
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: NOW)
@@ -236,13 +231,10 @@ class TestOutbox:
     def test_a_locked_row_is_not_sent_twice(self, channels):
         """Two senders at once: the second skips what the first holds (FOR UPDATE SKIP LOCKED)."""
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        holder = adb.connect()
-        try:
+        with adb.connect() as holder:
             with holder.transaction():
                 holder.execute("SELECT id FROM notification_outbox FOR UPDATE").fetchall()
                 assert asyncio.run(notify.send_pending()) == 0
-        finally:
-            holder.close()
         assert asyncio.run(notify.send_pending()) == 3
 
     def test_a_burst_is_one_summary(self, channels, override_settings):
@@ -280,14 +272,10 @@ class TestOutbox:
         )
         sites = {f"loc-{n}": site(f"loc-{n}") for n in range(2)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE notification_outbox SET attempts = %s WHERE site_id = 'loc-0'",
-                (notify.MAX_ATTEMPTS - 1,),
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE notification_outbox SET attempts = %s WHERE site_id = 'loc-0'",
+            (notify.MAX_ATTEMPTS - 1,),
+        )
 
         class Bad:
             status_code = 503
@@ -332,14 +320,10 @@ class TestOutbox:
         assert "secret-token-123" not in caplog.text
         assert asyncio.run(notify.send_pending()) == 0, "not due again yet"
 
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "UPDATE notification_outbox SET attempts = %s, next_attempt_at = %s",
-                (notify.MAX_ATTEMPTS - 1, NOW),
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE notification_outbox SET attempts = %s, next_attempt_at = %s",
+            (notify.MAX_ATTEMPTS - 1, NOW),
+        )
         asyncio.run(notify.send_pending())
         (row,) = outbox()
         assert row["status"] == "failed" and row["attempts"] == notify.MAX_ATTEMPTS

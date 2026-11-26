@@ -195,26 +195,18 @@ class TestSiteLevel:
 
 def write(sites: dict[str, str], devices: list[dict]) -> None:
     """*sites*: {site id: tier}; *devices*: snapshot devices."""
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(
-                inventory.write_locations,
-                [
-                    {**_snapshot_location(sid, f"Site {sid}"), "tier": tier}
-                    for sid, tier in sites.items()
-                ],
-            )
-            adb.call(inventory.write_devices, devices)
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at=NOW,
-                last_successful_sync=NOW,
-                cache_version=inventory.CACHE_VERSION,
-            )
-    finally:
-        conn.close()
+    adb.call(
+        inventory.write_locations,
+        [{**_snapshot_location(sid, f"Site {sid}"), "tier": tier} for sid, tier in sites.items()],
+    )
+    adb.call(inventory.write_devices, devices)
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at=NOW,
+        last_successful_sync=NOW,
+        cache_version=inventory.CACHE_VERSION,
+    )
 
 
 def site_devices(site_id: str, down: int = 1, total: int = 5, criticality: str = "") -> list[dict]:
@@ -239,12 +231,7 @@ def build(clock, at: str) -> dict:
 
 
 def query(sql: str) -> list[dict]:
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            return [db.row_to_dict(row) for row in conn.execute(sql).fetchall()]
-    finally:
-        conn.close()
+    return [db.row_to_dict(row) for row in adb.sql(sql)]
 
 
 def outbox_sites() -> list[str]:

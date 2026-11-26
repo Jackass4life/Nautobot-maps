@@ -57,12 +57,9 @@ def window(conn, site, device, starts, ends, ended=None):
 
 
 def write(fn):
-    conn = adb.connect()
-    try:
+    with adb.connect() as conn:
         with conn.transaction():
             fn(conn)
-    finally:
-        conn.close()
 
 
 def run(
@@ -191,9 +188,7 @@ class TestIntervals:
 
 
 class TestReport:
-    def test_overlapping_devices_count_once_and_maintenance_is_not_downtime(
-        self, pg_database, clock
-    ):
+    def test_overlapping_devices_count_once_and_maintenance_is_not_downtime(self, clock):
         def setup(conn):
             # Two devices down 10:00-12:00 and 11:00-13:00: three hours.
             incident(conn, "s1", "d1", t(2, 10), t(2, 12))
@@ -216,26 +211,20 @@ class TestReport:
         assert site["incidents"] == 6
         assert site["availability"] == round(100 * (1 - expected / PERIOD), 3)
 
-    def test_consistent_with_the_incident_history(self, pg_database, clock):
+    def test_consistent_with_the_incident_history(self, clock):
         def setup(conn):
             incident(conn, "s1", "d1", t(3, 1), t(3, 2, 30))
             incident(conn, "s1", "d2", t(3, 2), t(3, 4))
             incident(conn, "s1", "d1", t(9), t(9, 0, 10))
 
         write(setup)
-        conn = adb.connect()
-        try:
-            rows = conn.execute(
-                "SELECT down_started_at, resolved_at FROM alert_instances"
-            ).fetchall()
-        finally:
-            conn.close()
+        rows = adb.sql("SELECT down_started_at, resolved_at FROM alert_instances")
         history = availability.union([(r["down_started_at"], r["resolved_at"]) for r in rows])
         assert (
             run()["sites"][0]["downtime_seconds"] == availability.seconds(history) == 3 * 3600 + 600
         )
 
-    def test_at_critical(self, pg_database, clock):
+    def test_at_critical(self, clock):
         def setup(conn):
             for site, frm, to, at in (
                 ("s1", "ok", "critical", OCT - timedelta(days=1)),  # critical since September
@@ -267,7 +256,7 @@ class TestReport:
         assert sites["s4"]["downtime_seconds"] == PERIOD
         assert (sites["s3"]["downtime_seconds"], sites["s3"]["incidents"]) == (0, 1)
 
-    def test_at_critical_without_a_recorded_change(self, pg_database, clock):
+    def test_at_critical_without_a_recorded_change(self, clock):
         """A site's first level is not a change: Critical since first seen, or until a later change."""
 
         def setup(conn):
@@ -286,7 +275,7 @@ class TestReport:
         sites = {row["site_id"]: row["downtime_seconds"] for row in run(basis="critical")["sites"]}
         assert sites == {"always": PERIOD, "since": 6 * 86400, "later": PERIOD}
 
-    def test_first_seen_mid_month_then_changed(self, pg_database, clock):
+    def test_first_seen_mid_month_then_changed(self, clock):
         """First seen Critical on the 15th, back to OK on the 20th: five days, not from the 1st."""
 
         def setup(conn):
@@ -305,14 +294,14 @@ class TestReport:
         (site,) = run(basis="critical")["sites"]
         assert site["downtime_seconds"] == 5 * 86400
 
-    def test_months_with_deleted_history_are_refused(self, pg_database, clock, override_settings):
+    def test_months_with_deleted_history_are_refused(self, clock, override_settings):
         override_settings(ALERT_HISTORY_RETENTION_DAYS=10)
         with pytest.raises(availability.ReportError, match="History before 2026-10-11 is deleted"):
             run()
         override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         assert run()["period"]["seconds"] == PERIOD
 
-    def test_every_board_site_is_listed_and_tenants_average(self, pg_database, clock):
+    def test_every_board_site_is_listed_and_tenants_average(self, clock):
         def setup(conn):
             incident(conn, "s1", "d1", t(2), t(4))  # two days of twenty: 90 %
             incident(conn, "s5", "d9", t(5), t(6), name="history name")  # one day: 95 %
@@ -354,7 +343,7 @@ class TestReport:
             "label": "2026-10",
         }
 
-    def test_a_from_to_period(self, pg_database, clock, override_settings):
+    def test_a_from_to_period(self, clock, override_settings):
         write(lambda conn: incident(conn, "s1", "d1", t(2, 12), t(4, 12)))
         sites = [{"id": "s1", "name": "Oslo", "tenants": ["Acme"], "device_count": 1}]
         # 3–4 October: the 2nd's half day is outside, 36 of 48 hours down.
@@ -389,7 +378,7 @@ class TestReport:
             == 10 * 86400
         )
 
-    def test_the_summary_and_tenant_descriptions(self, pg_database, clock):
+    def test_the_summary_and_tenant_descriptions(self, clock):
         # The page's cards (#342): every site counts the same.
         write(lambda conn: incident(conn, "s1", "d1", t(2), t(4)))  # 90 %
         sites = [
@@ -435,7 +424,7 @@ class TestReport:
         quiet = run("2026-09", sites=sites)["summary"]
         assert quiet["worst_tenant"] is None and quiet["no_downtime"] == 2
 
-    def test_outages_maintenance_and_incidents(self, pg_database, clock):
+    def test_outages_maintenance_and_incidents(self, clock):
         # #354: outages are the merged down time after maintenance; each incident
         # says what maintenance covered and carries its cases.
         def setup(conn):
@@ -512,7 +501,7 @@ class TestReport:
         )
         assert [r["device"] for r in listed] == ["d1", "d2", "d3", "d4"], "oldest first"
 
-    def test_still_down_has_no_restore_time(self, pg_database, clock):
+    def test_still_down_has_no_restore_time(self, clock):
         # An outage still on at the report's end isn't restored: no mean time to restore (review on #354).
         write(lambda conn: incident(conn, "s1", "d1", t(19)))
         (site,) = run(sites=[{"id": "s1", "name": "Oslo", "device_count": 1}])["sites"]
@@ -525,7 +514,7 @@ class TestReport:
         line = "".join(adb.items(availability.csv_lines(report, "sites"))).splitlines()[1]
         assert ",1,2880,,2026-10-19 00:00,2026-10-19 00:00," in line
 
-    def test_too_many_incidents_are_refused(self, pg_database, clock, monkeypatch):
+    def test_too_many_incidents_are_refused(self, clock, monkeypatch):
         write(
             lambda conn: (
                 incident(conn, "s1", "d1", t(2), t(3)),
@@ -537,7 +526,7 @@ class TestReport:
             run(with_incidents=True)
         assert "incidents" not in run(), "only the export reads them"
 
-    def test_unknown_basis(self, pg_database, clock):
+    def test_unknown_basis(self, clock):
         with pytest.raises(availability.ReportError, match="basis"):
             run(basis="uptime")
 
@@ -547,7 +536,7 @@ REAL_BOARD_SITES = availability.board_sites
 
 class TestPages:
     @pytest.fixture
-    def client(self, pg_database, clock, monkeypatch):
+    def client(self, clock, monkeypatch):
         write(lambda conn: incident(conn, "s1", "d1", t(2), t(4), name="=Oslo"))
         # 10 devices, 2 of them in maintenance; 6 access points (#499).
         site = {
@@ -721,9 +710,8 @@ class TestPages:
         monkeypatch.setattr(inventory, "snapshot_initialized", adb.async_of(lambda conn=None: True))
         assert client.get("/api/v1/availability").status_code == 200, "synced, and really no sites"
 
-    def test_the_period_query_can_use_the_index(self, pg_database):
-        conn = adb.connect()
-        try:
+    def test_the_period_query_can_use_the_index(self):
+        with adb.connect() as conn:
             conn.execute("SET enable_seqscan = off")
             plan = "\n".join(
                 str(next(iter(db.row_to_dict(row).values())))
@@ -732,8 +720,6 @@ class TestPages:
                     "WHERE COALESCE(resolved_at, 'infinity'::timestamptz) > now() AND down_started_at < now()"
                 ).fetchall()
             )
-        finally:
-            conn.close()
         assert "idx_alert_instances_period" in plan, plan
 
     def test_bad_input(self, client):

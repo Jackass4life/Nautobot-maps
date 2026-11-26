@@ -90,20 +90,15 @@ def link(tenant: str) -> str:
 
 
 @pytest.fixture
-def known_tenants(pg_database):
+def known_tenants():
     """The tenants Nautobot has, as of the last sync: a status token needs one (#528)."""
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(
-                inventory.write_tenants,
-                [
-                    {"tenant_id": "t-acme", "name": "Acme Corp"},
-                    {"tenant_id": "t-other", "name": "Other Co"},
-                ],
-            )
-    finally:
-        conn.close()
+    adb.call(
+        inventory.write_tenants,
+        [
+            {"tenant_id": "t-acme", "name": "Acme Corp"},
+            {"tenant_id": "t-other", "name": "Other Co"},
+        ],
+    )
 
 
 @pytest.fixture
@@ -365,7 +360,7 @@ class TestCircuits:
         placed = status.site_circuits(rows, circuits, {})
         assert sum(len(found) for found in placed.values()) == 1500 and len(placed["s0"]) == 2
 
-    def test_only_the_tenants_active_circuits(self, pg_database):
+    def test_only_the_tenants_active_circuits(self):
         rows = [
             self.circuit("MINE", tenant=" acme corp "),
             self.circuit("PLANNED", status="Planned"),
@@ -391,14 +386,7 @@ class TestCircuits:
         ]
 
     def test_on_the_page(self, client, board):
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(
-                    inventory.write_circuits, [self.circuit("TEL-1", location_ids=["loc-par"])]
-                )
-        finally:
-            conn.close()
+        adb.call(inventory.write_circuits, [self.circuit("TEL-1", location_ids=["loc-par"])])
         sites = client.get(f"/api/v1/status/{link('Acme Corp')}").json()["sites"]
         assert next(s for s in sites if s["name"] == "Paris PoP")["circuits"] == [
             {"cid": "TEL-1", "type": "Internet Transit", "bandwidth": "1 Gbps"}
@@ -799,9 +787,7 @@ class TestTenantDevices:
         devices = status.tenant_status(board, "ACME CORP")["sites"][0]["devices"]
         assert [d["name"] for d in devices] == ["z-down", "m", "A-up", "b-up"]
 
-    def test_from_the_board_build_to_the_page(
-        self, client, pg_database, monkeypatch, override_settings
-    ):
+    def test_from_the_board_build_to_the_page(self, client, monkeypatch, override_settings):
         """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
         from tests.test_app import _snapshot_device, _snapshot_location
 
@@ -809,36 +795,31 @@ class TestTenantDevices:
         monkeypatch.setattr(
             inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
         )
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(
-                    inventory.write_locations,
-                    [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_completed_at=self.CHECKED_AT,
-                    last_successful_sync=self.CHECKED_AT,
-                    cache_version=inventory.CACHE_VERSION,
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            **_snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"),
-                            "tenant": "Acme Corp",
-                        },
-                        {
-                            **_snapshot_device("lon-sw-01", "loc-lon", "Access Switch", "Active"),
-                            "tenant": "Acme Corp",
-                        },
-                        _snapshot_device("lon-core-01", "loc-lon", "Core Router", "Active"),
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_completed_at=self.CHECKED_AT,
+            last_successful_sync=self.CHECKED_AT,
+            cache_version=inventory.CACHE_VERSION,
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    **_snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"),
+                    "tenant": "Acme Corp",
+                },
+                {
+                    **_snapshot_device("lon-sw-01", "loc-lon", "Access Switch", "Active"),
+                    "tenant": "Acme Corp",
+                },
+                _snapshot_device("lon-core-01", "loc-lon", "Core Router", "Active"),
+            ],
+        )
         board = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))
         monkeypatch.setattr(alerts, "get_alert_board_data", adb.async_of(lambda *a, **k: board))
         (site,) = client.get(f"/api/v1/status/{link('Acme Corp')}").json()["sites"]
@@ -1002,13 +983,9 @@ class TestLinks:
             )
 
     def test_a_typo_makes_no_link(self, client, capsys):
-        conn = adb.connect()
-        try:
-            conn.execute(
-                "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) VALUES ('t1', 'Acme Corp', '')"
-            )
-        finally:
-            conn.close()
+        adb.sql(
+            "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) VALUES ('t1', 'Acme Corp', '')"
+        )
         assert cli.main(["status-link", "Acme Crop", "--new"]) == 1
         assert "no tenant 'Acme Crop'" in capsys.readouterr().err
         assert cli.main(["status-link", "ACME CORP"]) == 0
@@ -1076,7 +1053,7 @@ class TestStatusTokens:
             ({"role": "viewer", "tenant": "Acme Corp"}, "only for role status"),
         ],
     )
-    def test_validation(self, pg_database, clock, body, message):
+    def test_validation(self, clock, body, message):
         from app.services import token_service as tokens
 
         with pytest.raises(tokens.TokenError, match=message):
@@ -1095,12 +1072,8 @@ class TestStatusTokens:
         )
         assert refused.status_code == 400
         assert refused.json() == {"error": "no tenant 'Acme' in Nautobot (as of the last sync)"}
-        conn = adb.connect()
-        try:
-            assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0
-            assert not adb.run(statuslinks.known, "Acme")
-        finally:
-            conn.close()
+        assert adb.one("SELECT count(*) AS n FROM status_links")["n"] == 0
+        assert not adb.run(statuslinks.known, "Acme")
         # Capitals don't matter; the token keeps Nautobot's spelling.
         created = make("acme", "status", tenant="ACME corp")
         assert (
@@ -1112,7 +1085,7 @@ class TestStatusTokens:
         listed = client.get("/api/v1/tokens?tenant=Other%20Co", headers=bearer(admin)).json()
         assert listed == {"tokens": [], "inactive": 0}
 
-    def test_verify_and_cli(self, known_tenants, pg_database, clock, capsys):
+    def test_verify_and_cli(self, known_tenants, clock, capsys):
         from app import __main__ as cli
 
         assert (

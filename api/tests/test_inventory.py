@@ -130,44 +130,38 @@ class TestPrimaryIpExtraction:
 
 class TestInventoryCacheSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
-        self.db = pg_database
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": ["cached"],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": ["cached"],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         with patch.object(
             nautobot,
@@ -207,37 +201,32 @@ class TestInventoryCacheSync:
         ]
 
     def test_cached_locations_allow_null_time_zone(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": None,
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": None,
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         location = next(item for item in locations if item["id"] == "loc-1")
@@ -245,37 +234,32 @@ class TestInventoryCacheSync:
         assert location["time_zone"] is None
 
     def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": None,
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": None,
-                            "physical_address": None,
-                            "facility": None,
-                            "tenant": None,
-                            "tenant_id": None,
-                            "tenant_group": None,
-                            "asn": None,
-                            "time_zone": None,
-                            "tags": [],
-                            "url": None,
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": None,
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": None,
+                    "physical_address": None,
+                    "facility": None,
+                    "tenant": None,
+                    "tenant_id": None,
+                    "tenant_group": None,
+                    "asn": None,
+                    "time_zone": None,
+                    "tags": [],
+                    "url": None,
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         assert len(locations) == 1
@@ -290,30 +274,25 @@ class TestInventoryCacheSync:
         assert locations[0]["url"] == ""
 
     def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-1",
-                            "location_id": None,
-                            "name": None,
-                            "device_type": None,
-                            "manufacturer": None,
-                            "role": None,
-                            "status": None,
-                            "primary_ip": None,
-                            "platform": None,
-                            "serial": None,
-                            "tenant": None,
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-1",
+                    "location_id": None,
+                    "name": None,
+                    "device_type": None,
+                    "manufacturer": None,
+                    "role": None,
+                    "status": None,
+                    "primary_ip": None,
+                    "platform": None,
+                    "serial": None,
+                    "tenant": None,
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         devices = asyncio.run(inventory.read_devices())
         assert len(devices) == 1
@@ -329,47 +308,42 @@ class TestInventoryCacheSync:
         assert devices[0]["tenant"] == ""
 
     def test_cached_location_read_triggers_background_refresh_when_sync_is_due(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-1",
-                            "name": "Cached Site",
-                            "slug": "cached-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:00:00Z",
-                    last_successful_sync="2026-01-01T00:00:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-1",
+                    "name": "Cached Site",
+                    "slug": "cached-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:00:00Z",
+            last_successful_sync="2026-01-01T00:00:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         refresh_called = threading.Event()
 
@@ -451,31 +425,26 @@ class TestInventoryCacheSync:
         assert device_calls[1]["depth"] == 1
 
     def test_incremental_sync_keeps_existing_watermark_without_newer_last_updated(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory_reconcile",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2099-01-01T00:00:00Z",
-                    last_successful_sync="2099-01-01T00:00:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory_reconcile",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2099-01-01T00:00:00Z",
+            last_successful_sync="2099-01-01T00:00:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
@@ -572,21 +541,16 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version="1",
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version="1",
+            status="idle",
+            error_message="",
+        )
 
         with (
             overridden(NAUTOBOT_URL="https://nautobot.example.com"),
@@ -615,21 +579,16 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version="1",
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version="1",
+            status="idle",
+            error_message="",
+        )
 
         with (
             overridden(NAUTOBOT_URL="https://nautobot.example.com"),
@@ -685,21 +644,16 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.record_sync_state,
-                    "nautobot_inventory",
-                    last_started_at="2026-01-01T00:00:00Z",
-                    last_completed_at="2026-01-01T00:05:00Z",
-                    last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=inventory.CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.record_sync_state,
+            "nautobot_inventory",
+            last_started_at="2026-01-01T00:00:00Z",
+            last_completed_at="2026-01-01T00:05:00Z",
+            last_successful_sync="2026-01-01T00:05:00Z",
+            cache_version=inventory.CACHE_VERSION,
+            status="idle",
+            error_message="",
+        )
 
         with (
             overridden(NAUTOBOT_URL="https://nautobot.example.com"),
@@ -726,56 +680,51 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
-        conn = adb.connect()
-        try:
-            with conn:
-                adb.call(
-                    inventory.write_locations,
-                    [
-                        {
-                            "id": "loc-stale",
-                            "name": "Stale Site",
-                            "slug": "stale-site",
-                            "status": "Active",
-                            "location_type": "Data Center",
-                            "parent": "",
-                            "latitude": 1.0,
-                            "longitude": 2.0,
-                            "description": "",
-                            "physical_address": "",
-                            "facility": "",
-                            "tenant": "",
-                            "tenant_id": "",
-                            "tenant_group": "",
-                            "asn": None,
-                            "time_zone": "",
-                            "tags": [],
-                            "url": "",
-                            "last_updated": "2025-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-                adb.call(
-                    inventory.write_devices,
-                    [
-                        {
-                            "id": "dev-stale",
-                            "location_id": "loc-stale",
-                            "name": "stale-router",
-                            "device_type": "ASR1001-X",
-                            "manufacturer": "Cisco",
-                            "role": "Core Router",
-                            "status": "active",
-                            "primary_ip": "198.51.100.1/32",
-                            "platform": "IOS-XE",
-                            "serial": "SN-STALE",
-                            "tenant": "",
-                            "last_updated": "2025-01-01T00:00:00Z",
-                        }
-                    ],
-                )
-        finally:
-            conn.close()
+        adb.call(
+            inventory.write_locations,
+            [
+                {
+                    "id": "loc-stale",
+                    "name": "Stale Site",
+                    "slug": "stale-site",
+                    "status": "Active",
+                    "location_type": "Data Center",
+                    "parent": "",
+                    "latitude": 1.0,
+                    "longitude": 2.0,
+                    "description": "",
+                    "physical_address": "",
+                    "facility": "",
+                    "tenant": "",
+                    "tenant_id": "",
+                    "tenant_group": "",
+                    "asn": None,
+                    "time_zone": "",
+                    "tags": [],
+                    "url": "",
+                    "last_updated": "2025-01-01T00:00:00Z",
+                }
+            ],
+        )
+        adb.call(
+            inventory.write_devices,
+            [
+                {
+                    "id": "dev-stale",
+                    "location_id": "loc-stale",
+                    "name": "stale-router",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "active",
+                    "primary_ip": "198.51.100.1/32",
+                    "platform": "IOS-XE",
+                    "serial": "SN-STALE",
+                    "tenant": "",
+                    "last_updated": "2025-01-01T00:00:00Z",
+                }
+            ],
+        )
 
         def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
@@ -879,7 +828,7 @@ class TestLibreNMSPolledIp:
     def test_polled_ip_selection(self, record, expected):
         assert inventory.librenms_polled_ip(record) == expected
 
-    def test_sync_caches_polled_ip(self, pg_database, override_settings):
+    def test_sync_caches_polled_ip(self, override_settings):
         override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
         with patch.object(
             librenms,
@@ -909,7 +858,7 @@ class TestLibreNMSPolledIp:
 
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
-    def _database_and_nautobot(self, pg_database, override_settings):
+    def _database_and_nautobot(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -1008,7 +957,7 @@ class TestLocationTenantRelationships:
 
 class TestLocationTenantSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -1055,7 +1004,7 @@ class TestTenantDescriptions:
     """The tenant (i) shows the Nautobot description (#263)."""
 
     @pytest.fixture(autouse=True)
-    def _sync_setup(self, pg_database, override_settings):
+    def _sync_setup(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -1120,7 +1069,7 @@ class TestTenantDescriptions:
         }
 
 
-def test_the_writers_store_upstream_values_as_their_columns_types(pg_database):
+def test_the_writers_store_upstream_values_as_their_columns_types():
     """Nautobot's numbers as text and its times as ISO text, as psycopg took them: asyncpg
     takes each column's own type, so the writers convert (#659)."""
     from datetime import UTC, datetime
@@ -1174,14 +1123,10 @@ def test_the_writers_store_upstream_values_as_their_columns_types(pg_database):
         [{"device_id": "12", "hostname": "sw1", "status": "1", "ip": "10.0.0.1", "ignore": "0"}],
         seq,
     )
-    conn = adb.connect()
-    try:
-        location = conn.execute("SELECT * FROM nautobot_location_cache").fetchone()
-        device = conn.execute("SELECT * FROM nautobot_device_cache").fetchone()
-        circuit = conn.execute("SELECT * FROM nautobot_circuit_cache").fetchone()
-        status = conn.execute("SELECT * FROM librenms_device_status").fetchone()
-    finally:
-        conn.close()
+    location = adb.one("SELECT * FROM nautobot_location_cache")
+    device = adb.one("SELECT * FROM nautobot_device_cache")
+    circuit = adb.one("SELECT * FROM nautobot_circuit_cache")
+    status = adb.one("SELECT * FROM librenms_device_status")
     assert (location["latitude"], location["asn"], location["time_zone"]) == (55.6, 65001, None)
     assert location["last_updated"] == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     assert location["tags_json"] == '["b","a"]'

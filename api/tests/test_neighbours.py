@@ -109,11 +109,7 @@ class TestCatalystTopology:
         controllers["topology"]["dk"] = RuntimeError("timeout")
         asyncio.run(wireless.sync_controller(DK))
         assert load()["serial"]["FGL1"]["port"] == "Gi1/0/14"
-        conn = adb.connect()
-        try:
-            assert asyncio.run(inventory.sync_state(wireless.source(DK)))["status"] == "idle"
-        finally:
-            conn.close()
+        assert asyncio.run(inventory.sync_state(wireless.source(DK)))["status"] == "idle"
 
 
 def load(devices=None) -> dict:
@@ -139,7 +135,7 @@ class TestNautobotCables:
             {"termination_a": {"id": "ct-1", "circuit": {"id": "c"}}}, "a"
         ) == ("", "")
 
-    def test_read_with_the_inventory_incrementally(self, pg_database, monkeypatch):
+    def test_read_with_the_inventory_incrementally(self, monkeypatch):
         asked = []
         monkeypatch.setattr(
             nautobot,
@@ -162,42 +158,28 @@ class TestNautobotCables:
 
         monkeypatch.setattr(nautobot, "fetch_all_pages", broken)
         assert inventory.fetch_cables(None) is None, "kept: not an empty list"
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                adb.call(inventory.write_cables, inventory.fetch_cables(None) or [], full=False)
-                adb.call(
-                    inventory.write_cables,
-                    [dict(cable_id="c1", a_device_id="a", a_port="p", b_device_id="b", b_port="q")],
-                    full=False,
-                )
-                adb.call(
-                    inventory.write_cables,
-                    [
-                        dict(
-                            cable_id="c1", a_device_id="a", a_port="p2", b_device_id="b", b_port="q"
-                        )
-                    ],
-                    full=False,
-                )
-                adb.call(
-                    inventory.write_cables,
-                    [dict(cable_id="c2", a_device_id="x", a_port="", b_device_id="y", b_port="")],
-                    full=False,
-                )
-            assert [
-                r["a_port"]
-                for r in conn.execute(
-                    "SELECT a_port FROM nautobot_cable_cache WHERE cable_id = 'c1'"
-                ).fetchall()
-            ] == ["p2"]
-            with conn.transaction():
-                adb.call(inventory.write_cables, [], full=True)
-            assert (
-                conn.execute("SELECT count(*) AS n FROM nautobot_cable_cache").fetchone()["n"] == 0
-            )
-        finally:
-            conn.close()
+        adb.call(inventory.write_cables, inventory.fetch_cables(None) or [], full=False)
+        adb.call(
+            inventory.write_cables,
+            [dict(cable_id="c1", a_device_id="a", a_port="p", b_device_id="b", b_port="q")],
+            full=False,
+        )
+        adb.call(
+            inventory.write_cables,
+            [dict(cable_id="c1", a_device_id="a", a_port="p2", b_device_id="b", b_port="q")],
+            full=False,
+        )
+        adb.call(
+            inventory.write_cables,
+            [dict(cable_id="c2", a_device_id="x", a_port="", b_device_id="y", b_port="")],
+            full=False,
+        )
+        assert [
+            r["a_port"]
+            for r in adb.sql("SELECT a_port FROM nautobot_cable_cache WHERE cable_id = 'c1'")
+        ] == ["p2"]
+        adb.call(inventory.write_cables, [], full=True)
+        assert adb.one("SELECT count(*) AS n FROM nautobot_cable_cache")["n"] == 0
 
 
 def cable(conn, ap_id: str, switch_id: str, port: str) -> None:
@@ -222,8 +204,7 @@ class TestOnTheBoard:
     ):
         write_sites({"cph": {"sw1": "Active", **{name: "Active" for name in APS[:16]}}})
         controller_says(monkeypatch, {"cph": APS[:12]}, every={"cph": APS[:16]})
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 # Catalyst Center says the first 14 are on sw02; Nautobot's cables, ap15 and ap16 on sw1.
                 rows = [
@@ -244,8 +225,6 @@ class TestOnTheBoard:
                 )
                 for n, name in enumerate(APS[14:16], start=15):
                     cable(conn, f"cph-{name}", "cph-sw1", f"Gi1/0/{n}")
-        finally:
-            conn.close()
         (row,) = build_board()["alerts"]
         first = next(d for d in row["down_devices"] if d["device_name"] == f"cph-{APS[0]}")
         assert first["neighbour"] == {
@@ -258,13 +237,10 @@ class TestOnTheBoard:
     def test_one_down_names_its_switch_but_no_row_line(self, board, monkeypatch):
         write_sites({"cph": {"sw1": "Active", APS[0]: "Active", APS[1]: "Active"}})
         controller_says(monkeypatch, {"cph": APS[:1]}, every={"cph": APS[:2]})
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 for name in APS[:2]:
                     cable(conn, f"cph-{name}", "cph-sw1", "Gi1/0/1")
-        finally:
-            conn.close()
         (row,) = build_board()["alerts"]
         (down,) = row["down_devices"]
         assert down["neighbour"] == {
@@ -284,12 +260,9 @@ class TestOnTheBoard:
     def test_the_site_panel(self, board, monkeypatch):
         write_sites({"cph": {"sw1": "Active", APS[0]: "Active"}})
         controller_says(monkeypatch, {"cph": APS[:1]}, every={"cph": APS[:1]})
-        conn = adb.connect()
-        try:
+        with adb.connect() as conn:
             with conn.transaction():
                 cable(conn, f"cph-{APS[0]}", "cph-sw1", "Gi1/0/9")
-        finally:
-            conn.close()
         monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
         monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
         caching.cache.clear()

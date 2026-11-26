@@ -43,7 +43,7 @@ class FakeLibreNMS:
 
 
 @pytest.fixture
-def lnms(pg_database, monkeypatch, override_settings):
+def lnms(monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL="",
         NAUTOBOT_TOKEN="",
@@ -57,30 +57,25 @@ def lnms(pg_database, monkeypatch, override_settings):
     rebuilds = []
     monkeypatch.setattr(scheduler, "rebuild_after_push", lambda: rebuilds.append(True))
     fake.rebuilds = rebuilds
-    conn = adb.connect()
-    try:
-        with conn.transaction():
-            adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Aarhus")])
-            adb.call(
-                inventory.write_devices,
-                [
-                    {
-                        **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
-                        "name": f"sw{n}",
-                    }
-                    for n in range(3)
-                ],
-            )
-            adb.call(inventory.write_librenms_devices, list(fake.devices.values()))
-            adb.call(
-                inventory.record_sync_state,
-                "nautobot_inventory",
-                last_completed_at="2026-10-09T12:00:00Z",
-                last_successful_sync="2026-10-09T12:00:00Z",
-                cache_version=inventory.CACHE_VERSION,
-            )
-    finally:
-        conn.close()
+    adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Aarhus")])
+    adb.call(
+        inventory.write_devices,
+        [
+            {
+                **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
+                "name": f"sw{n}",
+            }
+            for n in range(3)
+        ],
+    )
+    adb.call(inventory.write_librenms_devices, list(fake.devices.values()))
+    adb.call(
+        inventory.record_sync_state,
+        "nautobot_inventory",
+        last_completed_at="2026-10-09T12:00:00Z",
+        last_successful_sync="2026-10-09T12:00:00Z",
+        cache_version=inventory.CACHE_VERSION,
+    )
     caching.cache.clear()
     return fake
 
@@ -102,15 +97,7 @@ def board_row() -> dict:
 
 
 def pending() -> bool:
-    conn = adb.connect()
-    try:
-        return bool(
-            conn.execute(
-                "SELECT 1 FROM librenms_device_status WHERE push_seq IS NOT NULL"
-            ).fetchone()
-        )
-    finally:
-        conn.close()
+    return bool(adb.one("SELECT 1 FROM librenms_device_status WHERE push_seq IS NOT NULL"))
 
 
 class TestPush:
@@ -252,13 +239,9 @@ class TestPush:
         ]
 
     def test_hostname_lookups_have_an_index(self, lnms):
-        conn = adb.connect()
-        try:
-            row = conn.execute(
-                "SELECT indexdef FROM pg_indexes WHERE indexname = 'librenms_device_status_hostname_lower'"
-            ).fetchone()
-        finally:
-            conn.close()
+        row = adb.one(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'librenms_device_status_hostname_lower'"
+        )
         assert "lower(hostname)" in db.row_to_dict(row)["indexdef"]
 
     def test_unknown_device_is_not_an_error(self, client, lnms):
@@ -353,13 +336,7 @@ class TestRebuild:
 
         monkeypatch.setattr(scheduler, "rebuild_board", rebuild_while_another_push_comes)
         assert asyncio.run(scheduler.tick()) is True
-        conn = adb.connect()
-        try:
-            rows = conn.execute(
-                "SELECT device_id FROM librenms_device_status WHERE push_seq IS NOT NULL"
-            ).fetchall()
-        finally:
-            conn.close()
+        rows = adb.sql("SELECT device_id FROM librenms_device_status WHERE push_seq IS NOT NULL")
         assert [db.row_to_dict(row)["device_id"] for row in rows] == [1002]
 
     def test_rebuild_after_push_builds_and_stores_the_board(self, lnms, monkeypatch):
@@ -367,15 +344,10 @@ class TestRebuild:
         monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
 
         monkeypatch.setattr(session, "spawn", adb.spawn_inline)
-        conn = adb.connect()
-        try:
-            with conn.transaction():
-                conn.execute(
-                    "UPDATE librenms_device_status SET status = 0, push_seq = nextval('librenms_push_seq') "
-                    "WHERE device_id = 1000"
-                )
-        finally:
-            conn.close()
+        adb.sql(
+            "UPDATE librenms_device_status SET status = 0, push_seq = nextval('librenms_push_seq') "
+            "WHERE device_id = 1000"
+        )
         caching.cache.clear()
         scheduler.rebuild_after_push()
         cached = caching.get("alert-board-data:v3")

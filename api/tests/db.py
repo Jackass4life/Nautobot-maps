@@ -194,6 +194,18 @@ def sql(statement: str, params=None) -> list[dict]:  # type: ignore[no-untyped-d
         return conn.execute(statement, params).fetchall()
 
 
+def many(statement: str, rows) -> None:  # type: ignore[no-untyped-def]
+    """*statement* once for each of *rows*, sent as one batch."""
+    with connect() as conn:
+        conn.executemany(statement, list(rows))
+
+
+def one(statement: str, params=None) -> dict | None:  # type: ignore[no-untyped-def]
+    """``sql``'s first row, or None when there is none."""
+    rows = sql(statement, params)
+    return rows[0] if rows else None
+
+
 def hold_lock(name: str):  # type: ignore[no-untyped-def]
     """``aconnection.try_advisory_lock`` held from a test's sync code (another worker,
     say): a release function (sync), or False."""

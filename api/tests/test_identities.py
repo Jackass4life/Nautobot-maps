@@ -17,7 +17,7 @@ from tests.test_auth import PROXY, as_user, me
 
 
 @pytest.fixture
-def signed_in(override_settings, pg_database):
+def signed_in(override_settings):
     """Header mode with the roles in the database, as a migrated one has them."""
     adb.sql("TRUNCATE roles, permissions, identities, identities_to_roles CASCADE")
     adb.call(role_service.seed_defaults)
