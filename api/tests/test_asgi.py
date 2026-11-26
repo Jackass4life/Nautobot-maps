@@ -291,7 +291,7 @@ def test_a_refused_caller_never_gets_its_body_read(monkeypatch):
     assert cross.status_code == 403 and seen == []
 
 
-def test_a_new_token_is_never_compressed_on_fastapi(client, monkeypatch, pg_database):
+def test_a_new_token_is_never_compressed_on_fastapi(client, monkeypatch):
     from app.frontend import compression
     from app.services import token_service as tokens
 

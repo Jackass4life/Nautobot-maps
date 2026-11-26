@@ -12,7 +12,7 @@ from tests import db as adb
 
 @pytest.fixture
 def sources(
-    client, pg_database, monkeypatch, override_settings
+    client, monkeypatch, override_settings
 ):  # client: the app, so the schema's cache can be cleared
     override_settings(
         NAUTOBOT_URL="https://nautobot.example.com",

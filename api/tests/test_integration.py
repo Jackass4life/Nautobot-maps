@@ -381,7 +381,7 @@ class TestEndToEndScenario:
 # 6. Alert board backed by the persisted inventory snapshot
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def persisted_integration_client(integration_client, pg_database, override_settings):
+def persisted_integration_client(integration_client, override_settings):
     """Integration client with PostgreSQL persistence and a synced inventory snapshot."""
     override_settings(LIBRENMS_URL="", LIBRENMS_API_TOKEN="")
     assert asyncio.run(inventory.ensure_snapshot(force=True, wait=True))
@@ -519,7 +519,7 @@ class TestAlertBoardWithPersistence:
 # ---------------------------------------------------------------------------
 class TestAlertBoardColdStart:
     def test_first_request_starts_sync_and_board_fills_in(
-        self, integration_client, pg_database, override_settings
+        self, integration_client, override_settings
     ):
         import time
 

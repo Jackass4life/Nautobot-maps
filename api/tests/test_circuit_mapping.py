@@ -11,7 +11,7 @@ from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
 
 @pytest.fixture
-def synced(client, pg_database, monkeypatch, override_settings):
+def synced(client, monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL="https://nautobot.example.com",
         NAUTOBOT_TOKEN="token",
@@ -73,7 +73,7 @@ def test_csv_one_row_per_circuit_formula_safe(client, synced):
     assert ',"\'@Roersvej 33, 5000 Odense",' in lines[2]
 
 
-def test_left_out_and_sorted(client, monkeypatch, pg_database, override_settings):
+def test_left_out_and_sorted(client, monkeypatch, override_settings):
     """Decommissioned circuits aren't work; an unnamed one sorts as "Unnamed circuit"."""
     override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
     circuits = [
@@ -93,9 +93,7 @@ def test_left_out_and_sorted(client, monkeypatch, pg_database, override_settings
     assert data["summary"]["total"] == 3
 
 
-def test_a_site_off_the_map_links_through_its_building(
-    client, monkeypatch, pg_database, override_settings
-):
+def test_a_site_off_the_map_links_through_its_building(client, monkeypatch, override_settings):
     override_settings(NAUTOBOT_URL="https://nautobot.example.com", NAUTOBOT_TOKEN="token")
     address = "Roersvej 33, 5000 Odense C"
     locations = [

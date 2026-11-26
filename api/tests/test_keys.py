@@ -55,7 +55,7 @@ def test_the_upgrade_gives_every_token_an_identity(scratch):  # noqa: F811
 
 
 @pytest.fixture
-def client(pg_database, clock):  # noqa: F811
+def client(clock):  # noqa: F811
     with TestClient(app) as c:
         yield c
 

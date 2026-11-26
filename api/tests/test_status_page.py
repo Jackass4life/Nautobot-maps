@@ -90,7 +90,7 @@ def link(tenant: str) -> str:
 
 
 @pytest.fixture
-def known_tenants(pg_database):
+def known_tenants():
     """The tenants Nautobot has, as of the last sync: a status token needs one (#528)."""
     adb.call(
         inventory.write_tenants,
@@ -360,7 +360,7 @@ class TestCircuits:
         placed = status.site_circuits(rows, circuits, {})
         assert sum(len(found) for found in placed.values()) == 1500 and len(placed["s0"]) == 2
 
-    def test_only_the_tenants_active_circuits(self, pg_database):
+    def test_only_the_tenants_active_circuits(self):
         rows = [
             self.circuit("MINE", tenant=" acme corp "),
             self.circuit("PLANNED", status="Planned"),
@@ -787,9 +787,7 @@ class TestTenantDevices:
         devices = status.tenant_status(board, "ACME CORP")["sites"][0]["devices"]
         assert [d["name"] for d in devices] == ["z-down", "m", "A-up", "b-up"]
 
-    def test_from_the_board_build_to_the_page(
-        self, client, pg_database, monkeypatch, override_settings
-    ):
+    def test_from_the_board_build_to_the_page(self, client, monkeypatch, override_settings):
         """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
         from tests.test_app import _snapshot_device, _snapshot_location
 
@@ -1055,7 +1053,7 @@ class TestStatusTokens:
             ({"role": "viewer", "tenant": "Acme Corp"}, "only for role status"),
         ],
     )
-    def test_validation(self, pg_database, clock, body, message):
+    def test_validation(self, clock, body, message):
         from app.services import token_service as tokens
 
         with pytest.raises(tokens.TokenError, match=message):
@@ -1087,7 +1085,7 @@ class TestStatusTokens:
         listed = client.get("/api/v1/tokens?tenant=Other%20Co", headers=bearer(admin)).json()
         assert listed == {"tokens": [], "inactive": 0}
 
-    def test_verify_and_cli(self, known_tenants, pg_database, clock, capsys):
+    def test_verify_and_cli(self, known_tenants, clock, capsys):
         from app import __main__ as cli
 
         assert (

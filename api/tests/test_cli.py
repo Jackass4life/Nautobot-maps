@@ -37,7 +37,7 @@ def raw_rows() -> list[dict]:
 
 
 class TestTokens:
-    def test_create_list_revoke(self, pg_database, clock, capsys):
+    def test_create_list_revoke(self, clock, capsys):
         assert (
             cli.main(["token", "create", "librenms", "--role", "operator", "--expires-days", "30"])
             == 0
@@ -63,7 +63,7 @@ class TestTokens:
         assert cli.main(["token", "revoke", "999"]) == 1
 
     @pytest.fixture
-    def mixed(self, pg_database, clock):
+    def mixed(self, clock):
         """An active token, one revoked 100 days ago, one expired 10 days ago, one revoked now."""
         clock["now"] = "2026-06-01T12:00:00Z"
         old = make("old-revoked")
@@ -101,7 +101,7 @@ class TestTokens:
         assert "--older-than must be a whole number" in capsys.readouterr().err
 
 
-def test_schema_version(pg_database, capsys):
+def test_schema_version(capsys):
     """The database's revision against this release's head (the tests' database is at head)."""
     assert cli.main(["schema-version"]) == 0
     first = capsys.readouterr().out.splitlines()[0]
@@ -163,7 +163,7 @@ class TestRoles:
 
 class TestStatusLinkFlags:
     @pytest.fixture
-    def tenants(self, pg_database):  # type: ignore[no-untyped-def]
+    def tenants(self):  # type: ignore[no-untyped-def]
         from app.services import inventory_service as inventory
 
         adb.call(inventory.write_tenants, [{"tenant_id": "t1", "name": "Acme Corp"}])
@@ -207,7 +207,7 @@ class TestStatusLinkFlags:
         )
         assert "notify_email is only for role status" in capsys.readouterr().err
 
-    def test_new_token_roles(self, pg_database, clock, capsys):
+    def test_new_token_roles(self, clock, capsys):
         for role in ("noc", "customer", "nwo", "dov"):
             assert cli.main(["token", "create", f"t-{role}", "--role", role]) == 0
             secret = capsys.readouterr().out.strip()

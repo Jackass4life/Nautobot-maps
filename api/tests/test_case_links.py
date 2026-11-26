@@ -91,7 +91,7 @@ def test_the_csv_has_the_links(override_settings):
     )
 
 
-def test_the_csv_reads_the_numbers_as_a_list(pg_database, override_settings):
+def test_the_csv_reads_the_numbers_as_a_list(override_settings):
     from datetime import UTC, datetime
 
     from app.services import export_service as export

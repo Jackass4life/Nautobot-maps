@@ -202,7 +202,7 @@ def test_a_build_across_a_sync_commit_is_not_served_after_it(site, monkeypatch):
 
 
 def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(
-    pg_database, monkeypatch, override_settings
+    monkeypatch, override_settings
 ):
     """The first sync commits while a request builds the (empty) board: that
     board must not be stored as the finished one (#523)."""

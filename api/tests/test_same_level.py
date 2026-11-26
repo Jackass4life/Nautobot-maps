@@ -14,7 +14,7 @@ from tests.test_integration import mock_nautobot_server  # noqa: F401 - the fixt
 
 
 @pytest.fixture
-def synced(pg_database, mock_nautobot_server, monkeypatch, override_settings):
+def synced(mock_nautobot_server, monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL=mock_nautobot_server, NAUTOBOT_TOKEN="demo-token", LIBRENMS_URL=""
     )

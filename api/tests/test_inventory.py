@@ -829,7 +829,7 @@ class TestLibreNMSPolledIp:
     def test_polled_ip_selection(self, record, expected):
         assert inventory.librenms_polled_ip(record) == expected
 
-    def test_sync_caches_polled_ip(self, pg_database, override_settings):
+    def test_sync_caches_polled_ip(self, override_settings):
         override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
         with patch.object(
             librenms,
@@ -859,7 +859,7 @@ class TestLibreNMSPolledIp:
 
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
-    def _database_and_nautobot(self, pg_database, override_settings):
+    def _database_and_nautobot(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -958,7 +958,7 @@ class TestLocationTenantRelationships:
 
 class TestLocationTenantSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -1005,7 +1005,7 @@ class TestTenantDescriptions:
     """The tenant (i) shows the Nautobot description (#263)."""
 
     @pytest.fixture(autouse=True)
-    def _sync_setup(self, pg_database, override_settings):
+    def _sync_setup(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -1070,7 +1070,7 @@ class TestTenantDescriptions:
         }
 
 
-def test_the_writers_store_upstream_values_as_their_columns_types(pg_database):
+def test_the_writers_store_upstream_values_as_their_columns_types():
     """Nautobot's numbers as text and its times as ISO text, as psycopg took them: asyncpg
     takes each column's own type, so the writers convert (#659)."""
     from datetime import UTC, datetime

@@ -141,7 +141,7 @@ class TestTierChangesDuringAnAlarm:
         )
 
     @pytest.fixture
-    def hook(self, pg_database, override_settings):
+    def hook(self, override_settings):
         override_settings(
             NOTIFY_WEBHOOK_URL="https://hooks.example.com/x",
             NOTIFY_MIN_LEVEL="critical",

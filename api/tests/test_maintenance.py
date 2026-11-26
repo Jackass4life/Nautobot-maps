@@ -29,7 +29,7 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def site(pg_database, monkeypatch, clock, override_settings):
+def site(monkeypatch, clock, override_settings):
     """London: a core router and two access switches; the core and one switch are down."""
     override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
@@ -75,7 +75,6 @@ def window(**body) -> list[dict]:
     )
 
 
-@pytest.mark.usefixtures("pg_database")
 class TestWindows:
     @pytest.fixture(autouse=True)
     def _clock(self, clock):
@@ -404,7 +403,7 @@ def outbox_kinds() -> list:
 
 
 class TestCache:
-    def test_cache_expires_at_the_next_window_change(self, pg_database, clock):
+    def test_cache_expires_at_the_next_window_change(self, clock):
         """Copilot on #303: a planned window shows when it starts, not up to CACHE_TTL later."""
 
         def next_change():
@@ -499,7 +498,6 @@ class TestSiteDevices:
         assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
 
 
-@pytest.mark.usefixtures("pg_database")
 class TestBatches:
     """A change across many sites is one request, one transaction, one batch (#343)."""
 
@@ -603,7 +601,6 @@ class TestBatches:
         assert described["tenant_descriptions"] == {"Acme": "Gold"}
 
 
-@pytest.mark.usefixtures("pg_database")
 class TestHistory:
     """Every window that overlapped a period, newest first, and its export (#353)."""
 

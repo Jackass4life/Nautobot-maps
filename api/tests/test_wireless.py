@@ -436,7 +436,7 @@ class TestArubaCentral:
 
 
 @pytest.fixture
-def controllers(pg_database, monkeypatch, override_settings):
+def controllers(monkeypatch, override_settings):
     """Two instances, dk and se; each test says what they list."""
     override_settings(WIRELESS_CONTROLLERS=(DK, SE))
     answers = {"dk": [], "se": []}
@@ -660,9 +660,7 @@ class TestSync:
         assert asyncio.run(inventory.sync_state("wireless:catalyst_center:se")) == {}
         assert 'source="wireless:catalyst_center:se"' not in adb.call(metrics.collect)
 
-    def test_instances_sync_side_by_side_a_few_at_a_time(
-        self, pg_database, monkeypatch, override_settings
-    ):
+    def test_instances_sync_side_by_side_a_few_at_a_time(self, monkeypatch, override_settings):
         """On the event loop (#657): at most MAX_PARALLEL instances at once, all of them."""
         controllers = tuple({**DK, "name": f"c{n}"} for n in range(5))
         override_settings(WIRELESS_CONTROLLERS=controllers)
@@ -680,14 +678,14 @@ class TestSync:
         asyncio.run(wireless.sync_due())
         assert most[0] == 2 and sorted(done) == [f"c{n}" for n in range(5)]
 
-    def test_a_sync_failure_never_stops_the_tick(self, pg_database, monkeypatch):
+    def test_a_sync_failure_never_stops_the_tick(self, monkeypatch):
         async def failing():
             return 1 / 0
 
         monkeypatch.setattr(wireless, "sync_due", failing)
         assert asyncio.run(scheduler.sync_wireless()) is False
 
-    def test_a_change_rebuilds_the_board_as_any_change(self, pg_database, monkeypatch):
+    def test_a_change_rebuilds_the_board_as_any_change(self, monkeypatch):
         rebuilds = []
         monkeypatch.setattr(scheduler, "board_changed", adb.async_of(lambda: rebuilds.append(1)))
         for changed in (False, True):
@@ -759,7 +757,7 @@ def one_site(**statuses) -> dict[str, dict[str, str]]:
 
 
 @pytest.fixture
-def board(pg_database, monkeypatch, clock, override_settings):
+def board(monkeypatch, clock, override_settings):
     override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     override_settings(WIRELESS_CONTROLLERS=(DK,))

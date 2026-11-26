@@ -3673,7 +3673,7 @@ class TestDeviceDisplayIp:
 # ---------------------------------------------------------------------------
 class TestAlertBoardSyncProgress:
     @pytest.fixture(autouse=True)
-    def _persistence(self, pg_database):
+    def _persistence(self):
         caching.cache.clear()
         yield
         caching.cache.clear()
@@ -3869,7 +3869,7 @@ class TestAlertBoardSyncProgress:
 # ---------------------------------------------------------------------------
 class TestMultiDeviceCases:
     @pytest.fixture(autouse=True)
-    def _database_with_open_alerts(self, pg_database):
+    def _database_with_open_alerts(self):
         asyncio.run(
             alerts.upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
@@ -3948,7 +3948,7 @@ class TestMultiDeviceCases:
 # Tests: /healthz (#131)
 # ---------------------------------------------------------------------------
 class TestHealthz:
-    def test_ok_with_reachable_database(self, client, monkeypatch, pg_database):
+    def test_ok_with_reachable_database(self, client, monkeypatch):
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.json()["checks"] == {"app": "ok", "database": "ok"}
@@ -3985,7 +3985,7 @@ class TestLibreNMSPolledIp:
     def test_polled_ip_selection(self, record, expected):
         assert inventory.librenms_polled_ip(record) == expected
 
-    def test_sync_caches_polled_ip(self, pg_database, override_settings):
+    def test_sync_caches_polled_ip(self, override_settings):
         override_settings(LIBRENMS_URL="https://librenms.test", LIBRENMS_API_TOKEN="tok")
         pass  # the schema: Alembic's (tests/test_schema.py)
         with patch.object(
@@ -4039,7 +4039,7 @@ class TestLibreNMSPolledIp:
 # Tests: alert board explains a missing persistence database (#136)
 # ---------------------------------------------------------------------------
 class TestAlertBoardWithoutPersistence:
-    def test_payload_reports_configured_database(self, client, monkeypatch, pg_database):
+    def test_payload_reports_configured_database(self, client, monkeypatch):
         pass  # the schema: Alembic's (tests/test_schema.py)
         caching.cache.clear()
         with (
@@ -4061,7 +4061,7 @@ class TestAlertBoardWithoutPersistence:
 # ---------------------------------------------------------------------------
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
-    def _database_and_nautobot(self, pg_database, override_settings):
+    def _database_and_nautobot(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -4740,16 +4740,16 @@ class TestRealStartTimes:
 
         return build
 
-    def _start(self, pg_database):
+    def _start(self):
         rows = adb.sql("SELECT down_started_at FROM alert_instances WHERE device_id = 'd-old'")
         return [db.serialize_value(row["down_started_at"]) for row in rows]
 
-    def test_new_alert_starts_when_nautobot_status_changed(self, board, pg_database):
+    def test_new_alert_starts_when_nautobot_status_changed(self, board):
         site = board()["loc-1"]
-        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert self._start() == ["2026-09-25T12:00:00Z"]
         assert site["current_downtime_seconds"] == 3 * 24 * 3600
 
-    def test_open_alert_is_moved_earlier_once_and_never_later(self, board, pg_database):
+    def test_open_alert_is_moved_earlier_once_and_never_later(self, board):
         # An alert opened before #166: started when the app first saw it.
         adb.sql(
             "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
@@ -4759,11 +4759,11 @@ class TestRealStartTimes:
             (db.build_alert_key("loc-1", "d-old"),),
         )
         board()
-        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert self._start() == ["2026-09-25T12:00:00Z"]
         # A later edit in Nautobot must not move it back.
         adb.sql("UPDATE nautobot_device_cache SET last_updated = '2026-09-28T11:30:00Z'")
         board()
-        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert self._start() == ["2026-09-25T12:00:00Z"]
 
 
 # ---------------------------------------------------------------------------
@@ -4819,7 +4819,7 @@ class TestAlertFeed:
         assert resp.status_code == 200, resp.json()
         return resp.json()
 
-    def test_level_changes_are_logged_but_not_first_sightings(self, pg_database):
+    def test_level_changes_are_logged_but_not_first_sightings(self):
         at = "2026-09-28T12:00:00+00:00"
         assert (
             asyncio.run(
@@ -4893,7 +4893,7 @@ class TestAlertFeed:
         since = self._feed(client, "?since=2026-09-28T12:05:00Z")["events"]
         assert [e["kind"] for e in since] == ["severity", "up"]
 
-    def test_a_board_for_some_sites_reads_their_feed(self, board, client, pg_database):
+    def test_a_board_for_some_sites_reads_their_feed(self, board, client):
         """?tenant= / ?q= (#369): only those sites' entries, and the limit counts them."""
         build, set_status = board
         adb.sql(
@@ -4935,7 +4935,7 @@ class TestAlertFeed:
         assert self._feed(client, "?q=site")["matching_sites"] == 2
         assert "matching_sites" not in self._feed(client)
 
-    def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, client):
+    def test_a_scoped_feed_without_stored_sites_says_so(self, client):
         """No stored locations (not synced yet, or the read failed): an error,
         not an empty feed that looks like an all-clear (#369)."""
         resp = client.get("/api/v1/alert-feed?tenant=Acme")
@@ -4943,7 +4943,7 @@ class TestAlertFeed:
         assert "not stored yet" in resp.json()["error"]
         assert self._feed(client)["events"] == []  # the whole network's feed still answers
 
-    def test_bad_parameters_are_rejected(self, pg_database, client):
+    def test_bad_parameters_are_rejected(self, client):
         assert client.get("/api/v1/alert-feed?limit=many").status_code == 400
         assert client.get("/api/v1/alert-feed?since=yesterday").status_code == 400
         resp = client.get("/api/v1/alert-feed?kinds=down,cases")
@@ -4952,7 +4952,7 @@ class TestAlertFeed:
         assert client.get("/api/v1/alert-feed?limit=0").status_code == 200
         assert client.get("/api/v1/alert-feed?limit=100000").status_code == 200
 
-    def test_failed_observation_is_not_a_level_change(self, board, monkeypatch, pg_database):
+    def test_failed_observation_is_not_a_level_change(self, board, monkeypatch):
         build, _ = board
         build("2026-09-28T12:00:00+00:00")
 
@@ -5082,70 +5082,70 @@ class TestSecurityHeaders:
 # Tests: alert history retention (#194)
 # ---------------------------------------------------------------------------
 class TestHistoryRetention:
-    def _alert(self, db_, device, status, resolved_days_ago=None):
-        row = db_.execute(
+    def _alert(self, device, status, resolved_days_ago=None):
+        row = adb.sql(
             "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
             "status, down_started_at, last_seen_down_at, resolved_at) VALUES "
             "(%s, 'loc-1', 'Site', %s, %s, 'low', %s, now() - interval '400 days', now() - interval '400 days', "
             "CASE WHEN %s::int IS NULL THEN NULL ELSE now() - make_interval(days => %s::int) END) RETURNING id",
             (f"key-{device}", device, device, status, resolved_days_ago, resolved_days_ago),
         )[0]["id"]
-        db_.execute(
+        adb.sql(
             "INSERT INTO alert_events (alert_instance_id, event_type, event_at) VALUES (%s, 'opened', now())",
             (row,),
         )
-        db_.execute(
+        adb.sql(
             "INSERT INTO alert_cases (alert_instance_id, case_number) VALUES (%s, 'INC-1')", (row,)
         )
         return row
 
-    def _change(self, db_, days_ago):
-        db_.execute(
+    def _change(self, days_ago):
+        adb.sql(
             "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
             "VALUES ('loc-1', 'Site', 'ok', 'low', now() - make_interval(days => %s))",
             (days_ago,),
         )
 
-    def _devices(self, db_):
-        return sorted(r["device_id"] for r in db_.execute("SELECT device_id FROM alert_instances"))
+    def _devices(self):
+        return sorted(r["device_id"] for r in adb.sql("SELECT device_id FROM alert_instances"))
 
-    def test_deletes_only_old_resolved_history(self, pg_database):
-        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
-        self._alert(pg_database, "new-resolved", "resolved", resolved_days_ago=5)
-        self._alert(pg_database, "old-open", "open")  # started 400 days ago, still down
-        self._change(pg_database, 100)
-        self._change(pg_database, 5)
+    def test_deletes_only_old_resolved_history(self):
+        self._alert("old-resolved", "resolved", resolved_days_ago=100)
+        self._alert("new-resolved", "resolved", resolved_days_ago=5)
+        self._alert("old-open", "open")  # started 400 days ago, still down
+        self._change(100)
+        self._change(5)
         deleted = adb.call(board_store.prune_alert_history, 30)
         assert deleted == {"alert_instances": 1, "site_level_changes": 1}
-        assert self._devices(pg_database) == ["new-resolved", "old-open"]
+        assert self._devices() == ["new-resolved", "old-open"]
         # Its events and cases went with it.
         assert adb.sql("SELECT count(*) AS n FROM alert_events") == [{"n": 2}]
         assert adb.sql("SELECT count(*) AS n FROM alert_cases") == [{"n": 2}]
 
-    def test_deletes_in_batches(self, pg_database, monkeypatch):
+    def test_deletes_in_batches(self, monkeypatch):
         monkeypatch.setattr(board_store, "RETENTION_BATCH_SIZE", 2)
         for i in range(5):
-            self._alert(pg_database, f"d{i}", "resolved", resolved_days_ago=100)
+            self._alert(f"d{i}", "resolved", resolved_days_ago=100)
         assert adb.call(board_store.prune_alert_history, 30)["alert_instances"] == 5
-        assert self._devices(pg_database) == []
+        assert self._devices() == []
 
-    def test_off_by_default_and_once_a_day(self, pg_database, override_settings):
-        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+    def test_off_by_default_and_once_a_day(self, override_settings):
+        self._alert("old-resolved", "resolved", resolved_days_ago=100)
         override_settings(ALERT_HISTORY_RETENTION_DAYS=0)
         assert adb.call(alerts.maybe_prune_alert_history) is None
-        assert self._devices(pg_database) == ["old-resolved"]
+        assert self._devices() == ["old-resolved"]
         override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         assert adb.call(alerts.maybe_prune_alert_history)["alert_instances"] == 1
-        self._alert(pg_database, "later", "resolved", resolved_days_ago=100)
+        self._alert("later", "resolved", resolved_days_ago=100)
         assert adb.call(alerts.maybe_prune_alert_history) is None  # already ran today
-        assert self._devices(pg_database) == ["later"]
+        assert self._devices() == ["later"]
 
-    def test_scheduler_tick_runs_retention(self, pg_database, monkeypatch, override_settings):
+    def test_scheduler_tick_runs_retention(self, monkeypatch, override_settings):
         override_settings(ALERT_HISTORY_RETENTION_DAYS=30)
         monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
-        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+        self._alert("old-resolved", "resolved", resolved_days_ago=100)
         asyncio.run(scheduler.tick())
-        assert self._devices(pg_database) == []
+        assert self._devices() == []
 
 
 # ---------------------------------------------------------------------------
@@ -5167,7 +5167,7 @@ class TestMetrics:
         line = next(line for line in body.splitlines() if line.startswith(sample + " "))
         return float(line.rsplit(" ", 1)[1])
 
-    def test_last_success_survives_a_failure(self, pg_database, client):
+    def test_last_success_survives_a_failure(self, client):
         self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
         self._record("running", "2026-09-29T10:05:00+00:00", None)
         self._record("error", "2026-09-29T10:05:00+00:00", "2026-09-29T10:05:10+00:00")
@@ -5180,7 +5180,7 @@ class TestMetrics:
         assert self._value(body, "nautobot_maps_sync_failing" + src) == 1
         assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
 
-    def test_alert_and_site_counts(self, pg_database, client):
+    def test_alert_and_site_counts(self, client):
         asyncio.run(
             alerts.upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
@@ -5216,7 +5216,7 @@ class TestMetrics:
         out.gauge("m", "h", [({"level": 'a"b\\c\nd'}, 1)])
         assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
 
-    def test_healthz_reports_sync_age_without_failing(self, pg_database, client):
+    def test_healthz_reports_sync_age_without_failing(self, client):
         assert client.get("/healthz").json()["inventory_sync_age_seconds"] is None  # never synced
         self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
         resp = client.get("/healthz")
@@ -5467,7 +5467,7 @@ class TestLocationAlertLevels:
     """/api/v1/location-alerts colours the map markers without a click (#234)."""
 
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", LIBRENMS_API_TOKEN=""
         )
@@ -5815,7 +5815,7 @@ class TestLocationTenantRelationships:
 
 class TestLocationTenantSync:
     @pytest.fixture(autouse=True)
-    def _database(self, pg_database, override_settings):
+    def _database(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -5880,7 +5880,7 @@ class TestTenantDescriptions:
     """The tenant (i) shows the Nautobot description (#263)."""
 
     @pytest.fixture(autouse=True)
-    def _sync_setup(self, pg_database, override_settings):
+    def _sync_setup(self, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",
@@ -5970,7 +5970,7 @@ class TestLibreNMSMappingsAreBatched:
     DEVICES = 60
 
     @pytest.fixture(autouse=True)
-    def _inventory(self, pg_database, monkeypatch, override_settings):
+    def _inventory(self, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="",
             NAUTOBOT_TOKEN="",
@@ -6082,7 +6082,7 @@ class TestAlertHistoryCsv:
     NOW = "2026-10-07T12:00:00Z"
 
     @pytest.fixture(autouse=True)
-    def _history(self, pg_database, monkeypatch):
+    def _history(self, monkeypatch):
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.NOW)
         conn = adb.connect()
         try:

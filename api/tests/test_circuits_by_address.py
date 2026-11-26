@@ -192,7 +192,7 @@ CIRCUITS = [
 
 class TestSitePanel:
     @pytest.fixture(autouse=True)
-    def _synced(self, client, pg_database, monkeypatch, override_settings):
+    def _synced(self, client, monkeypatch, override_settings):
         override_settings(
             NAUTOBOT_URL="https://nautobot.example.com",
             NAUTOBOT_TOKEN="token",

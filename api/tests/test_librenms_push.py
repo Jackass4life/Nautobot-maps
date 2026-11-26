@@ -43,7 +43,7 @@ class FakeLibreNMS:
 
 
 @pytest.fixture
-def lnms(pg_database, monkeypatch, override_settings):
+def lnms(monkeypatch, override_settings):
     override_settings(
         NAUTOBOT_URL="",
         NAUTOBOT_TOKEN="",

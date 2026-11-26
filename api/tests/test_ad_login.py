@@ -42,7 +42,7 @@ def directory(monkeypatch):
 
 
 @pytest.fixture
-def signed_in_mode(override_settings, pg_database, directory):
+def signed_in_mode(override_settings, directory):
     adb.sql("TRUNCATE roles, permissions, identities, identities_to_roles CASCADE")
     adb.call(role_service.seed_defaults)
     override_settings(

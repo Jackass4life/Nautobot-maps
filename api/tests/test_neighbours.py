@@ -135,7 +135,7 @@ class TestNautobotCables:
             {"termination_a": {"id": "ct-1", "circuit": {"id": "c"}}}, "a"
         ) == ("", "")
 
-    def test_read_with_the_inventory_incrementally(self, pg_database, monkeypatch):
+    def test_read_with_the_inventory_incrementally(self, monkeypatch):
         asked = []
         monkeypatch.setattr(
             nautobot,

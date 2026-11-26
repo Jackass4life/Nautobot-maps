@@ -59,7 +59,7 @@ def test_every_everyday_command_has_an_api_route():
 
 
 @pytest.fixture
-def client(pg_database, clock):
+def client(clock):
     adb.call(
         inventory.write_tenants,
         [{"tenant_id": "t1", "name": "Acme Corp"}, {"tenant_id": "t2", "name": "Nord A/S"}],

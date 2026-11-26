@@ -25,7 +25,7 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def site(pg_database, monkeypatch, clock, override_settings):
+def site(monkeypatch, clock, override_settings):
     """London: a core router and two access switches, all up for long."""
     override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="", ALERT_DELAY_SECONDS=300)
     monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))

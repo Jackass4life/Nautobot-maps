@@ -16,7 +16,7 @@ def scrape() -> str:
     return adb.call(metrics.collect)
 
 
-def test_table_sizes_and_the_oldest_history(pg_database):
+def test_table_sizes_and_the_oldest_history():
     text = scrape()
     assert 'nautobot_maps_table_bytes{table="alert_instances"}' in text
     assert 'nautobot_maps_table_rows_estimate{table="alert_events"}' in text
@@ -31,7 +31,7 @@ def test_table_sizes_and_the_oldest_history(pg_database):
     assert "nautobot_maps_history_oldest_timestamp_seconds 1767225600" in scrape()
 
 
-def test_only_this_schema(pg_database):
+def test_only_this_schema():
     """Another schema's tables (other tests, other apps) are not ours."""
     tables = {
         line.split('"')[1]

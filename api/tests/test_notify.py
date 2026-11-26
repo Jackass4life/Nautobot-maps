@@ -159,7 +159,6 @@ class TestRules:
         assert not any(line.startswith("Down:") for line in notify.detail_lines(recovery))
 
 
-@pytest.mark.usefixtures("pg_database")
 class TestOutbox:
     def test_nothing_without_a_channel(self, monkeypatch):
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: NOW)
