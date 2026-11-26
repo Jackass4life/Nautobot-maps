@@ -25,7 +25,7 @@ from app.services import status_service as status
 from app.services import wireless_service as wireless
 from tests import db as adb
 from tests import test_maintenance, upstream
-from tests.test_app import _snapshot_device, _snapshot_location
+from tests.fakes import snapshot_device, snapshot_location
 
 clock = test_maintenance.clock
 site = test_maintenance.site
@@ -713,7 +713,7 @@ def write_sites(sites: dict[str, dict[str, str]]) -> None:
     with a primary IP, ``ap*`` access points without one (DHCP), serial FGL-<site>-<ap>."""
     adb.call(
         inventory.write_locations,
-        [_snapshot_location(site_id, site_id.title()) for site_id in sites],
+        [snapshot_location(site_id, site_id.title()) for site_id in sites],
     )
     adb.call(
         inventory.record_sync_state,
@@ -725,7 +725,7 @@ def write_sites(sites: dict[str, dict[str, str]]) -> None:
     devices = []
     for site_id, statuses in sites.items():
         for name, state in statuses.items():
-            device = _snapshot_device(f"{site_id}-{name}", site_id, "Access Switch", state)
+            device = snapshot_device(f"{site_id}-{name}", site_id, "Access Switch", state)
             if name.startswith("ap"):
                 device.update(role="Access Point", primary_ip="", serial=f"FGL-{site_id}-{name}")
             devices.append(device)

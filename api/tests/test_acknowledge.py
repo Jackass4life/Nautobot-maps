@@ -6,7 +6,7 @@ from app.clients import caching
 from app.services import alerts_service as alerts
 from tests import db as adb
 from tests import http_client, test_maintenance
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 from tests.test_maintenance import build, set_devices
 
 # London HQ: core and acc1 down, acc2 up (#283's fixture).

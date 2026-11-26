@@ -15,7 +15,7 @@ from app.services import scheduler
 from app.services import token_service as tokens
 from tests import db as adb
 from tests import http_client, upstream
-from tests.test_app import _snapshot_device, _snapshot_location, auth_config
+from tests.fakes import auth_config, snapshot_device, snapshot_location
 
 REAL_REBUILD_AFTER_PUSH = scheduler.rebuild_after_push
 
@@ -57,12 +57,12 @@ def lnms(monkeypatch, override_settings):
     rebuilds = []
     monkeypatch.setattr(scheduler, "rebuild_after_push", lambda: rebuilds.append(True))
     fake.rebuilds = rebuilds
-    adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Aarhus")])
+    adb.call(inventory.write_locations, [snapshot_location("loc-1", "Aarhus")])
     adb.call(
         inventory.write_devices,
         [
             {
-                **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
+                **snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
                 "name": f"sw{n}",
             }
             for n in range(3)

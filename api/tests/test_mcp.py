@@ -15,7 +15,7 @@ from app.services import mcp_service as mcp
 from app.v1.alert_board import dtos as board_answers
 from tests import answers, http_client
 from tests import db as adb
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 
 MODERN = "2026-07-28"
 

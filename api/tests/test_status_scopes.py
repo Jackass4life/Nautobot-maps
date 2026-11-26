@@ -4,7 +4,7 @@ import json
 
 from app.services import status_service as status
 from tests import db as adb
-from tests.test_app import _snapshot_device
+from tests.fakes import snapshot_device
 from tests.test_criticality import build, write
 
 
@@ -16,14 +16,12 @@ def test_the_board_build_at_scale(board, override_settings):
     sites, devices = {}, []
     for n in range(40):
         sites[f"s{n}"] = ""
+        devices += [snapshot_device(f"s{n}-fw{i}", f"s{n}", "Firewall", "Active") for i in range(2)]
         devices += [
-            _snapshot_device(f"s{n}-fw{i}", f"s{n}", "Firewall", "Active") for i in range(2)
-        ]
-        devices += [
-            _snapshot_device(f"s{n}-rt{i}", f"s{n}", "Core Router", "Active") for i in range(3)
+            snapshot_device(f"s{n}-rt{i}", f"s{n}", "Core Router", "Active") for i in range(3)
         ]
     # s0: the core outage, 30 routers down, the firewalls up.
-    devices += [_snapshot_device(f"s0-core{i}", "s0", "Core Router", "Offline") for i in range(30)]
+    devices += [snapshot_device(f"s0-core{i}", "s0", "Core Router", "Offline") for i in range(30)]
     # s1: one of Acme's firewalls down.
     devices = [{**d, "status": "Offline"} if d["id"] == "s1-fw0" else d for d in devices]
     # s39: no firewall at all.

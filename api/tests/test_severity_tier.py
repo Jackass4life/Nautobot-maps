@@ -88,11 +88,11 @@ class TestTier:
         assert [alerts.tier_rank(t) for t in ("gold", "Silver", "bronze", "")] == [0, 1, 99, 99]
 
     def test_on_the_board_and_sorting(self, site, override_settings):
-        from tests.test_app import _snapshot_location
+        from tests.fakes import snapshot_location
 
         adb.call(
             inventory.write_locations,
-            [{**_snapshot_location("loc-lon", "London HQ"), "tier": "gold"}],
+            [{**snapshot_location("loc-lon", "London HQ"), "tier": "gold"}],
         )
         row = build()
         assert (row["tier"], row["tier_rank"]) == ("gold", 0)

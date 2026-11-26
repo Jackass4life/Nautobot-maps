@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.services import metrics_service as metrics
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 
 NOW = datetime(2026, 10, 22, 14, 0, tzinfo=UTC).timestamp()
 INTERVALS = {"INVENTORY_SYNC_INTERVAL_SECONDS": 300, "LIBRENMS_SYNC_INTERVAL_SECONDS": 60}

@@ -12,7 +12,7 @@ from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from tests import db as adb
-from tests.test_app import _snapshot_device, _snapshot_location
+from tests.fakes import snapshot_device, snapshot_location
 
 NOW = "2026-10-18T12:00:00Z"
 
@@ -197,7 +197,7 @@ def write(sites: dict[str, str], devices: list[dict]) -> None:
     """*sites*: {site id: tier}; *devices*: snapshot devices."""
     adb.call(
         inventory.write_locations,
-        [{**_snapshot_location(sid, f"Site {sid}"), "tier": tier} for sid, tier in sites.items()],
+        [{**snapshot_location(sid, f"Site {sid}"), "tier": tier} for sid, tier in sites.items()],
     )
     adb.call(inventory.write_devices, devices)
     adb.call(
@@ -212,7 +212,7 @@ def write(sites: dict[str, str], devices: list[dict]) -> None:
 def site_devices(site_id: str, down: int = 1, total: int = 5, criticality: str = "") -> list[dict]:
     return [
         {
-            **_snapshot_device(
+            **snapshot_device(
                 f"{site_id}-sw{n}", site_id, "Access Switch", "Offline" if n < down else "Active"
             ),
             "criticality": criticality,

@@ -144,14 +144,14 @@ def test_the_variant_with_excluded_locations_is_built_once_too(site, monkeypatch
 def commit_sync(completed_at: str, **statuses) -> None:
     """A Nautobot sync committing London's devices, without dropping the stored board."""
     from app.services import inventory_service as inventory
-    from tests.test_app import _snapshot_device, _snapshot_location
+    from tests.fakes import snapshot_device, snapshot_location
 
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(inventory.write_locations, [snapshot_location("loc-lon", "London HQ")])
     adb.call(
         inventory.write_devices,
         [
-            _snapshot_device(name, "loc-lon", roles[name], status)
+            snapshot_device(name, "loc-lon", roles[name], status)
             for name, status in statuses.items()
         ],
     )

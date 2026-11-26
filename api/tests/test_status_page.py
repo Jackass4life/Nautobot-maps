@@ -15,7 +15,7 @@ from app.services import status_link_service as statuslinks
 from app.services import status_service as status
 from tests import db as adb
 from tests import http_client, test_tokens
-from tests.test_app import auth_config
+from tests.fakes import auth_config
 from tests.test_tokens import bearer, make, verify
 
 clock = test_tokens.clock
@@ -789,7 +789,7 @@ class TestTenantDevices:
 
     def test_from_the_board_build_to_the_page(self, client, monkeypatch, override_settings):
         """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
-        from tests.test_app import _snapshot_device, _snapshot_location
+        from tests.fakes import snapshot_device, snapshot_location
 
         override_settings(NAUTOBOT_URL="", NAUTOBOT_TOKEN="", LIBRENMS_URL="")
         monkeypatch.setattr(
@@ -797,7 +797,7 @@ class TestTenantDevices:
         )
         adb.call(
             inventory.write_locations,
-            [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
+            [{**snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
         )
         adb.call(
             inventory.record_sync_state,
@@ -810,14 +810,14 @@ class TestTenantDevices:
             inventory.write_devices,
             [
                 {
-                    **_snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"),
+                    **snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"),
                     "tenant": "Acme Corp",
                 },
                 {
-                    **_snapshot_device("lon-sw-01", "loc-lon", "Access Switch", "Active"),
+                    **snapshot_device("lon-sw-01", "loc-lon", "Access Switch", "Active"),
                     "tenant": "Acme Corp",
                 },
-                _snapshot_device("lon-core-01", "loc-lon", "Core Router", "Active"),
+                snapshot_device("lon-core-01", "loc-lon", "Core Router", "Active"),
             ],
         )
         board = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))

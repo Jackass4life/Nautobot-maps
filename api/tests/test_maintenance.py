@@ -15,7 +15,7 @@ from app.services import notify_service as notify
 from app.utils import timeutil
 from tests import db as adb
 from tests import http_client
-from tests.test_app import _snapshot_device, _snapshot_location, auth_config
+from tests.fakes import auth_config, snapshot_device, snapshot_location
 
 NOW = "2026-10-09T12:00:00Z"
 
@@ -39,7 +39,7 @@ def site(monkeypatch, clock, override_settings):
 
 def set_devices(**statuses):
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+    adb.call(inventory.write_locations, [snapshot_location("loc-lon", "London HQ")])
     # A completed sync of the current cache: alert history is written.
     adb.call(
         inventory.record_sync_state,
@@ -51,7 +51,7 @@ def set_devices(**statuses):
     adb.call(
         inventory.write_devices,
         [
-            _snapshot_device(name, "loc-lon", roles[name], status)
+            snapshot_device(name, "loc-lon", roles[name], status)
             for name, status in statuses.items()
         ],
     )
@@ -426,12 +426,12 @@ class TestCache:
 class TestSiteDevices:
     def test_monitored_devices_of_a_site(self, site, override_settings):
         no_ip = {
-            **_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"),
+            **snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"),
             "primary_ip": "",
         }
         adb.call(
             inventory.write_devices,
-            [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")],
+            [no_ip, snapshot_device("old", "loc-lon", "Access Switch", "Planned")],
         )
         override_settings(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES={"planned"})
         devices = asyncio.run(alerts.site_monitored_devices("loc-lon"))
@@ -448,16 +448,16 @@ class TestSiteDevices:
 
     def test_rolled_up_site_includes_devices_below_it(self, site, override_settings):
         building = {
-            **_snapshot_location("bld-a", "Bygning A", "Building"),
+            **snapshot_location("bld-a", "Bygning A", "Building"),
             "parent_id": "loc-lon",
         }
         adb.call(
             inventory.write_locations,
-            [_snapshot_location("loc-lon", "London HQ", "Site"), building],
+            [snapshot_location("loc-lon", "London HQ", "Site"), building],
         )
         adb.call(
             inventory.write_devices,
-            [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")],
+            [snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")],
         )
         override_settings(ALERT_BOARD_SITE_LOCATION_TYPE="site")
         devices = {d["id"]: d for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))}
@@ -467,16 +467,16 @@ class TestSiteDevices:
         self, site, override_settings
     ):
         closed = {
-            **_snapshot_location("bld-old", "Old Building", "Building"),
+            **snapshot_location("bld-old", "Old Building", "Building"),
             "parent_id": "loc-lon",
         }
         adb.call(
             inventory.write_locations,
-            [_snapshot_location("loc-lon", "London HQ", "Site"), closed],
+            [snapshot_location("loc-lon", "London HQ", "Site"), closed],
         )
         adb.call(
             inventory.write_devices,
-            [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")],
+            [snapshot_device("old-sw", "bld-old", "Access Switch", "Active")],
         )
         override_settings(
             ALERT_BOARD_SITE_LOCATION_TYPE="site",
@@ -578,7 +578,7 @@ class TestBatches:
         assert adb.call(maintenance.list_windows, recent_days=2) == []
         adb.call(
             inventory.write_devices,
-            [_snapshot_device("dev-1", "site-a", "Core Router", "Active")],
+            [snapshot_device("dev-1", "site-a", "Core Router", "Active")],
         )
         sites = [
             {
@@ -662,7 +662,7 @@ class TestHistory:
     def test_export(self):
         self._create(site_id="=cmd", device_ids=["d1"], reason="=HYPERLINK()", duration_minutes=90)
         # Streamed from a server-side cursor, the device name joined in (#353).
-        adb.call(inventory.write_devices, [_snapshot_device("d1", "=cmd", "Core Router", "Active")])
+        adb.call(inventory.write_devices, [snapshot_device("d1", "=cmd", "Core Router", "Active")])
         text = "".join(
             adb.call(
                 maintenance.history_csv_lines,
