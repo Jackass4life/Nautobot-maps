@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from dotenv import dotenv_values
+from sqlalchemy import make_url
 
 # The demo's mock Nautobot (demo/mock_nautobot.py), for the tests ported from the current app.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "demo"))
@@ -18,6 +19,13 @@ TEST_DATABASE_URL = os.environ.get(
     "API_TEST_DATABASE_URL",
     "postgresql://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test",
 )
+# pytest -n (pytest-xdist): a database per worker, ..._gw0, ..._gw1 (#799), or the workers
+# would empty each other's tables.
+if _worker := os.environ.get("PYTEST_XDIST_WORKER"):
+    _url = make_url(TEST_DATABASE_URL)
+    TEST_DATABASE_URL = _url.set(database=f"{_url.database}_{_worker}").render_as_string(
+        hide_password=False
+    )
 
 
 def _provision(url: str) -> str | None:

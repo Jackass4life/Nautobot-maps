@@ -221,6 +221,7 @@ The tests need PostgreSQL and nothing else: Nautobot, LibreNMS, the wireless con
 |---|---|
 | Some API tests, while you work | `scripts/ci/test.sh pytest tests/test_x.py -k name` (any pytest arguments) |
 | The same in the dev container (its PostgreSQL is running) | `uv run pytest tests/test_x.py -k name` in `api/` |
+| All API tests, faster (4 workers, a database each: `…_gw0` to `…_gw3`, #799) | `uv run pytest -q -n 4` in `api/` |
 | Everything CI runs for the API: ruff, migrations, pytest | `scripts/ci/test.sh api` |
 | The pages: types, lint, formatting, vitest, build | `scripts/ci/test.sh web` |
 | End to end: the app on the mock Nautobot, Playwright in Chromium | `scripts/ci/test.sh e2e` |
