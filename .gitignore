@@ -23,8 +23,6 @@ node_modules/
 web/.nuxt/
 web/.output/
 
-# Company CA certificates for the API image (api/Dockerfile's certs context, #672).
-/certs/
 
 # scripts/ci/test.sh on GitLab (#765): the uv/bun caches and ruff's Code Quality report.
 /.cache/

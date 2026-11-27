@@ -1,0 +1,4 @@
+# Your company CA certificates: never committed (#795).
+*
+!.gitignore
+!README.md

@@ -66,10 +66,12 @@ services:
     build:
       context: ./api
       # The help pages' files: docs/, README.md, CONTRIBUTING.md (api/Dockerfile);
-      # company Python packages such as the AD sign-in's (packages/README.md, #790).
+      # company Python packages such as the AD sign-in's (packages/README.md, #790);
+      # company CA certificates, trusted by the build and the API (certs/README.md, #795).
       additional_contexts:
         docs: .
         packages: ./packages
+        certs: ./certs
     logging: *default-logging
     # Not published: `web` passes the API's paths on (and Prometheus scrapes it
     # inside the network, or through `web` at /metrics). Its settings: .env.

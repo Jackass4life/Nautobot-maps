@@ -175,7 +175,7 @@ cd reverse-proxy && docker build -t nautobot-maps-reverse-proxy --build-arg DOMA
 ```
 
 **API** (`api/Dockerfile`): the app as today, without the pages. Port 5000 (`GUNICORN_BIND`, then `HEALTHCHECK_PORT` too); it migrates the database at start. The same settings as the one image ([configuration](configuration.md)). Three optional build contexts:
-- `certs`: a folder of company CA certificates (`*.crt` or `*.pem`, PEM). Outgoing HTTPS (Nautobot, LibreNMS, the wireless controllers, e-mail) trusts them, besides the public ones.
+- `certs`: a folder of company CA certificates (`*.crt` or `*.pem`, PEM). The build trusts them (a company package index for `packages`), and so does the API's outgoing TLS (Nautobot, LibreNMS, the wireless controllers, e-mail), besides the public ones. `docker-compose.yml` passes `certs/` (#795); what you put there is never committed ([certs/README.md](../certs/README.md)).
 - `docs`: the repository's root, for the help pages (`docs/`, `README.md`, `CONTRIBUTING.md`). Without it, the help pages say they aren't in the image.
 - `packages`: company Python packages that aren't on PyPI, such as the [AD sign-in](authentication.md#sign-in-with-ad)'s package (#790): a `requirements.txt` (it may name your company's index), an optional `apt-packages.txt` (Debian packages installed first) and any `*.whl`/`*.tar.gz` files. They're held to the app's locked versions: one that needs others stops the build. `docker-compose.yml` passes `packages/`; what you put there is never committed ([packages/README.md](../packages/README.md)).
 
