@@ -66,7 +66,7 @@ services:
     build:
       context: ./api
       # The help pages' files: docs/, README.md, CONTRIBUTING.md (api/Dockerfile);
-      # company Python packages such as sit_core (packages/README.md, #790).
+      # company Python packages such as the AD sign-in's (packages/README.md, #790).
       additional_contexts:
         docs: .
         packages: ./packages

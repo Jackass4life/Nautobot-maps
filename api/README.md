@@ -173,7 +173,7 @@ Errors answer `{"error": ...}`: 404 and 405 after the sign-in check, 400 for bad
 
 `api/Dockerfile` (`docker compose up --build` at the root builds it as `api`, #674): uv-installed,
 non-root, `docs/` (the help pages) built in with `--build-context docs=..`, company packages
-(`sit_core`) with `--build-context packages=../packages` (#790, `packages/README.md`); the pages are
+(the AD sign-in's) with `--build-context packages=../packages` (#790, `packages/README.md`); the pages are
 `web/Dockerfile`'s image. `docker-entrypoint.sh` runs
 `python -m app migrate` (`MIGRATE_ON_START=false` skips it), then gunicorn with uvicorn workers
 (`gunicorn_config.py`, `app/server.py`: no proxy headers, no server header) on

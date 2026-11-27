@@ -39,7 +39,9 @@ def authenticator(settings: Settings):
         from sit_core.auth import BasicAuthenticator
         from sit_core.auth.ldap import attributes
     except ImportError:
-        logger.error("AD sign-in: sit_core is not installed (AD_HOST is set; packages/README.md)")
+        logger.error(
+            "AD sign-in: the AD package is not installed (AD_HOST is set; packages/README.md)"
+        )
         raise DirectoryUnavailable("sit_core not installed") from None
 
     class AdService(BasicAuthenticator):

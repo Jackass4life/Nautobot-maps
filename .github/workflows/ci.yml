@@ -238,7 +238,7 @@ jobs:
           rm .env
 
       - name: Company packages from the packages context get into the API image (#790)
-        # python3-saml (sit_core's heaviest public dependency) as a company package would
+        # python3-saml (the company AD package's heaviest public dependency) as a company package would
         # come; the locked versions hold, so nothing the app uses changes.
         run: |
           mkdir -p "$RUNNER_TEMP/packages"

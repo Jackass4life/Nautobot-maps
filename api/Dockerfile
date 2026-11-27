@@ -10,7 +10,7 @@
 #             the wireless controllers, SMTP) trusts, besides the usual public ones
 #   docs      the repository's root: docs/, README.md and CONTRIBUTING.md, which the help
 #             pages show; without it the help pages say they aren't in this image
-#   packages  company Python packages that aren't on PyPI, e.g. sit_core for the AD sign-in
+#   packages  company Python packages that aren't on PyPI, e.g. the AD sign-in's package
 #             (#790): requirements.txt (may name an index), apt-packages.txt (Debian
 #             packages installed first), *.whl / *.tar.gz found locally; packages/README.md
 # The pages are the web image's (web/Dockerfile).

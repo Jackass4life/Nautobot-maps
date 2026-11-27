@@ -40,7 +40,7 @@ def log_alert_board_exclusions() -> None:
             )
             if importlib.util.find_spec("sit_core") is None:
                 logger.error(
-                    "AD_HOST is set but sit_core isn't installed: nobody can sign in "
+                    "AD_HOST is set but the AD package isn't installed: nobody can sign in "
                     "(add it with packages/requirements.txt, packages/README.md)"
                 )
     if settings.AUTH_MODE == "header":
