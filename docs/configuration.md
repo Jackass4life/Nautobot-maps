@@ -95,6 +95,7 @@ See [authentication](authentication.md).
 | `AUTH_REQUIRE_VIEWER` | api | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `AUTH_GROUP_ROLES` | api | `true` | Someone signed in without an [identity](authentication.md#identities) gets the role their groups give; `false`: no access. Set it to `false` once everyone has an identity |
 | `AD_HOST` | api | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): the domain controller's host name, `dc1.example.local`. Needs `AUTH_MODE=header`, `JWT_SIGNING_SECRET` and the company's AD package in the image ([packages/README.md](../packages/README.md), #790). Replaces the `LDAP_*` settings (#782) |
+| `AD_AUTH_PACKAGE` | api | — (`company_auth` in `.env.example`) | The import name of the company's AD package, the one with `auth.BasicAuthenticator` ([packages/README.md](../packages/README.md)); read only with `AD_HOST`, then a Python module name or startup stops (#793). Set your package's real name: the repository never names it |
 | `JWT_SIGNING_SECRET` | api | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
 | `JWT_LIFETIME_SECONDS` | api | `28800` | How long a sign-in lasts (8 hours) |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | api | `nautobot-maps` | Written in and checked on every token |
@@ -294,7 +295,7 @@ These are set in the shell for one command, never in `.env`; nothing in producti
 | `DATABASE_URL` / `SQL_ECHO` / `WEB_BUILD_DIR` | dev server | The development server's database (when `NAUTOBOT_MAPS_DATABASE_URL` is empty), its SQL log, and where `bun run generate` put the pages | [api/README](../api/README.md) |
 | `API_TEST_DATABASE_URL` | `api/tests/conftest.py` | The tests' database (default `fastapi_nuxt_test`, created when missing) | [CONTRIBUTING](../CONTRIBUTING.md) |
 | `NAUTOBOT_LIVE_URL` / `NAUTOBOT_LIVE_TOKEN` | `api/tests/test_nautobot_live.py` | A real Nautobot to test against; unset: skipped | [development/README](../development/README.md) |
-| `AD_LIVE_HOST` (`AD_LIVE_USER` / `AD_LIVE_PASSWORD`) | `api/tests/test_ad_live.py` | A real domain controller (the development stack's Samba) and an account on it; unset or no `sit_core`: skipped | [development/README](../development/README.md) |
+| `AD_LIVE_HOST` (`AD_LIVE_USER` / `AD_LIVE_PASSWORD`) | `api/tests/test_ad_live.py` | A real domain controller (the development stack's Samba) and an account on it; unset or no AD package: skipped | [development/README](../development/README.md) |
 | `E2E_BASE_URL` / `E2E_OPERATOR_TOKEN` / `E2E_ADMIN_TOKEN` / `E2E_NOC_TOKEN` / `E2E_CUSTOMER_TOKEN` / `E2E_REQUIRED` | `e2e/test_e2e.py` | The running app the browser tests open, and an API token for each role they sign in as; `E2E_REQUIRED=1` (CI) makes a missing `E2E_BASE_URL` a failure, not a skip | [CONTRIBUTING](../CONTRIBUTING.md) |
 | `E2E_AD_BASE_URL` | `e2e/test_ad_sign_in.py` | The app with sign-in with AD, for its browser test | [CONTRIBUTING](../CONTRIBUTING.md) |
 | `MOCK_SCALE` / `MOCK_AP_DHCP` / `MOCK_HOST` / `MOCK_PORT` | `demo/mock_nautobot.py` | The demo's fake Nautobot: `MOCK_SCALE=1200` adds that many generated sites; `MOCK_AP_DHCP=1` drops the access points' primary IPs; where it listens (default `0.0.0.0:8080`) | [demo/README](../demo/README.md) |

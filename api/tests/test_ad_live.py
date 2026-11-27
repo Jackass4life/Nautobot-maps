@@ -1,8 +1,8 @@
-"""Sign-in against a real Active Directory (#717, #782), through the company's sit_core:
-skipped without AD_LIVE_HOST (the domain controller's host name) or without sit_core
-installed. The accounts are development/samba_ad.sh's (jdoe, bob); another AD: set
-AD_LIVE_USER/AD_LIVE_PASSWORD to an account of its own. tests/test_ad_login.py
-covers the rest with a pretend AD."""
+"""Sign-in against a real Active Directory (#717, #782), through the company's AD package
+(AD_AUTH_PACKAGE, #793): skipped without AD_LIVE_HOST (the domain controller's host
+name) or without that package installed. The accounts are development/samba_ad.sh's
+(jdoe, bob); another AD: set AD_LIVE_USER/AD_LIVE_PASSWORD to an account of its own.
+tests/test_ad_login.py covers the rest with a pretend AD."""
 
 import importlib.util
 import os
@@ -18,9 +18,13 @@ from tests import db as adb
 LIVE_HOST = os.environ.get("AD_LIVE_HOST", "")
 USER = os.environ.get("AD_LIVE_USER", "jdoe")
 PASSWORD = os.environ.get("AD_LIVE_PASSWORD", "Jane-Pass-2026!x")
+# The real package's import name in the environment (local.env has the placeholder).
+PACKAGE = os.environ.get("AD_AUTH_PACKAGE", "")
 pytestmark = [
     pytest.mark.skipif(not LIVE_HOST, reason="AD_LIVE_HOST not set"),
-    pytest.mark.skipif(importlib.util.find_spec("sit_core") is None, reason="no sit_core"),
+    pytest.mark.skipif(
+        not PACKAGE or importlib.util.find_spec(PACKAGE) is None, reason="no AD package"
+    ),
 ]
 
 

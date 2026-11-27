@@ -398,7 +398,7 @@ jobs:
 
   proxy-smoke-app:
     # The bundled proxy with the app's own sign-in (#723): nginx built with SIGN_IN=app,
-    # no oauth2-proxy.  No domain controller nor sit_core here (a sign-in answers 503,
+    # no oauth2-proxy.  No domain controller nor AD package here (a sign-in answers 503,
     # #782); the AD sign-in itself: api/tests/test_ad_live.py.  A signed-in session: the app's token for an
     # identity made here.
     runs-on: ubuntu-latest

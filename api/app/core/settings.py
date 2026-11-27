@@ -556,9 +556,12 @@ class Settings(BaseSettings):
     # Where Sign out goes (#546): a path on this site or an http(s):// address.
     AUTH_SIGN_OUT_URL: str
     # --- Sign-in with AD (#717, #782): off until AD_HOST is set ---------------------------
-    # The domain controller's host name, e.g. dc1.example.local: sit_core's
-    # BasicAuthenticator binds there as the user (the company's package, installed apart).
+    # The domain controller's host name, e.g. dc1.example.local: the AD package's
+    # BasicAuthenticator binds there as the user.
     AD_HOST: str
+    # The company's AD package (#793): its import name, installed apart (packages/,
+    # #790), never named in this repository. Read only with AD_HOST.
+    AD_AUTH_PACKAGE: str
     # Signs the app's own sign-in tokens: required with AD_HOST, at least 32 characters.
     JWT_SIGNING_SECRET: str
     JWT_LIFETIME_SECONDS: int
@@ -627,7 +630,7 @@ class Settings(BaseSettings):
     WIRELESS_CONTROLLERS_FILE: str = ""
     CRITICALITY_RULES_FILE: str = ""
     LDAP_CA_FILE: str = ""
-    # Removed in #782 (sign-in through sit_core needs only AD_HOST): set, it stops startup.
+    # Removed in #782 (sign-in through the AD package needs only AD_HOST): set, it stops startup.
     LDAP_URL: str = ""
     # Removed in #153 (SQLite); only read to warn when it is still set.
     NAUTOBOT_MAPS_DB: str = ""
@@ -659,6 +662,7 @@ class Settings(BaseSettings):
         "AUTH_HEADER_GROUPS",
         "AUTH_PROXY_SECRET",
         "AD_HOST",
+        "AD_AUTH_PACKAGE",
         "JWT_ISSUER",
         "JWT_AUDIENCE",
         "CRITICAL_ROLE_KEYWORDS",
@@ -861,7 +865,12 @@ MIN_JWT_SECRET_LENGTH = 32
 
 
 def _check_ad_login(settings: "Settings") -> None:
-    """AD sign-in on (#717): refused at start when it can't be safe."""
+    """AD sign-in on (#717): refused at start when it can't be safe, or can't work."""
+    if not all(part.isidentifier() for part in settings.AD_AUTH_PACKAGE.split(".")):
+        raise RuntimeError(
+            "AD_HOST is set: AD_AUTH_PACKAGE must be the import name of the company's AD "
+            f"package (e.g. company_auth), not {settings.AD_AUTH_PACKAGE!r}"
+        )
     if len(settings.JWT_SIGNING_SECRET) < MIN_JWT_SECRET_LENGTH:
         raise RuntimeError(
             f"AD_HOST is set: JWT_SIGNING_SECRET must be at least {MIN_JWT_SECRET_LENGTH} "

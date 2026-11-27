@@ -16,7 +16,7 @@
 #
 # Every setting is in .env (#739), the API's for this proxy too (AUTH_MODE=header,
 # AUTH_REQUIRE_VIEWER, AUTH_TRUSTED_PROXIES, AUTH_PROXY_SECRET, AD_HOST,
-# JWT_SIGNING_SECRET; the API image with the company's sit_core installed). nginx
+# AD_AUTH_PACKAGE, JWT_SIGNING_SECRET; the API image with the company's AD package installed). nginx
 # refuses to start without the proxy's; the API with AD_HOST but without the secret.
 
 services:

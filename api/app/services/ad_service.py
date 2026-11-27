@@ -1,12 +1,14 @@
 """Sign-in with Active Directory (#717, #782; the example's services/ad_service.py):
-``sit_core.auth.BasicAuthenticator`` binds as the user with their password on
-AD_HOST. Off until AD_HOST is set. ``sit_core`` is the company's own package, not on
-PyPI: imported only when someone signs in, so the app and the tests run without it.
+the company's AD package (its import name: AD_AUTH_PACKAGE, #793) binds as the user
+with its ``auth.BasicAuthenticator`` and their password on AD_HOST. Off until AD_HOST is
+set. The package isn't on PyPI: imported only when someone signs in, so the app and the
+tests run without it.
 Blocking (ldap3 underneath is synchronous): callers run it in a thread.
 
 Never logged or kept: a password. An empty one is refused before any bind, as an LDAP
 simple bind with an empty password is an anonymous bind that "succeeds"."""
 
+import importlib
 from dataclasses import dataclass
 
 from ldap3.core.exceptions import LDAPBindError, LDAPException
@@ -18,7 +20,7 @@ MAX_NAME_LENGTH = 256
 
 
 class DirectoryUnavailable(Exception):
-    """The directory can't be asked (down, TLS refused, sit_core not installed): not
+    """The directory can't be asked (down, TLS refused, the AD package not installed): not
     the user's fault, a 503."""
 
 
@@ -35,16 +37,19 @@ def enabled(settings: Settings) -> bool:
 
 def authenticator(settings: Settings):
     """The example's AdService on AD_HOST (tests replace this function)."""
+    package = settings.AD_AUTH_PACKAGE
     try:
-        from sit_core.auth import BasicAuthenticator
-        from sit_core.auth.ldap import attributes
-    except ImportError:
+        authenticator_class = importlib.import_module(f"{package}.auth").BasicAuthenticator
+        attributes = importlib.import_module(f"{package}.auth.ldap").attributes
+    except (ImportError, AttributeError):
         logger.error(
-            "AD sign-in: the AD package is not installed (AD_HOST is set; packages/README.md)"
+            "AD sign-in: AD_AUTH_PACKAGE {!r} isn't installed or has no auth.BasicAuthenticator "
+            "(packages/README.md)",
+            package,
         )
-        raise DirectoryUnavailable("sit_core not installed") from None
+        raise DirectoryUnavailable("the AD package is not installed") from None
 
-    class AdService(BasicAuthenticator):
+    class AdService(authenticator_class):
         UNIQUE_NAME_ATTRIBUTE = attributes.USERNAME
         COMMON_NAME_ATTRIBUTE = attributes.COMMON_NAME
 
