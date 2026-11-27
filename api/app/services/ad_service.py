@@ -35,17 +35,29 @@ def enabled(settings: Settings) -> bool:
     return bool(settings.AD_HOST)
 
 
+def _attributes(package: str):
+    """``from <package>.auth.ldap import attributes``: a name there, or the submodule
+    ``<package>.auth.ldap.attributes`` (the real package's, #797)."""
+    ldap = importlib.import_module(f"{package}.auth.ldap")
+    if hasattr(ldap, "attributes"):
+        return ldap.attributes
+    return importlib.import_module(f"{package}.auth.ldap.attributes")
+
+
 def authenticator(settings: Settings):
     """The example's AdService on AD_HOST (tests replace this function)."""
     package = settings.AD_AUTH_PACKAGE
     try:
         authenticator_class = importlib.import_module(f"{package}.auth").BasicAuthenticator
-        attributes = importlib.import_module(f"{package}.auth.ldap").attributes
-    except (ImportError, AttributeError):
+        attributes = _attributes(package)
+    except (ImportError, AttributeError) as exc:
+        # The cause too: "isn't installed" is only one of them (#797).
         logger.error(
             "AD sign-in: AD_AUTH_PACKAGE {!r} isn't installed or has no auth.BasicAuthenticator "
-            "(packages/README.md)",
+            "(packages/README.md): {}: {}",
             package,
+            type(exc).__name__,
+            exc,
         )
         raise DirectoryUnavailable("the AD package is not installed") from None
 

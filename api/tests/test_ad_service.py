@@ -39,12 +39,14 @@ def ad_package(monkeypatch):
 
     auth = types.ModuleType("pretend_ad.auth")
     auth.BasicAuthenticator = BasicAuthenticator
-    ldap = types.ModuleType("pretend_ad.auth.ldap")
-    ldap.attributes = types.SimpleNamespace(USERNAME="sAMAccountName", COMMON_NAME="cn")
+    # As in the real package, attributes is a submodule, not a name in auth.ldap (#797).
+    attributes = types.ModuleType("pretend_ad.auth.ldap.attributes")
+    attributes.USERNAME, attributes.COMMON_NAME = "sAMAccountName", "cn"
     for name, module in {
         "pretend_ad": types.ModuleType("pretend_ad"),
         "pretend_ad.auth": auth,
-        "pretend_ad.auth.ldap": ldap,
+        "pretend_ad.auth.ldap": types.ModuleType("pretend_ad.auth.ldap"),
+        "pretend_ad.auth.ldap.attributes": attributes,
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     return state
@@ -87,3 +89,11 @@ def test_the_directory_down_or_the_package_missing(ad, ad_package, monkeypatch):
     monkeypatch.setitem(sys.modules, "pretend_ad.auth", None)
     with pytest.raises(ad_service.DirectoryUnavailable):
         ad("jdoe", "Jane-Pass-1!")
+
+
+def test_the_log_says_why_the_package_cant_be_used(ad, monkeypatch, caplog):
+    """ "isn't installed" is one cause of several: the log names the real one (#797)."""
+    monkeypatch.setitem(sys.modules, "pretend_ad.auth.ldap.attributes", None)
+    with pytest.raises(ad_service.DirectoryUnavailable):
+        ad("jdoe", "Jane-Pass-1!")
+    assert "ModuleNotFoundError" in caplog.text and "pretend_ad.auth.ldap.attributes" in caplog.text
