@@ -4,8 +4,8 @@ Seed a real Nautobot instance with the same data used by demo/mock_nautobot.py.
 
 This script talks to the Nautobot REST API, creating location types, tenants,
 locations (with GPS coordinates and ASN), manufacturers, device types, roles,
-and devices so that the nautobot-maps integration tests can validate against a
-genuine Nautobot backend.
+devices, and a Location <-> Tenant relationship so that the nautobot-maps
+integration tests can validate against a genuine Nautobot backend.
 
 Note: In Nautobot 3.x core the ``/api/ipam/asns/`` endpoint does not exist
 (it is provided by the optional BGP Models plugin).  ASN numbers are stored
@@ -156,14 +156,14 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     wait_for_nautobot()
 
     # -- Statuses --------------------------------------------------------
-    print("[1/9] Looking up statuses …")
+    print("[1/10] Looking up statuses …")
     active = lookup_status("Active")
     planned = lookup_status("Planned")
     print(f"  Active  → {active['id']}")
     print(f"  Planned → {planned['id']}")
 
     # -- Location types --------------------------------------------------
-    print("[2/9] Creating location types …")
+    print("[2/10] Creating location types …")
     lt = {}
     for name in ("Data Center", "PoP", "Office", "Internet Exchange"):
         lt[name] = get_or_create(
@@ -172,13 +172,13 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Tenants ---------------------------------------------------------
-    print("[3/9] Creating tenants …")
+    print("[3/10] Creating tenants …")
     tenants = {}
     for name in ("Acme Corp", "Nordic Net", "EuroIX", "DataCenter GmbH"):
         tenants[name] = get_or_create("tenancy/tenants/", {"name": name})
 
     # -- Tags ------------------------------------------------------------
-    print("[4/9] Creating tags …")
+    print("[4/10] Creating tags …")
     tags = {}
     for tag_name in ("critical", "production", "peering"):
         tags[tag_name] = get_or_create(
@@ -189,7 +189,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     # -- Locations -------------------------------------------------------
     # ASN is a plain integer field on the Location object in Nautobot 3.x;
     # /api/ipam/asns/ is a BGP-plugin endpoint and is not available in core.
-    print("[5/9] Creating locations …")
+    print("[5/10] Creating locations …")
     location_defs = [
         {
             "name": "Copenhagen DC",
@@ -297,7 +297,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         locations[loc_def["name"]] = get_or_create("dcim/locations/", loc_def)
 
     # -- Manufacturers ---------------------------------------------------
-    print("[6/9] Creating manufacturers …")
+    print("[6/10] Creating manufacturers …")
     manufacturers = {}
     for name in (
         "Cisco",
@@ -309,7 +309,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         manufacturers[name] = get_or_create("dcim/manufacturers/", {"name": name})
 
     # -- Device types ----------------------------------------------------
-    print("[7/9] Creating device types …")
+    print("[7/10] Creating device types …")
     device_type_defs = [
         ("ASR1001-X", "Cisco"),
         ("Catalyst 9300", "Cisco"),
@@ -336,7 +336,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Roles -----------------------------------------------------------
-    print("[8/9] Creating roles …")
+    print("[8/10] Creating roles …")
     role_names = (
         "Core Router",
         "Distribution Switch",
@@ -358,7 +358,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Devices ---------------------------------------------------------
-    print("[9/9] Creating devices …")
+    print("[9/10] Creating devices …")
     device_defs = [
         # Copenhagen DC
         ("cph-core-rt01", "ASR1001-X", "Core Router", "Copenhagen DC", "Acme Corp", "IOS-XE", "FCZ2227B0M1"),
@@ -418,6 +418,37 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         if platform_name:
             dev_data["platform"] = platforms[platform_name]["id"]
         get_or_create("dcim/devices/", dev_data)
+
+    # -- Location <-> Tenant relationship (#238) -------------------------
+    # One more tenant on Copenhagen DC; the app reads its associations by
+    # the relationship's key, the only value Nautobot's filter takes (#788).
+    print("[10/10] Creating the Location <-> Tenant relationship …")
+    relationship = get_or_create(
+        "extras/relationships/",
+        {
+            "label": "Site customers",
+            "key": "site_customers",
+            "type": "many-to-many",
+            "source_type": "dcim.location",
+            "destination_type": "tenancy.tenant",
+        },
+        lookup={"key": "site_customers"},
+    )
+    get_or_create(
+        "extras/relationship-associations/",
+        {
+            "relationship": relationship["id"],
+            "source_type": "dcim.location",
+            "source_id": locations["Copenhagen DC"]["id"],
+            "destination_type": "tenancy.tenant",
+            "destination_id": tenants["Nordic Net"]["id"],
+        },
+        lookup={
+            "relationship": "site_customers",
+            "source_id": locations["Copenhagen DC"]["id"],
+            "destination_id": tenants["Nordic Net"]["id"],
+        },
+    )
 
     print("\n=== Seeding complete ===\n")
 

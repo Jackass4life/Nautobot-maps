@@ -52,3 +52,12 @@ def test_a_real_nautobot_keeps_to_the_contract(synced):
     assert checks, "the sync checked what it fetched"
     mismatched = {c["endpoint"]: c["mismatches"] for c in checks if c["mismatches"]}
     assert mismatched == {}
+
+
+def test_tenants_linked_by_a_relationship_are_read(synced):
+    """The seeded Location <-> Tenant relationship: a real Nautobot filters its
+    associations by the relationship's key, an id is a 400 (#788)."""
+    copenhagen = next(
+        loc for loc in asyncio.run(inventory.read_locations()) if loc["name"] == "Copenhagen DC"
+    )
+    assert copenhagen["tenants"] == ["Acme Corp", "Nordic Net"]
