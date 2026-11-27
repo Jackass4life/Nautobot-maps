@@ -237,6 +237,18 @@ jobs:
           docker compose -f docker-compose.yml -f reverse-proxy/compose.app-sign-in.yml config -q
           rm .env
 
+      - name: Company packages from the packages context get into the API image (#790)
+        # python3-saml (the company AD package's heaviest public dependency) as a company package would
+        # come; the locked versions hold, so nothing the app uses changes.
+        run: |
+          mkdir -p "$RUNNER_TEMP/packages"
+          printf 'python3-saml\n' > "$RUNNER_TEMP/packages/requirements.txt"
+          docker build --build-context packages="$RUNNER_TEMP/packages" -t api-packages api
+          docker run --rm --entrypoint python api-packages -c \
+            "import onelogin.saml2, xmlsec; from importlib.metadata import version as v; print('python3-saml', v('python3-saml'), 'xmlsec', v('xmlsec'))"
+          locked=$(grep -A1 '^name = "fastapi"$' api/uv.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          docker run --rm --entrypoint python api-packages -c "import fastapi; assert fastapi.__version__ == '$locked', fastapi.__version__"
+
       - name: Build and start the demo stack
         # --wait blocks until every container is running and healthy
         # (api and web via their images' HEALTHCHECK, the mock via its compose one).
