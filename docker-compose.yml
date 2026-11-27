@@ -65,9 +65,11 @@ services:
   api:
     build:
       context: ./api
-      # The help pages' files: docs/, README.md, CONTRIBUTING.md (api/Dockerfile).
+      # The help pages' files: docs/, README.md, CONTRIBUTING.md (api/Dockerfile);
+      # company Python packages such as sit_core (packages/README.md, #790).
       additional_contexts:
         docs: .
+        packages: ./packages
     logging: *default-logging
     # Not published: `web` passes the API's paths on (and Prometheus scrapes it
     # inside the network, or through `web` at /metrics). Its settings: .env.

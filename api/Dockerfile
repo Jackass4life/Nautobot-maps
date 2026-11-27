@@ -3,31 +3,39 @@
 #
 #   docker build -t nautobot-maps-api .
 #   docker build --build-context certs=../certs --build-context docs=.. -t nautobot-maps-api .
+#   docker build --build-context packages=../packages -t nautobot-maps-api .
 #
-# Both contexts are optional:
-#   certs  company CA certificates (*.crt, *.pem) that outgoing HTTPS (Nautobot, LibreNMS,
-#          the wireless controllers, SMTP) trusts, besides the usual public ones
-#   docs   the repository's root: docs/, README.md and CONTRIBUTING.md, which the help
-#          pages show; without it the help pages say they aren't in this image
+# The contexts are optional:
+#   certs     company CA certificates (*.crt, *.pem) that outgoing HTTPS (Nautobot, LibreNMS,
+#             the wireless controllers, SMTP) trusts, besides the usual public ones
+#   docs      the repository's root: docs/, README.md and CONTRIBUTING.md, which the help
+#             pages show; without it the help pages say they aren't in this image
+#   packages  company Python packages that aren't on PyPI, e.g. sit_core for the AD sign-in
+#             (#790): requirements.txt (may name an index), apt-packages.txt (Debian
+#             packages installed first), *.whl / *.tar.gz found locally; packages/README.md
 # The pages are the web image's (web/Dockerfile).
 FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
 
 # The optional contexts: empty unless --build-context gives them.
 FROM scratch AS certs
 FROM scratch AS docs
+FROM scratch AS packages
 
 # What the optional contexts hold that the image uses.
 FROM python:3.13-slim AS extras
 COPY --from=certs . /in/certs/
 COPY --from=docs . /in/docs/
-RUN mkdir -p /out/ca /out/repo/docs \
+COPY --from=packages . /in/packages/
+RUN mkdir -p /out/ca /out/repo/docs /out/packages \
     && find /in/certs -type f \( -name '*.crt' -o -name '*.pem' \) | while read -r file; do \
          cp "$file" "/out/ca/$(basename "${file%.*}").crt"; \
        done \
     && if [ -d /in/docs/docs ]; then cp -r /in/docs/docs/. /out/repo/docs/; fi \
     && for file in README.md CONTRIBUTING.md; do \
          if [ -f "/in/docs/$file" ]; then cp "/in/docs/$file" /out/repo/; fi; \
-       done
+       done \
+    && find /in/packages -maxdepth 1 -type f \( -name requirements.txt -o -name apt-packages.txt \
+         -o -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} /out/packages/ \;
 
 FROM python:3.13-slim
 
@@ -70,6 +78,23 @@ WORKDIR /app/api
 # package with its hash (#186).
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project --python /usr/local/bin/python3
+
+# The packages context's company packages (#790), held to the locked versions: one that
+# needs another version of the app's packages stops the build instead of changing them.
+COPY --from=extras /out/packages/ /tmp/packages/
+RUN if [ -s /tmp/packages/apt-packages.txt ]; then \
+      apt-get update \
+      && grep -v '^[[:space:]]*#' /tmp/packages/apt-packages.txt \
+         | xargs apt-get install -y --no-install-recommends \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi \
+    && if [ -f /tmp/packages/requirements.txt ]; then \
+      uv export --frozen --no-dev --no-emit-project --no-hashes --quiet -o /tmp/locked.txt \
+      && cd /tmp/packages \
+      && uv pip install --python /opt/venv/bin/python --find-links /tmp/packages \
+         --constraint /tmp/locked.txt -r requirements.txt; \
+    fi \
+    && rm -rf /tmp/packages /tmp/locked.txt
 
 # Run as an unprivileged user. The code stays root-owned (read-only for the app);
 # all state lives in PostgreSQL, every setting in the environment (#739). Group 10001

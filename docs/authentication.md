@@ -348,7 +348,7 @@ AD_HOST=dc1.example.local              # the domain controller's host name
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 ```
 
-- **sit_core:** your company's package, not on PyPI, so not in the published image. Install it into the API image yourself (from your company's package index). Without it the startup log says `AD_HOST is set but sit_core isn't installed`, and a sign-in answers "The directory can't be reached".
+- **sit_core:** your company's package, not on PyPI, so not in the published image. Name it in `packages/requirements.txt` with your company's package index, and `docker compose up -d --build` builds it into the API image (#790, [packages/README.md](../packages/README.md)); only `sit-core` is needed. Without it the startup log says `AD_HOST is set but sit_core isn't installed`, and a sign-in answers "The directory can't be reached".
 - **How it talks to AD** (LDAPS or not, which CA it trusts, the timeout) is `sit_core`'s: check with whoever maintains it. Passwords go over that connection.
 - **Their identity's name** is the user name AD gives back (`sAMAccountName`), lower case. To give someone more than viewer before their first sign-in: `python -m app identity create jdoe --role noc`.
 - The app refuses to start with `AD_HOST` and a `JWT_SIGNING_SECRET` shorter than 32 characters.

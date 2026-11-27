@@ -39,7 +39,10 @@ def log_alert_board_exclusions() -> None:
                 settings.JWT_LIFETIME_SECONDS,
             )
             if importlib.util.find_spec("sit_core") is None:
-                logger.error("AD_HOST is set but sit_core isn't installed: nobody can sign in")
+                logger.error(
+                    "AD_HOST is set but sit_core isn't installed: nobody can sign in "
+                    "(add it with packages/requirements.txt, packages/README.md)"
+                )
     if settings.AUTH_MODE == "header":
         # Only the networks reach the log (#613); two calls, so nothing derived from
         # the secret does.
