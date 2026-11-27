@@ -48,12 +48,13 @@ LOCATION_TENANT_RELATIONSHIPS = [
         "destination_type": "dcim.device",
     },
 ]
+# By the relationship's key: Nautobot filters associations by key only (#788).
 RELATIONSHIP_ASSOCIATIONS = {
-    "rel-1": [
+    "site_customers": [
         {"source_id": "loc-1", "destination_id": "ten-2"},
         {"source_id": "loc-1", "destination_id": "ten-3"},
     ],
-    "rel-2": [{"source_id": "ten-3", "destination_id": "loc-2"}],
+    "hosted_at": [{"source_id": "ten-3", "destination_id": "loc-2"}],
 }
 TENANT_NAMES = {"ten-1": "Acme Corp", "ten-2": "Nordic Net", "ten-3": "EuroIX"}
 # Nautobot tenant descriptions (#263); EuroIX has none.
@@ -70,6 +71,10 @@ def _relationship_fetch(error_on=None):
         if endpoint == "extras/relationships/":
             return LOCATION_TENANT_RELATIONSHIPS
         if endpoint == "extras/relationship-associations/":
+            # Like Nautobot: an id, or any other value that isn't a key, is a 400.
+            keys = {rel["key"] for rel in LOCATION_TENANT_RELATIONSHIPS}
+            if params["relationship"] not in keys:
+                raise upstream.status_error(400)
             return RELATIONSHIP_ASSOCIATIONS.get(params["relationship"], [])
         if endpoint == "tenancy/tenants/":
             return [
@@ -919,8 +924,8 @@ class TestLocationTenantRelationships:
             if "associations" in endpoint
         ]
         assert read == [
-            ("extras/relationship-associations/", "rel-1"),
-            ("extras/relationship-associations/", "rel-2"),
+            ("extras/relationship-associations/", "site_customers"),
+            ("extras/relationship-associations/", "hosted_at"),
         ]
         assert all(
             use_cache is False for endpoint, _, use_cache in calls if endpoint.startswith("extras/")

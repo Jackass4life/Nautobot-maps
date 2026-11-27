@@ -335,16 +335,22 @@ def fetch_location_tenant_links() -> list[dict] | None:
             wanted = settings.SITE_TENANT_RELATIONSHIPS
             if wanted and key.lower() not in wanted and label.lower() not in wanted:
                 continue
-            selected.append((rel, label))
+            # Associations are filtered by the key only (Nautobot 2.0+; an id is a 400, #788).
+            if not key:
+                logger.warning(
+                    "Nautobot relationship {!r} has no key: its tenants are skipped", label
+                )
+                continue
+            selected.append((rel, key, label))
         if not selected:
             return []
         tenant_names = nautobot.id_name_map("tenancy/tenants/")
         links = {}
         all_associations = []
-        for rel, label in selected:
+        for rel, key, label in selected:
             associations = nautobot.fetch_all_pages(
                 "extras/relationship-associations/",
-                {"relationship": rel.get("id")},
+                {"relationship": key},
                 use_cache=False,
             )
             all_associations += associations

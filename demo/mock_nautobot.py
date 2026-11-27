@@ -1143,8 +1143,15 @@ def relationships(request: Request):
 @app.get("/api/extras/relationship-associations/")
 def relationship_associations(request: Request):
     _check_auth(request)
+    # By the relationship's key, as Nautobot 2.0+: anything else is a 400 (#788).
     relationship = request.query_params.get("relationship")
-    items = [a for a in RELATIONSHIP_ASSOCIATIONS if not relationship or a["relationship"]["id"] == relationship]
+    ids = {rel["key"]: rel["id"] for rel in RELATIONSHIPS}
+    if relationship and relationship not in ids:
+        raise HTTPException(
+            status_code=400,
+            detail={"relationship": [f"Select a valid choice. {relationship} is not one of the available choices."]},
+        )
+    items = [a for a in RELATIONSHIP_ASSOCIATIONS if not relationship or a["relationship"]["id"] == ids[relationship]]
     return _paginate(request, items)
 
 
