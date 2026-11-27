@@ -350,7 +350,7 @@ JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 ```
 
 - **The AD package:** your company's package, not on PyPI, so not in the published image. Name it in `packages/requirements.txt` with your company's package index, and `docker compose up -d --build` builds it into the API image (#790, [packages/README.md](../packages/README.md)). Without it the startup log says `AD_HOST is set but the AD package isn't installed`, and a sign-in answers "The directory can't be reached".
-- **How it talks to AD** (LDAPS or not, which CA it trusts, the timeout) is the AD package's: check with whoever maintains it. Passwords go over that connection.
+- **How it talks to AD** (LDAPS or not, which CA it trusts, the timeout) is the AD package's: check with whoever maintains it. Passwords go over that connection. A domain controller with a certificate from your company CA: put the CA in [`certs/`](../certs/README.md), which the image trusts (#795).
 - **Their identity's name** is the user name AD gives back (`sAMAccountName`), lower case. To give someone more than viewer before their first sign-in: `python -m app identity create jdoe --role noc`.
 - The app refuses to start with `AD_HOST` and a `JWT_SIGNING_SECRET` shorter than 32 characters.
 - **Upgrading from `LDAP_URL`:** the `LDAP_*` settings are gone (#782). An `.env` with `LDAP_URL` set stops the app and names `AD_HOST`; remove the `LDAP_*` lines, `LDAP_BIND_PASSWORD` with them.

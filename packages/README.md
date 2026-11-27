@@ -35,4 +35,5 @@ docker compose exec api python -c "import company_auth; print(company_auth.__fil
   pkg-config gcc libc6-dev libxml2-dev libxmlsec1-dev libxmlsec1-openssl
   ```
 
+- **`invalid peer certificate: UnknownIssuer`**: the index has a certificate from your company CA, which the build doesn't know. Put the CA in [`certs/`](../certs/README.md) and build again.
 - **The index can't be reached**: the build runs on this host, so the host must reach it (`curl -sI <index URL>/company-auth/ | head -1` says `200`).
