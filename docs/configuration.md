@@ -94,7 +94,7 @@ See [authentication](authentication.md).
 | `AUTH_SIGN_OUT_URL` | api | — | Header mode: where the top bar's **Sign out** goes, your proxy's sign-out address (a path such as `/oauth2/sign_out`, or an `http(s)://` address); empty: no Sign out. The bundled proxy sets it ([signing out](authentication.md#signing-out)) |
 | `AUTH_REQUIRE_VIEWER` | api | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `AUTH_GROUP_ROLES` | api | `true` | Someone signed in without an [identity](authentication.md#identities) gets the role their groups give; `false`: no access. Set it to `false` once everyone has an identity |
-| `AD_HOST` | api | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): the domain controller's host name, `dc1.example.local`. Needs `AUTH_MODE=header`, `JWT_SIGNING_SECRET` and the company's `sit_core` package in the image. Replaces the `LDAP_*` settings (#782) |
+| `AD_HOST` | api | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): the domain controller's host name, `dc1.example.local`. Needs `AUTH_MODE=header`, `JWT_SIGNING_SECRET` and the company's AD package in the image ([packages/README.md](../packages/README.md), #790). Replaces the `LDAP_*` settings (#782) |
 | `JWT_SIGNING_SECRET` | api | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
 | `JWT_LIFETIME_SECONDS` | api | `28800` | How long a sign-in lasts (8 hours) |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | api | `nautobot-maps` | Written in and checked on every token |
