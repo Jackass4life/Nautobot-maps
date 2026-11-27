@@ -53,6 +53,7 @@ The `seed_nautobot.py` script populates the same data that the
 - **8 European locations** with GPS coordinates
 - **14 network devices** across those locations
 - **9 ASNs** in the private range
+- **1 Location ↔ Tenant relationship** (`site_customers`): Nordic Net on Copenhagen DC, next to its own tenant
 
 ## Tear Down
 
