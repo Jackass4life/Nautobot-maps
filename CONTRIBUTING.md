@@ -251,8 +251,8 @@ The suite:
   every link in the guides lands on a heading.
 - `web/tests/`: Vitest for the pages' logic in `utils/`; `e2e/`: Playwright in Chromium.
 - `api/tests/test_mcp.py`: the MCP server.
-- `api/tests/test_ad_login.py`: AD sign-in (#717) as the app sees it, with `ad_service.authenticate` faked (#774); `test_ad_service.py`: the AD service around `sit_core`'s `BasicAuthenticator`, with a pretend `sit_core` (#782: the company's package isn't on PyPI, so neither the tests nor CI install it).
-- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_HOST` is set and `sit_core` is installed (so not in GitHub's CI, #782). `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_HOST=dc1.nmaps.test uv run pytest tests/test_ad_live.py`; another AD: `AD_LIVE_USER`/`AD_LIVE_PASSWORD` too. In Chromium: `e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `AD_HOST` set, jdoe an identity with the noc role.
+- `api/tests/test_ad_login.py`: AD sign-in (#717) as the app sees it, with `ad_service.authenticate` faked (#774); `test_ad_service.py`: the AD service around the company's AD package's `BasicAuthenticator`, with a pretend one named by `AD_AUTH_PACKAGE` (#782, #793: the package isn't on PyPI, so neither the tests nor CI install it).
+- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_HOST` is set and the package `AD_AUTH_PACKAGE` names is installed (so not in GitHub's CI, #782). `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_HOST=dc1.nmaps.test uv run pytest tests/test_ad_live.py`; another AD: `AD_LIVE_USER`/`AD_LIVE_PASSWORD` too. In Chromium: `e2e/test_ad_sign_in.py`, with `E2E_AD_BASE_URL` pointing at an app with `AD_HOST` set, jdoe an identity with the noc role.
 - `api/tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
 

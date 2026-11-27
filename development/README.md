@@ -77,11 +77,11 @@ tests (the `api` job).
 
 ## Active Directory (AD sign-in, #717)
 
-`samba_ad.sh` starts a real AD domain controller for the app's AD sign-in: Samba AD, domain `NMAPS.TEST`, LDAPS on 127.0.0.1:636 with its own CA, and the accounts `jdoe` (in `noc-duty`) and `bob` (and `svc-maps`, unused since #782). Test passwords are in the script. The app signs in through the company's `sit_core`, which must be installed and trust `/tmp/nms-dc/ca.pem`.
+`samba_ad.sh` starts a real AD domain controller for the app's AD sign-in: Samba AD, domain `NMAPS.TEST`, LDAPS on 127.0.0.1:636 with its own CA, and the accounts `jdoe` (in `noc-duty`) and `bob` (and `svc-maps`, unused since #782). Test passwords are in the script. The app signs in through the company's AD package (`AD_AUTH_PACKAGE`), which must be installed and trust `/tmp/nms-dc/ca.pem`.
 
 ```sh
 sudo apt-get install -y samba samba-ad-dc
 development/samba_ad.sh start
-cd api && AD_LIVE_HOST=dc1.nmaps.test uv run pytest tests/test_ad_live.py -v   # needs sit_core (#782)
+cd api && AD_LIVE_HOST=dc1.nmaps.test uv run pytest tests/test_ad_live.py -v   # needs the AD package and AD_AUTH_PACKAGE (#782, #793)
 development/samba_ad.sh stop
 ```

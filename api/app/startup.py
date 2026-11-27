@@ -38,10 +38,11 @@ def log_alert_board_exclusions() -> None:
                 settings.AD_HOST,
                 settings.JWT_LIFETIME_SECONDS,
             )
-            if importlib.util.find_spec("sit_core") is None:
+            if importlib.util.find_spec(settings.AD_AUTH_PACKAGE) is None:
                 logger.error(
-                    "AD_HOST is set but the AD package isn't installed: nobody can sign in "
-                    "(add it with packages/requirements.txt, packages/README.md)"
+                    "AD_HOST is set but AD_AUTH_PACKAGE {!r} isn't installed: nobody can sign "
+                    "in (add it with packages/requirements.txt, packages/README.md)",
+                    settings.AD_AUTH_PACKAGE,
                 )
     if settings.AUTH_MODE == "header":
         # Only the networks reach the log (#613); two calls, so nothing derived from

@@ -141,7 +141,7 @@ The real work happens here, one module per job. The big ones:
 | `auth_service.py` | **Who is calling and what they may do** (see [sign-in](#sign-in-and-permissions)) |
 | `token_service.py` | API tokens: create, check, revoke |
 | `identity_service.py`, `role_service.py` | Identities (people the app knows) and roles with their scopes |
-| `ad_service.py`, `login_service.py` | The app's own sign-in against Active Directory (through the company's `sit_core`), and its signed token |
+| `ad_service.py`, `login_service.py` | The app's own sign-in against Active Directory (through the company's AD package, `AD_AUTH_PACKAGE`), and its signed token |
 | `status_link_service.py` | Each tenant's private status page link |
 | `mcp_service.py` | The MCP server: the board as tools for AI assistants |
 | `metrics_service.py`, `health_service.py` | `/metrics` for Prometheus, `/healthz` for probes |

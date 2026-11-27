@@ -1,5 +1,5 @@
 """Sign-in with AD in Chromium (#717, #723): the app's own page against a real domain
-controller (development/samba_ad.sh), with the company's sit_core installed (#782: not
+controller (development/samba_ad.sh), with the company's AD package installed (#782: not
 on PyPI, so not in GitHub's CI).
 
     E2E_AD_BASE_URL=http://127.0.0.1:5057 python -m pytest e2e/test_ad_sign_in.py

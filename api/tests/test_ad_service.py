@@ -1,6 +1,6 @@
-"""The AD service (#717, #782) around sit_core's BasicAuthenticator, with a pretend
-sit_core: the company's package isn't on PyPI. The login around it: test_ad_login.py
-(#774)."""
+"""The AD service (#717, #782) around the company's AD package's BasicAuthenticator,
+with a pretend one, ``pretend_ad``: the package isn't on PyPI, and AD_AUTH_PACKAGE
+names it (#793). The login around it: test_ad_login.py (#774)."""
 
 import sys
 import types
@@ -15,8 +15,8 @@ USERS = {"jdoe": ("Jane-Pass-1!", "Jane Doe"), "bob": ("Bob-Pass-1!", "Bob Build
 
 
 @pytest.fixture
-def sit_core(monkeypatch):
-    """sit_core.auth with a BasicAuthenticator that knows jdoe and bob, as AD does:
+def ad_package(monkeypatch):
+    """pretend_ad.auth with a BasicAuthenticator that knows jdoe and bob, as AD does:
     a wrong password is a refused bind. ``state["down"]`` breaks it."""
     state = {"down": False, "hosts": [], "asked": []}
 
@@ -37,32 +37,34 @@ def sit_core(monkeypatch):
                 "cn": USERS[username.lower()][1],
             }
 
-    auth = types.ModuleType("sit_core.auth")
+    auth = types.ModuleType("pretend_ad.auth")
     auth.BasicAuthenticator = BasicAuthenticator
-    ldap = types.ModuleType("sit_core.auth.ldap")
+    ldap = types.ModuleType("pretend_ad.auth.ldap")
     ldap.attributes = types.SimpleNamespace(USERNAME="sAMAccountName", COMMON_NAME="cn")
     for name, module in {
-        "sit_core": types.ModuleType("sit_core"),
-        "sit_core.auth": auth,
-        "sit_core.auth.ldap": ldap,
+        "pretend_ad": types.ModuleType("pretend_ad"),
+        "pretend_ad.auth": auth,
+        "pretend_ad.auth.ldap": ldap,
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     return state
 
 
 @pytest.fixture
-def ad(override_settings, sit_core):
-    override_settings(AD_HOST="dc1.example.test", JWT_SIGNING_SECRET="s" * 40)
+def ad(override_settings, ad_package):
+    override_settings(
+        AD_HOST="dc1.example.test", AD_AUTH_PACKAGE="pretend_ad", JWT_SIGNING_SECRET="s" * 40
+    )
     return lambda username, password: ad_service.authenticate(username, password, settings)
 
 
-def test_the_name_forms_and_the_host(ad, sit_core):
+def test_the_name_forms_and_the_host(ad, ad_package):
     found = ad("jdoe", "Jane-Pass-1!")
     assert found == ad_service.AdUser(unique_name="jdoe", common_name="Jane Doe")
     assert ad("NMAPS\\jdoe", "Jane-Pass-1!") == found
     assert ad("jdoe@nmaps.test", "Jane-Pass-1!") == found
-    assert sit_core["asked"] == ["jdoe"] * 3, "the plain name is what AD is asked"
-    assert set(sit_core["hosts"]) == {"dc1.example.test"}
+    assert ad_package["asked"] == ["jdoe"] * 3, "the plain name is what AD is asked"
+    assert set(ad_package["hosts"]) == {"dc1.example.test"}
 
 
 def test_the_password_decides(ad):
@@ -71,17 +73,17 @@ def test_the_password_decides(ad):
     assert ad("nobody", "Jane-Pass-1!") is None
 
 
-def test_no_anonymous_bind(ad, sit_core):
+def test_no_anonymous_bind(ad, ad_package):
     """An empty password would be an anonymous bind that "succeeds": never asked."""
     for name, password in (("jdoe", ""), ("", "x"), ("a\x00b", "x"), ("x" * 300, "x")):
         assert ad(name, password) is None
-    assert sit_core["asked"] == []
+    assert ad_package["asked"] == []
 
 
-def test_the_directory_down_or_sit_core_missing(ad, sit_core, monkeypatch):
-    sit_core["down"] = True
+def test_the_directory_down_or_the_package_missing(ad, ad_package, monkeypatch):
+    ad_package["down"] = True
     with pytest.raises(ad_service.DirectoryUnavailable):
         ad("jdoe", "Jane-Pass-1!")
-    monkeypatch.setitem(sys.modules, "sit_core.auth", None)
+    monkeypatch.setitem(sys.modules, "pretend_ad.auth", None)
     with pytest.raises(ad_service.DirectoryUnavailable):
         ad("jdoe", "Jane-Pass-1!")

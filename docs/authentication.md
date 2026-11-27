@@ -331,7 +331,7 @@ The app can also sign people in itself, with their **Active Directory** user nam
 
 How it works:
 1. The page sends the user name (`jdoe`, `DOMAIN\jdoe` or `jdoe@domain`) and password to `POST /api/v1/auth/login`.
-2. The app signs in to AD on `AD_HOST` as them with their password, through the company's `sit_core` package (`sit_core.auth.BasicAuthenticator`, #782). An empty password is refused before AD is asked.
+2. The app signs in to AD on `AD_HOST` as them with their password, through the company's AD package (its `auth.BasicAuthenticator`, #782; `AD_AUTH_PACKAGE` names it, #793). An empty password is refused before AD is asked.
 3. A wrong password and an unknown user get the same answer. After 5 failed tries from one address the next has to wait 30 seconds, then longer each time.
 4. Someone without an [identity](#identities) gets one at their first sign-in, with the **viewer** role (#782); an admin gives more on the Admin page or with `python -m app identity add-role`. With the viewer role deleted, they get "No access".
 5. The app answers with a signed token (JWT). The page keeps it as a cookie that scripts can't read (HttpOnly, Secure, SameSite=Strict); a script can send it as `Authorization: Bearer <token>`. `GET /api/v1/auth/verify` shows what's in it.
@@ -345,11 +345,12 @@ How it works:
 AUTH_MODE=header                       # also without a sign-in proxy
 AUTH_REQUIRE_VIEWER=true               # pages without sign-in go to /auth
 AD_HOST=dc1.example.local              # the domain controller's host name
+AD_AUTH_PACKAGE=company_auth           # the AD package's import name: yours, not this one
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 ```
 
 - **The AD package:** your company's package, not on PyPI, so not in the published image. Name it in `packages/requirements.txt` with your company's package index, and `docker compose up -d --build` builds it into the API image (#790, [packages/README.md](../packages/README.md)). Without it the startup log says `AD_HOST is set but the AD package isn't installed`, and a sign-in answers "The directory can't be reached".
-- **How it talks to AD** (LDAPS or not, which CA it trusts, the timeout) is `sit_core`'s: check with whoever maintains it. Passwords go over that connection.
+- **How it talks to AD** (LDAPS or not, which CA it trusts, the timeout) is the AD package's: check with whoever maintains it. Passwords go over that connection.
 - **Their identity's name** is the user name AD gives back (`sAMAccountName`), lower case. To give someone more than viewer before their first sign-in: `python -m app identity create jdoe --role noc`.
 - The app refuses to start with `AD_HOST` and a `JWT_SIGNING_SECRET` shorter than 32 characters.
 - **Upgrading from `LDAP_URL`:** the `LDAP_*` settings are gone (#782). An `.env` with `LDAP_URL` set stops the app and names `AD_HOST`; remove the `LDAP_*` lines, `LDAP_BIND_PASSWORD` with them.
@@ -364,7 +365,7 @@ The bundled proxy can run without oauth2-proxy, with the app's own sign-in in it
 COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.app-sign-in.yml
 PUBLIC_HOSTNAME=maps.example.com
 AUTH_PROXY_SECRET=...                  # openssl rand -hex 32
-AD_HOST=dc1.example.local              # and sit_core in the API image (above)
+AD_HOST=dc1.example.local              # and the AD package in the API image (above)
 JWT_SIGNING_SECRET=...                 # openssl rand -base64 48
 AUTH_MODE=header
 AUTH_REQUIRE_VIEWER=true

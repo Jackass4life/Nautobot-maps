@@ -1,6 +1,6 @@
 """Sign-in with AD and the app's own token (#717): the login, not the directory (#774).
 ad_service.authenticate is faked, so these hold for any AD service with its interface
-(a user, None, or DirectoryUnavailable); the sit_core one: test_ad_service.py, a real
+(a user, None, or DirectoryUnavailable); the AD package's: test_ad_service.py, a real
 AD: test_ad_live.py."""
 
 import logging

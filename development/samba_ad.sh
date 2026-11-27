@@ -8,7 +8,7 @@
 #   development/samba_ad.sh start               # provisions on first use, runs in the background
 #   development/samba_ad.sh stop
 #
-# Then tests/test_ad_live.py with AD_LIVE_HOST=dc1.nmaps.test (and sit_core installed,
+# Then tests/test_ad_live.py with AD_LIVE_HOST=dc1.nmaps.test (and the AD package installed, AD_AUTH_PACKAGE,
 # trusting $DIR/ca.pem). A short directory: Samba's Unix sockets must stay
 # under 108 characters.
 set -euo pipefail

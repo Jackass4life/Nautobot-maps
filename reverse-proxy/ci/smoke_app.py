@@ -5,7 +5,7 @@ with SIGN_IN=app (reverse-proxy/compose.app-sign-in.yml), no oauth2-proxy.
         https://localhost:443 http://localhost:80
 
 olga must have an identity with the operator role; the domain controller in AD_HOST
-needn't answer (CI has none, nor sit_core: a sign-in then answers 503, which shows it
+needn't answer (CI has none, nor the AD package: a sign-in then answers 503, which shows it
 reached the app).  The AD sign-in itself: api/tests/test_ad_live.py.
 """
 
